@@ -47,7 +47,7 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 [Codecov 项目页](https://app.codecov.io/gh/qiniu-ued/lingxi-product-prototype) 展示覆盖率趋势、逐文件报告和 PR 变化；README 放置 CI 与 Codecov 徽章，均展示 `main`。首次启用前，以及 main 尚未产生报告时，覆盖率徽章可能显示 `unknown`。
 
-`npm run test:coverage` 输出 `coverage/lcov.info`。CI 的独立 `Codecov coverage` 任务下载 Ubuntu 的报告后上传一次，不重复合并三个操作系统的同一套测试。只上传 LCOV；范围是协议与服务端单元/接口测试，网页 Playwright 测试和生产进程检查未计入这个百分比。原来的本地覆盖率门槛继续强制执行。
+`npm run test:coverage` 输出 `coverage/lcov.info`。CI 的独立 `Codecov coverage` 任务下载 Ubuntu 的报告后上传一次，不重复合并三个操作系统的同一套测试。只上传 LCOV；范围是协议、服务端单元/接口与静态资产边界测试，网页 Playwright 测试和生产进程检查未计入这个百分比。原来的本地覆盖率门槛继续强制执行。
 
 上传使用 GitHub OIDC 短期身份，只有上传任务授予 `id-token: write`，不需要在仓库保存 `CODECOV_TOKEN`。外部 fork 的 PR 跳过此任务，仍然执行已有测试；不使用 `pull_request_target` 执行贡献者代码。
 
@@ -63,7 +63,7 @@ Codecov 上传失败会保留失败日志，并在 Actions 中显示 warning 和
 
 桌面与任务新增检查：`npm run test:desktop` 运行真实 Electron、独立 Node 服务和 `tests/fixtures/codex-task.mjs` App Server 协议替身。验证唯一作品页面、MCP 点击与请求重试不重复、输入、发布 localStorage 延续、退出关闭服务、重启恢复。服务端另测 task 请求去重、线程恢复、审批/问题、中断、超时、MCP 鉴权和 SSE。替身不调用真实模型，不作为真实 Codex 或灵矽验收证据。
 
-Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 ZIP，再从实际 ZIP 解压启动集成检查；兼容终端 tar 也会解压验证。原生页面与生命周期由这套进程检查覆盖，未混入协议/服务单元覆盖率；没有降低原覆盖率门槛。
+Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 ZIP，再从实际 ZIP 解压启动集成检查；兼容终端 tar 也会解压验证。原生页面与生命周期由这套进程检查覆盖；纯静态资产冻结逻辑另有真实文件系统测试，覆盖 Mac 路径别名、隐藏文件、symlink 逃逸与配额，并计入单元覆盖率。没有降低原覆盖率门槛。
 
 后续补充：执行中追加要求、灵矽部分转写不执行、最终提交去重和两类停止；本地关键词与回声；真实 macOS 权限及系统投屏自动化。
 

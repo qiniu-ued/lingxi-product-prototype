@@ -1,5 +1,10 @@
 # 灵矽产品需求说明
 
+[![CI](https://github.com/qiniu-ued/lingxi-product-prototype/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qiniu-ued/lingxi-product-prototype/actions/workflows/ci.yml)
+[![Codecov](https://codecov.io/gh/qiniu-ued/lingxi-product-prototype/branch/main/graph/badge.svg)](https://app.codecov.io/gh/qiniu-ued/lingxi-product-prototype)
+
+覆盖率徽章展示主分支数据，首次启用和私有仓库徽章访问配置见[测试策略](docs/testing.md#codecov-接入与徽章)。
+
 ## 产品定位
 
 灵矽是一款面向多人共同讨论场景的语音应用。用户主动唤醒灵矽，通过语音调用 Claude Code 或其他 Code Agent 完成编程开发，并在公共屏幕上直接查看、体验和修改结果。

@@ -46,6 +46,46 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  codecov:
+    name: Codecov coverage
+    needs: checks
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: coverage-ubuntu-24.04
+          path: coverage/
+      - name: Require the LCOV report
+        run: test -s coverage/lcov.info
+      - name: Upload coverage to Codecov
+        id: upload
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        # Reporting service setup/outages must not block verified runtime delivery.
+        # Keep failures visible below; local coverage gates remain mandatory.
+        continue-on-error: true
+        with:
+          use_oidc: true
+          files: coverage/lcov.info
+          disable_search: true
+          flags: unit
+          name: protocol-and-server
+          fail_ci_if_error: true
+          disable_telem: true
+      - name: Report upload failure
+        if: steps.upload.outcome == 'failure'
+        run: |
+          printf '%s\n' '::warning::Codecov upload failed. Check the upload log and private repository activation in Codecov; local coverage gates still apply.'
+          printf '%s\n' 'Codecov upload did not complete. See the upload log and docs/testing.md for repository activation and badge setup. Local coverage thresholds were checked independently.' >> "$GITHUB_STEP_SUMMARY"
+
   browser:
     name: Browser synchronization
     needs: checks

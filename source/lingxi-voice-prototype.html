@@ -35,6 +35,7 @@
       --lv-agent-quality: light-dark(#cb944a, #e6bb7f);
       color: var(--lv-fg); font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
       font-size: 14px; line-height: 1.6; width: 100%; background: transparent;
+      display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden;
     }
     #lingxi-airplay-voice-prototype * { box-sizing: border-box; }
     #lingxi-airplay-voice-prototype [hidden] { display: none !important; }
@@ -44,7 +45,7 @@
     #lingxi-airplay-voice-prototype strong { font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-demo-controls {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 13px;
+      flex-shrink: 0; gap: 12px; flex-wrap: wrap; margin-bottom: 13px;
     }
     #lingxi-airplay-voice-prototype .lv-demo-title { font-size: 13px; font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-small { font-size: 12px; color: var(--lv-secondary); }
@@ -57,16 +58,17 @@
     #lingxi-airplay-voice-prototype .lv-play { background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary); }
     #lingxi-airplay-voice-prototype .lv-step-label {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--lv-secondary);
+      flex-shrink: 0; height: 20px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--lv-secondary);
     }
     #lingxi-airplay-voice-prototype .lv-step-name { color: var(--lv-fg); font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-screen {
       border: 1px solid var(--lv-line); border-radius: 22px; background: var(--lv-bg);
-      min-width: 0;
+      flex: 1; min-width: 0; min-height: 0; overflow: hidden;
     }
+    #lingxi-airplay-voice-prototype .lv-screen > [data-app] { display: flex; flex-direction: column; height: 100%; }
     #lingxi-airplay-voice-prototype .lv-receiver {
-      padding: 28px 30px 38px; min-height: 430px; background: var(--lv-receiver);
-      color: var(--lv-receiver-fg); border-radius: 21px;
+      padding: 28px 30px 38px; min-height: 0; background: var(--lv-receiver);
+      color: var(--lv-receiver-fg); border-radius: 21px; height: 100%; display: flex; flex-direction: column;
     }
     #lingxi-airplay-voice-prototype .lv-receiver-top {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
@@ -76,9 +78,13 @@
     #lingxi-airplay-voice-prototype .lv-airplay-label svg { width: 16px; height: 16px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; min-height: 320px; padding: 34px 0 8px; gap: 16px;
+      text-align: center; flex: 1; min-height: 0; padding: 34px 0 8px; gap: 16px;
     }
-    #lingxi-airplay-voice-prototype .lv-receiver-main > svg { width: 42px; height: 42px; stroke-width: 1.3; color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-receiver-symbol {
+      flex: 0 0 auto; display: grid; place-items: center; width: 104px; height: 104px; border-radius: 28px;
+      background: color-mix(in srgb, var(--lv-receiver-fg) 7%, transparent); color: var(--lv-receiver-fg);
+    }
+    #lingxi-airplay-voice-prototype .lv-receiver-symbol svg { --icon-size: 64px; width: 64px; height: 64px; stroke-width: 1.2; }
     #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 25px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main p { color: var(--lv-receiver-muted); font-size: 13px; max-width: 360px; }
     #lingxi-airplay-voice-prototype .lv-passcode { display: flex; justify-content: center; gap: 10px; }
@@ -88,7 +94,7 @@
     }
     #lingxi-airplay-voice-prototype .lv-app-header {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-      gap: 12px; padding: 22px 24px;
+      flex-shrink: 0; gap: 12px; padding: 22px 24px;
     }
     #lingxi-airplay-voice-prototype .lv-brand { display: flex; align-items: center; gap: 11px; }
     #lingxi-airplay-voice-prototype .lv-brand-mark {
@@ -106,19 +112,20 @@
     #lingxi-airplay-voice-prototype .lv-status-symbol { width: 14px; text-align: center; font-size: 14px; font-weight: 600; }
     #lingxi-airplay-voice-prototype .lv-workspace {
       display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
-      gap: 24px; padding: 0 24px 22px;
+      grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; gap: 24px; padding: 0 24px 22px;
     }
     #lingxi-airplay-voice-prototype .lv-preview {
-      display: flex; flex-direction: column; min-width: 0; min-height: 400px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0;
       background: var(--lv-panel); border-radius: 22px; overflow: hidden; box-shadow: 0 8px 30px var(--lv-shadow);
     }
     #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header {
-      color: var(--lv-secondary); border: 0; padding: 18px 22px 0;
+      flex-shrink: 0; color: var(--lv-secondary); border: 0; padding: 18px 22px 0;
     }
     #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header .lv-small { color: var(--lv-secondary); }
     #lingxi-airplay-voice-prototype .lv-conversation {
-      display: flex; flex-direction: column; min-width: 0; overflow: hidden;
-      background: transparent; border: 0; border-radius: 0;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+      padding: 18px; background: var(--lv-panel); border: 0; border-radius: 22px;
+      box-shadow: 0 8px 30px var(--lv-shadow);
     }
     #lingxi-airplay-voice-prototype .lv-conversation > .lv-panel-header {
       padding: 10px 0; border: 0; font-size: 15px; background: transparent;
@@ -131,13 +138,13 @@
       font-size: 12px; font-weight: 500;
     }
     #lingxi-airplay-voice-prototype .lv-empty {
-      flex: 1; min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 32px 24px; text-align: center; gap: 12px; color: var(--lv-fg);
     }
     #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-accent); }
     #lingxi-airplay-voice-prototype .lv-empty h2 { font-size: 21px; }
     #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-secondary); font-size: 13px; }
-    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; margin: 0; padding: 22px; background: transparent; }
+    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 22px; background: transparent; }
     #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 28px; letter-spacing: -.03em; margin: 5px 0 9px; }
     #lingxi-airplay-voice-prototype .lv-webpage-intro { color: var(--lv-secondary); font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-options {
@@ -161,6 +168,8 @@
     #lingxi-airplay-voice-prototype .lv-art-building-back { right: 12%; bottom: 0; width: 35%; height: 78%; background: var(--lv-sand); }
     #lingxi-airplay-voice-prototype .lv-art-window { width: 10%; height: 17%; left: 26%; bottom: 25%; background: var(--lv-art); border-radius: 10px 10px 0 0; }
     #lingxi-airplay-voice-prototype .lv-option h3 { font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-option-summary { margin-top: 5px; color: var(--lv-secondary); font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-option-budget { margin: 6px 0 9px; font-size: 12px; }
     #lingxi-airplay-voice-prototype .lv-vote-count { font-size: 12px; color: var(--lv-secondary); margin: 3px 0 8px; }
     #lingxi-airplay-voice-prototype .lv-web-button {
       font: inherit; font-size: 12px; width: 100%; padding: 7px 4px; min-height: 36px;
@@ -170,6 +179,23 @@
       background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
+    #lingxi-airplay-voice-prototype .lv-guide { margin-top: 22px; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading { display: flex; align-items: center; gap: 16px; }
+    #lingxi-airplay-voice-prototype .lv-guide-art { flex: 0 0 120px; }
+    #lingxi-airplay-voice-prototype .lv-guide-art .lv-art { height: 100px; margin: 0; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading h3 { font-size: 20px; margin: 3px 0 5px; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading p { color: var(--lv-secondary); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-guide-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 15px 0; margin-top: 12px; border-bottom: 1px solid var(--lv-line); }
+    #lingxi-airplay-voice-prototype .lv-guide-facts strong { display: block; margin-top: 3px; font-size: 14px; }
+    #lingxi-airplay-voice-prototype .lv-guide-body { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; padding-top: 17px; }
+    #lingxi-airplay-voice-prototype .lv-guide-body h3 { font-size: 13px; margin-bottom: 11px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary { list-style: none; padding: 0; margin: 0; display: grid; gap: 13px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary li { font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary time { display: block; color: var(--lv-accent); margin-bottom: 3px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical { margin: 0; display: grid; gap: 12px; font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical dt { color: var(--lv-secondary); margin-bottom: 3px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical dd { margin: 0; }
+    #lingxi-airplay-voice-prototype .lv-guide-note { margin-top: 18px; color: var(--lv-secondary); font-size: 12px; }
     #lingxi-airplay-voice-prototype .lv-messages {
       flex: 1; min-height: 0; max-height: 360px; overflow-y: auto; overscroll-behavior: contain;
       padding: 14px 0; display: grid; align-content: start; gap: 18px;
@@ -188,7 +214,7 @@
     #lingxi-airplay-voice-prototype .lv-chat-row-user .lv-speaker { text-align: right; }
     #lingxi-airplay-voice-prototype .lv-message {
       padding: 11px 13px; border: 0; border-radius: 4px 15px 15px 15px;
-      font-size: 13px; overflow-wrap: anywhere; background: var(--lv-panel);
+      font-size: 13px; overflow-wrap: anywhere; background: var(--lv-bg);
     }
     #lingxi-airplay-voice-prototype .lv-user-message {
       border-radius: 15px 4px 15px 15px;
@@ -213,11 +239,11 @@
     #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); padding: 2px 7px; border-radius: 5px; }
     #lingxi-airplay-voice-prototype .lv-voice-hint {
       display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-      padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
+      flex-shrink: 0; padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
     }
     #lingxi-airplay-voice-prototype .lv-controller-row {
       display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 22px;
-      align-items: center; margin-top: 18px;
+      flex: 0 0 140px; min-height: 0; align-items: center; margin-top: 12px;
     }
     #lingxi-airplay-voice-prototype .lv-hardware-wrap { display: flex; align-items: center; flex-direction: column; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-hardware {
@@ -231,7 +257,7 @@
       width: 25px; height: 3px; border-radius: 3px; background: var(--lv-device-text); opacity: .35;
     }
     #lingxi-airplay-voice-prototype[data-voice-phase="recording"] .lv-hardware-light { background: var(--lv-led); opacity: 1; }
-    #lingxi-airplay-voice-prototype .lv-controller-content { min-width: 0; }
+    #lingxi-airplay-voice-prototype .lv-controller-content { min-width: 0; min-height: 0; height: 100%; overflow-y: auto; }
     #lingxi-airplay-voice-prototype .lv-capture {
       padding: 14px 16px; margin-bottom: 14px; border-radius: 14px;
       background: var(--lv-panel); border: 1px solid var(--lv-line);
@@ -251,30 +277,60 @@
     #lingxi-airplay-voice-prototype .lv-caption-label { font-size: 12px; color: var(--lv-secondary); margin-bottom: 5px; }
     #lingxi-airplay-voice-prototype .lv-caption-text { font-size: 14px; overflow-wrap: anywhere; }
     #lingxi-airplay-voice-prototype .lv-caption-empty { color: var(--lv-secondary); }
-    @media (max-width: 800px) {
-      #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; }
-      #lingxi-airplay-voice-prototype .lv-preview { min-height: 300px; }
-      #lingxi-airplay-voice-prototype .lv-empty { min-height: 220px; }
+    @media (max-width: 640px) {
+      #lingxi-airplay-voice-prototype .lv-step-label { height: 44px; gap: 0 12px; align-content: center; }
+      #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+      #lingxi-airplay-voice-prototype .lv-empty { justify-content: flex-start; padding: 16px; }
       #lingxi-airplay-voice-prototype .lv-captions { grid-template-columns: 1fr; gap: 12px; }
+      #lingxi-airplay-voice-prototype .lv-guide-body { grid-template-columns: 1fr; gap: 20px; }
+      #lingxi-airplay-voice-prototype .lv-conversation { display: block; overflow-y: auto; }
+      #lingxi-airplay-voice-prototype .lv-messages { max-height: none; overflow: visible; }
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 160px; grid-template-columns: 1fr; grid-template-rows: 36px minmax(0, 1fr); gap: 0; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; justify-content: flex-start; gap: 8px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 56px; height: 32px; border-radius: 14px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 5px; }
+      #lingxi-airplay-voice-prototype[data-connected="true"] .lv-captions { display: none; }
     }
     @media (max-width: 460px) {
-      #lingxi-airplay-voice-prototype .lv-receiver { padding: 20px 18px; min-height: 340px; }
-      #lingxi-airplay-voice-prototype .lv-receiver-main { min-height: 270px; }
+      #lingxi-airplay-voice-prototype .lv-receiver { padding: 20px 18px; }
       #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 22px; }
       #lingxi-airplay-voice-prototype .lv-app-header { padding: 14px; }
       #lingxi-airplay-voice-prototype .lv-workspace { padding: 14px; gap: 13px; }
       #lingxi-airplay-voice-prototype .lv-webpage { padding: 20px 13px; }
       #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 22px; }
+      #lingxi-airplay-voice-prototype .lv-guide-heading { align-items: flex-start; gap: 12px; }
+      #lingxi-airplay-voice-prototype .lv-guide-art { flex-basis: 72px; }
+      #lingxi-airplay-voice-prototype .lv-guide-art .lv-art { height: 82px; }
+      #lingxi-airplay-voice-prototype .lv-guide-heading h3 { font-size: 17px; }
       #lingxi-airplay-voice-prototype .lv-options { grid-template-columns: 1fr; }
       #lingxi-airplay-voice-prototype .lv-option { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 12px; }
       #lingxi-airplay-voice-prototype .lv-art { grid-column: 1; grid-row: 1 / 4; height: 76px; margin: 0; }
       #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-vote-count,
       #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
       #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
-      #lingxi-airplay-voice-prototype .lv-controller-row { grid-template-columns: 1fr; gap: 15px; }
-      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; flex-wrap: wrap; gap: 13px; }
-      #lingxi-airplay-voice-prototype .lv-hardware { width: 85px; height: 53px; border-radius: 22px; }
+    }
+    @media (max-height: 850px) {
+      #lingxi-airplay-voice-prototype .lv-app-header { padding: 12px 18px; gap: 8px; }
+      #lingxi-airplay-voice-prototype .lv-workspace { padding: 0 18px 14px; gap: 18px; }
+      #lingxi-airplay-voice-prototype .lv-conversation { padding: 12px; }
+      #lingxi-airplay-voice-prototype .lv-voice-hint { padding: 9px 14px; }
+      #lingxi-airplay-voice-prototype .lv-agents { padding-top: 8px; }
+      #lingxi-airplay-voice-prototype .lv-agent-list { margin-top: 5px; gap: 0; }
+      #lingxi-airplay-voice-prototype .lv-agent { padding: 2px 0; }
+      #lingxi-airplay-voice-prototype .lv-agent-icon { flex-basis: 22px; width: 22px; height: 22px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { gap: 4px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 88px; height: 48px; border-radius: 20px; }
       #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 8px; }
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 116px; }
+      #lingxi-airplay-voice-prototype .lv-capture { padding: 10px 14px; margin-bottom: 0; }
+      #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase="recording"] .lv-capture-detail { display: none; }
+      #lingxi-airplay-voice-prototype[data-connected="true"] .lv-captions { display: none; }
+      #lingxi-airplay-voice-prototype[data-connected="false"][data-has-caption="true"] .lv-capture-detail { display: none; }
+    }
+    @media (max-width: 640px) and (max-height: 850px) {
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 160px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 56px; height: 32px; border-radius: 14px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 5px; }
     }
     @media (pointer: coarse) { #lingxi-airplay-voice-prototype .lv-demo-button { min-height: 44px; } }
   </style>
@@ -287,13 +343,13 @@
       <button type="button" class="lv-demo-button cursor-interaction" data-demo-next>下一步</button>
     </div>
   </div>
-  <div class="lv-step-label"><span class="lv-step-name" data-step-name>待唤醒，大家继续讨论</span><span><span data-step-number>1 / 29</span> · <span data-screen-origin>外部屏幕：接收端占位示意</span></span></div>
+  <div class="lv-step-label"><span class="lv-step-name" data-step-name>待唤醒，大家继续讨论</span><span><span data-step-number>1 / 35</span> · <span data-screen-origin>外部屏幕：接收端占位示意</span></span></div>
 
   <div class="lv-screen" aria-label="外部屏幕画面">
     <section class="lv-receiver" data-receiver>
       <div class="lv-receiver-top"><span>会议室电视</span><span class="lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay</span></div>
       <div class="lv-receiver-main">
-        <i data-lucide="monitor" aria-hidden="true"></i>
+        <div class="lv-receiver-symbol" aria-hidden="true"><i data-lucide="airplay"></i></div>
         <h2 data-receiver-title>尚未接收到画面</h2>
         <div class="lv-passcode" data-passcode hidden aria-label="示例验证码 4628"><span>4</span><span>6</span><span>2</span><span>8</span></div>
         <p data-receiver-detail>使用支持 AirPlay 的设备连接此屏幕。</p>
@@ -306,27 +362,36 @@
         <div class="lv-status" data-task-state="neutral" role="status"><span class="lv-status-symbol" data-task-symbol aria-hidden="true">•</span><span data-task-status>等待你的需求</span></div>
       </header>
       <div class="lv-workspace">
-        <section class="lv-preview" aria-label="作品显示区">
-          <div class="lv-panel-header"><span>作品预览</span><span class="lv-small" data-preview-status>还没有作品</span></div>
+        <section class="lv-preview" aria-label="项目预览区">
+          <div class="lv-panel-header"><span>项目预览</span><span class="lv-small" data-preview-status hidden></span></div>
           <div class="lv-empty" data-empty>
             <i data-lucide="sparkles" aria-hidden="true"></i>
-            <h2 data-empty-title>说出你想做的页面</h2>
+            <h2 data-empty-title>聊聊你的想法吧。</h2>
             <p data-empty-description>灵矽会安排 Agent 完成开发，并在这里展示结果。</p>
           </div>
           <div class="lv-webpage" data-webpage hidden aria-label="投票页面的显示画面，操作通过模拟语音触发">
             <div class="lv-small">我们的周末计划</div>
-            <h2>周末，一起去哪里？</h2>
-            <p class="lv-webpage-intro">选一个想去的地方，把这一票投给它。</p>
-            <div class="lv-options">
+            <h2 data-web-title>先看攻略，再一起决定</h2>
+            <p class="lv-webpage-intro" data-web-intro>比较三个场景的行程、节奏和预算，讨论后再投票。</p>
+            <section class="lv-guide" data-guide hidden aria-label="场景详细攻略">
+              <div class="lv-guide-heading"><div class="lv-guide-art" data-guide-art aria-hidden="true"></div><div><div class="lv-small" data-guide-index></div><h3 data-guide-title></h3><p data-guide-lead></p></div></div>
+              <div class="lv-guide-facts"><div><span class="lv-small">建议时长</span><strong data-guide-duration></strong></div><div><span class="lv-small">人均预算 · 示例</span><strong data-guide-budget></strong></div></div>
+              <div class="lv-guide-body"><div><h3>行程安排</h3><ol class="lv-itinerary" data-guide-itinerary></ol></div><dl class="lv-guide-practical"><div><dt>交通与集合</dt><dd data-guide-transport></dd></div><div><dt>适合的偏好</dt><dd data-guide-fit></dd></div><div><dt>出发前准备</dt><dd data-guide-preparation></dd></div></dl></div>
+              <p class="lv-guide-note">示例攻略 · 具体地点、日期、交通和费用待大家确认。</p>
+            </section>
+            <div data-options-view>
+              <div class="lv-options">
               <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-hill"></span><span class="lv-art-hill-front"></span></div><h3>公园吹风</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
               <article class="lv-option" data-sea-option><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-water"></span><span class="lv-art-shore"></span></div><h3 data-sea-name>海边散步</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div><button type="button" class="lv-web-button" data-sea-button disabled aria-label="作品中的海边投票按钮，通过语音操作">投一票</button></article>
               <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-building-back"></span><span class="lv-art-building"></span><span class="lv-art-window"></span></div><h3>一起看展</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+              </div>
+              <p class="lv-guide-note" data-comparison-note>示例方案 · 预算可调整，具体地点与日期待确认。</p>
+              <div class="lv-vote-feedback" data-vote-feedback>还未投票</div>
             </div>
-            <div class="lv-vote-feedback" data-vote-feedback>还未投票</div>
           </div>
         </section>
         <aside class="lv-conversation" aria-label="已发送的语音转写与灵矽回复">
-          <div class="lv-panel-header"><span class="lv-chat-title"><i data-lucide="message-circle" aria-hidden="true"></i>与灵矽对话</span><span class="lv-small">发言人提交</span></div>
+          <div class="lv-panel-header"><span class="lv-chat-title"><i data-lucide="message-circle" aria-hidden="true"></i>与灵矽对话</span><span class="lv-small">发言人</span></div>
           <div class="lv-messages" data-messages role="log" aria-label="对话记录" tabindex="0"></div>
       <section class="lv-agents" data-agents hidden aria-label="本次实际调用的 Agent 的模拟状态">
         <div class="lv-small">本次调用的 Agent</div><div class="lv-agent-list" data-agent-list></div>
@@ -346,7 +411,7 @@
         <div class="lv-draft" data-live-transcript hidden><div class="lv-small">语音转写中 · 尚未提交</div><p data-draft></p></div>
       </section>
       <div class="lv-captions" data-captions aria-live="polite" aria-atomic="true">
-        <div><div class="lv-caption-label">总发言人 · 已提交（模拟）</div><p class="lv-caption-text" data-user-caption></p></div>
+        <div data-user-caption-row><div class="lv-caption-label">总发言人 · 已提交（模拟）</div><p class="lv-caption-text" data-user-caption></p></div>
         <div data-reply-caption><div class="lv-caption-label">灵矽 · 控制端声音字幕</div><p class="lv-caption-text" data-ai-caption></p></div>
       </div>
     </div>
@@ -356,21 +421,30 @@
     (() => {
       const root = document.getElementById('lingxi-airplay-voice-prototype');
       const find = name => root.querySelector('[data-' + name + ']');
+      const guides = [
+        {name:'公园吹风', subtitle:'轻松聊聊，给彼此留点空白', lead:'散步、野餐和自由交流，活动节奏由大家决定。', duration:'半天 · 13:30–17:00', budget:'¥30–80 / 人', summary:'散步与野餐，自由聊天，节奏松弛。', itinerary:[['13:30–14:30','集合后沿绿道慢走，寻找适合休息的位置。'],['14:30–16:00','分享自带零食，安排轻量小游戏或自由聊天。'],['16:00–17:00','分组拍照、继续散步，收拾场地后返程。']], transport:'优先公共交通；一起确认集合入口和末段步行路线。', fit:'想放松聊天、控制预算、自由参与活动的人。', preparation:'提前确认天气和场地野餐规则；带好饮水、坐垫及垃圾袋。'},
+        {name:'海边散步', subtitle:'边走边聊，换个开阔的环境', lead:'沿海岸散步、拍照，也留一段时间坐下来聊天。', duration:'半天 · 13:30–17:00', budget:'¥60–150 / 人', summary:'沿岸散步与拍照，享受开阔景色。', itinerary:[['13:30–14:30','集合抵达海边，确认步行路线与返程集合点。'],['14:30–16:00','沿开放步道慢走，途中拍照、休息。'],['16:00–17:00','找合适的位置吃点东西，交流感受后返程。']], transport:'按出发地比较公共交通与合乘，统一返程时间。', fit:'喜欢户外景色、拍照、边走边讨论的人。', preparation:'确认天气和海边开放情况，准备防晒与外套；看日落时按当地日落时间调整行程。'},
+        {name:'一起看展', subtitle:'带着不同兴趣，找到共同话题', lead:'先各自探索，再分享喜欢的作品，让讨论自然展开。', duration:'半天 · 13:30–17:00', budget:'¥80–180 / 人', summary:'室内看展与分享，交流新的观点。', itinerary:[['13:30–14:30','集合入场，了解展览主题并浏览主要展区。'],['14:30–16:00','自由或结伴观看，每人挑一件想分享的作品。'],['16:00–17:00','在合适的休息区交流，整理大家的推荐后返程。']], transport:'确定展馆后补充公共交通路线，约定统一入口集合。', fit:'喜欢文化艺术、室内活动、交流新鲜观点的人。', preparation:'提前确认开放时间、预约和拍照要求；预算包含交通、可能的门票及简单餐饮。'}
+      ];
       const scenario = [
         {title:'开始查找投屏设备', view:'receiver', user:'灵矽，连接屏幕。', reply:'正在查找可用的 AirPlay 屏幕。'},
         {title:'用语音选择屏幕', view:'receiver', user:'', reply:'找到“会议室电视”和“客厅电视”。你想连接哪一台？'},
         {title:'首次配对示例', view:'pairing', user:'连接会议室电视。', reply:'请读出电视上显示的四位验证码。'},
-        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', redactUser:true, reply:'已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。', status:'等待你的需求', preview:'还没有作品', empty:'说出你想做的页面', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'再次主动唤醒后可说：“做一个周末出游投票页。”', agents:[]},
-        {title:'Agent 开始工作：分析需求', view:'app', user:'做一个周末出游投票页，放三个选项，每个配个小图，可以投票。', reply:'需求已收到，已结束收音。我会做好投票页面和配图，并检查投票交互。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'制作一个带有三个选项与配图的投票页。', hint:'再次主动唤醒后可说：“再加一个要求……”', agents:[['需求分析','分析中']]},
-        {title:'Agent 正在执行', view:'app', user:'', reply:'需求已明确，页面开发和绘图正在进行。', status:'正在创建页面', preview:'正在创建', empty:'正在制作页面与配图', detail:'完成后，这里会显示可以体验的页面。', hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
-        {title:'预览已出现，继续检查', view:'app', user:'', reply:'页面预览已生成，正在检查投票交互。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, hint:'未收音 · 正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'作品完成', view:'app', user:'', reply:'页面已完成，投票交互已检查。再次主动唤醒后，可以说“给海边投一票”来体验。', status:'作品已就绪', statusTone:'success', preview:'当前版本 · 检查完成', page:true, hint:'再次主动唤醒后可说：“给海边投一票。”', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
-        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 检查完成', page:true, voted:true, hint:'再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
-        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, voted:true, hint:'未收音 · 正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
-        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', redactUser:true, reply:'已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。', status:'等待你的需求', preview:'', empty:'聊聊你的想法吧。', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'再次主动唤醒后可说：“先做三个场景的攻略，看完再投票。”', agents:[]},
+        {title:'Agent 开始工作：分析需求', view:'app', user:'做一个周末出游投票页，先给公园、海边和看展分别做详细攻略，大家看完再投票。', reply:'需求已收到，已结束收音。我会先做好三个场景的攻略和配图，再准备投票。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'先准备三份详细攻略，帮助大家比较后再投票。', hint:'再次主动唤醒后可说：“再加一个要求……”', agents:[['需求分析','分析中']]},
+        {title:'Agent 正在执行', view:'app', user:'', reply:'正在整理三个场景的行程、交通、预算和注意事项，页面开发与绘图也在进行。', status:'正在创建攻略页面', preview:'正在创建', empty:'正在制作攻略与配图', detail:'完成后，先展示三个场景的详细攻略。', hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
+        {title:'攻略预览已出现，继续检查', view:'app', user:'', reply:'攻略预览已生成，正在检查页面和投票流程。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, guide:0, hint:'未收音 · 正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'先看公园攻略', view:'app', user:'', reply:'三个场景的攻略已整理好。先看公园：适合放松聊天，行程留有自由活动的时间。', status:'攻略已就绪', statusTone:'success', preview:'场景攻略 · 1 / 3', page:true, guide:0, duration:8500, hint:'先一起看攻略，讨论后再开启投票。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'再看海边攻略', view:'app', user:'', reply:'海边方案以沿岸散步、拍照和休息为主，需要一起确认交通、天气和返程安排。', status:'正在展示攻略', preview:'场景攻略 · 2 / 3', page:true, guide:1, duration:8500, hint:'大家可以继续讨论，麦克风保持关闭。', agents:[]},
+        {title:'再看看展攻略', view:'app', user:'', reply:'看展方案先自由探索，再交流各自喜欢的作品。确定展馆后，再补齐预约和交通信息。', status:'正在展示攻略', preview:'场景攻略 · 3 / 3', page:true, guide:2, duration:8500, hint:'看完三个场景后，再比较各自的行程和预算。', agents:[]},
+        {title:'对比三个方案，讨论后再投票', view:'app', user:'', reply:'三份攻略都已展示。大家先比较，确定可以投票后，由总发言人再次唤醒我说“开始投票”。', status:'等待大家讨论', preview:'三个场景 · 攻略对比', page:true, comparison:true, hint:'再次主动唤醒后可说：“这三个方案我们看过了，开始投票。”', agents:[]},
+        {title:'发言人确认，开启投票', view:'app', user:'这三个方案我们看过了，开始投票。', reply:'已开启投票。请根据刚才的攻略选择想去的场景。', status:'投票进行中', preview:'当前版本 · 投票已开启', page:true, votingOpen:true, hint:'再次主动唤醒后可说：“给海边投一票。”', agents:[]},
+        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 投票已开启', page:true, votingOpen:true, voted:true, hint:'再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
+        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, votingOpen:true, voted:true, hint:'未收音 · 正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
+        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, votingOpen:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', statusTone:'success', preview:'当前版本 · 检查完成', page:true, votingOpen:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
         {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。'},
-        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'待唤醒 · 有新的修改需求时，请再次主动唤醒。', agents:[]}
+        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, votingOpen:true, voted:true, renamed:true, hint:'待唤醒 · 有新的修改需求时，请再次主动唤醒。', agents:[]}
       ];
       const states = [{title:'待唤醒，大家继续讨论', view:'receiver', user:'', reply:'', voicePhase:'idle', agents:[]}];
       scenario.forEach(state => {
@@ -407,6 +481,10 @@
         if (content !== undefined) node.textContent = content;
         return node;
       };
+      const options = Array.from(root.querySelectorAll('.lv-option'));
+      options.forEach((option, index) => {
+        option.querySelector('h3').after(make('p', 'lv-option-summary', guides[index].summary), make('p', 'lv-option-budget', '半天 · ' + guides[index].budget + '（示例）'));
+      });
       function addMessage(speaker, content, isUser) {
         const message = make('div', 'lv-chat-row' + (isUser ? ' lv-chat-row-user' : ''));
         const avatar = make('div', 'lv-avatar', isUser ? '发' : '灵');
@@ -431,6 +509,10 @@
         }
         conversationStep = current;
         messages.scrollTop = messages.scrollHeight;
+        if (getComputedStyle(messages).overflowY === 'visible') {
+          const conversation = root.querySelector('.lv-conversation');
+          conversation.scrollTop = conversation.scrollHeight;
+        }
       }
       function render() {
         const state = states[current];
@@ -439,6 +521,8 @@
         const voiceState = voiceStates[state.voicePhase];
         const micState = recording ? '麦克风已开启' : '麦克风已关闭';
         root.dataset.voicePhase = state.voicePhase;
+        root.dataset.connected = String(connected);
+        root.dataset.hasCaption = String(Boolean(state.user || state.reply));
         find('capture').dataset.voicePhase = state.voicePhase;
         find('voice-state').textContent = voiceState.label;
         find('mic-state').textContent = micState;
@@ -449,6 +533,7 @@
         find('live-transcript').hidden = !recording;
         find('draft').textContent = recording ? state.draft : '';
         find('captions').hidden = !state.user && !state.reply;
+        find('user-caption-row').hidden = !state.user;
         find('reply-caption').hidden = !state.reply;
         find('step-name').textContent = state.title;
         find('step-number').textContent = (current + 1) + ' / ' + states.length;
@@ -466,12 +551,36 @@
           const statusTone = state.statusTone || 'neutral';
           find('task-state').dataset.taskState = statusTone;
           find('task-symbol').textContent = statusTone === 'success' ? '✓' : statusTone === 'error' ? '×' : '•';
-          find('preview-status').textContent = state.preview;
+          find('preview-status').textContent = state.preview + (Number.isInteger(state.guide) ? ' · 滚动查看' : '');
+          find('preview-status').hidden = !state.preview;
           find('empty').hidden = Boolean(state.page);
           find('webpage').hidden = !state.page;
           find('empty-title').textContent = state.empty || '';
           find('empty-description').textContent = state.detail || '';
           find('voice-hint').textContent = state.hint;
+          const showingGuide = Number.isInteger(state.guide);
+          find('guide').hidden = !showingGuide;
+          find('options-view').hidden = showingGuide;
+          find('web-title').textContent = state.votingOpen ? '周末，一起去哪里？' : '先看攻略，再一起决定';
+          find('web-intro').textContent = state.votingOpen ? '根据刚才的攻略，选一个想去的地方，把这一票投给它。' : '比较三个场景的行程、节奏和预算，讨论后再投票。';
+          if (showingGuide) {
+            const guide = guides[state.guide];
+            find('guide-index').textContent = '场景攻略 · ' + (state.guide + 1) + ' / ' + guides.length;
+            find('guide-title').textContent = guide.name + ' · ' + guide.subtitle;
+            ['lead', 'duration', 'budget', 'transport', 'fit', 'preparation'].forEach(key => { find('guide-' + key).textContent = guide[key]; });
+            find('guide-art').replaceChildren(options[state.guide].querySelector('.lv-art').cloneNode(true));
+            find('guide-itinerary').replaceChildren();
+            guide.itinerary.forEach(([time, plan]) => {
+              const item = make('li');
+              item.append(make('time', '', time), make('p', '', plan));
+              find('guide-itinerary').append(item);
+            });
+          }
+          options.forEach(option => {
+            option.querySelector('.lv-vote-count').hidden = !state.votingOpen;
+            option.querySelector('.lv-web-button').hidden = !state.votingOpen;
+          });
+          find('vote-feedback').hidden = !state.votingOpen;
           const seaName = state.renamed ? '海边日落' : '海边散步';
           find('sea-name').textContent = seaName;
           find('sea-count').textContent = state.voted ? '1' : '0';
@@ -510,7 +619,7 @@
           if (current === states.length - 1) stop();
           render();
           if (running) schedule();
-        }, states[current].voicePhase === 'recording' || states[current].voicePhase === 'submitted' ? 3000 : 4500);
+        }, states[current].voicePhase === 'recording' || states[current].voicePhase === 'submitted' ? 3000 : (states[current].duration || 4500));
       }
       previous.addEventListener('click', () => { stop(); current = Math.max(0, current - 1); render(); });
       next.addEventListener('click', () => { stop(); current = Math.min(states.length - 1, current + 1); render(); });

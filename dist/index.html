@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; style-src 'unsafe-inline' blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; img-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; font-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; media-src blob: data: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://esm.sh https://fonts.bunny.net https://fonts.googleapis.com https://fonts.gstatic.com https://unpkg.com; worker-src blob:; connect-src blob: data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>灵矽 · 主动唤醒与语音创作原型</title>
-<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0}body{box-sizing:border-box;padding:1rem;background:inherit}iframe{display:block;width:100%;height:calc(100vh - 2rem);margin:0 auto;border:0}</style>
+<style>:root{color-scheme:light dark;background:light-dark(rgb(255 255 255), rgb(24 24 24))}html,body{margin:0;height:100%;overflow:hidden}body{box-sizing:border-box;height:100dvh;padding:1rem;background:inherit}iframe{display:block;width:100%;height:100%;margin:0 auto;border:0}</style>
 </head>
 <body>
 <iframe id="codex-visualization" sandbox="allow-scripts" referrerpolicy="no-referrer" title="灵矽 · 主动唤醒与语音创作原型" data-srcdoc="&lt;!doctype html&gt;
@@ -1583,6 +1583,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       --lv-agent-quality: light-dark(#cb944a, #e6bb7f);
       color: var(--lv-fg); font-family: &quot;PingFang SC&quot;, &quot;Microsoft YaHei&quot;, system-ui, sans-serif;
       font-size: 14px; line-height: 1.6; width: 100%; background: transparent;
+      display: flex; flex-direction: column; height: 100dvh; min-height: 0; overflow: hidden;
     }
     #lingxi-airplay-voice-prototype * { box-sizing: border-box; }
     #lingxi-airplay-voice-prototype [hidden] { display: none !important; }
@@ -1592,7 +1593,7 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype strong { font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-demo-controls {
       display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 13px;
+      flex-shrink: 0; gap: 12px; flex-wrap: wrap; margin-bottom: 13px;
     }
     #lingxi-airplay-voice-prototype .lv-demo-title { font-size: 13px; font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-small { font-size: 12px; color: var(--lv-secondary); }
@@ -1605,16 +1606,17 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-play { background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary); }
     #lingxi-airplay-voice-prototype .lv-step-label {
       display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--lv-secondary);
+      flex-shrink: 0; height: 20px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--lv-secondary);
     }
     #lingxi-airplay-voice-prototype .lv-step-name { color: var(--lv-fg); font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-screen {
       border: 1px solid var(--lv-line); border-radius: 22px; background: var(--lv-bg);
-      min-width: 0;
+      flex: 1; min-width: 0; min-height: 0; overflow: hidden;
     }
+    #lingxi-airplay-voice-prototype .lv-screen &gt; [data-app] { display: flex; flex-direction: column; height: 100%; }
     #lingxi-airplay-voice-prototype .lv-receiver {
-      padding: 28px 30px 38px; min-height: 430px; background: var(--lv-receiver);
-      color: var(--lv-receiver-fg); border-radius: 21px;
+      padding: 28px 30px 38px; min-height: 0; background: var(--lv-receiver);
+      color: var(--lv-receiver-fg); border-radius: 21px; height: 100%; display: flex; flex-direction: column;
     }
     #lingxi-airplay-voice-prototype .lv-receiver-top {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
@@ -1624,9 +1626,13 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-airplay-label svg { width: 16px; height: 16px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main {
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      text-align: center; min-height: 320px; padding: 34px 0 8px; gap: 16px;
+      text-align: center; flex: 1; min-height: 0; padding: 34px 0 8px; gap: 16px;
     }
-    #lingxi-airplay-voice-prototype .lv-receiver-main &gt; svg { width: 42px; height: 42px; stroke-width: 1.3; color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-receiver-symbol {
+      flex: 0 0 auto; display: grid; place-items: center; width: 104px; height: 104px; border-radius: 28px;
+      background: color-mix(in srgb, var(--lv-receiver-fg) 7%, transparent); color: var(--lv-receiver-fg);
+    }
+    #lingxi-airplay-voice-prototype .lv-receiver-symbol svg { --icon-size: 64px; width: 64px; height: 64px; stroke-width: 1.2; }
     #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 25px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main p { color: var(--lv-receiver-muted); font-size: 13px; max-width: 360px; }
     #lingxi-airplay-voice-prototype .lv-passcode { display: flex; justify-content: center; gap: 10px; }
@@ -1636,7 +1642,7 @@ html&gt;body{padding:0}&lt;/style&gt;
     }
     #lingxi-airplay-voice-prototype .lv-app-header {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-      gap: 12px; padding: 22px 24px;
+      flex-shrink: 0; gap: 12px; padding: 22px 24px;
     }
     #lingxi-airplay-voice-prototype .lv-brand { display: flex; align-items: center; gap: 11px; }
     #lingxi-airplay-voice-prototype .lv-brand-mark {
@@ -1654,19 +1660,20 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-status-symbol { width: 14px; text-align: center; font-size: 14px; font-weight: 600; }
     #lingxi-airplay-voice-prototype .lv-workspace {
       display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
-      gap: 24px; padding: 0 24px 22px;
+      grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; gap: 24px; padding: 0 24px 22px;
     }
     #lingxi-airplay-voice-prototype .lv-preview {
-      display: flex; flex-direction: column; min-width: 0; min-height: 400px;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0;
       background: var(--lv-panel); border-radius: 22px; overflow: hidden; box-shadow: 0 8px 30px var(--lv-shadow);
     }
     #lingxi-airplay-voice-prototype .lv-preview &gt; .lv-panel-header {
-      color: var(--lv-secondary); border: 0; padding: 18px 22px 0;
+      flex-shrink: 0; color: var(--lv-secondary); border: 0; padding: 18px 22px 0;
     }
     #lingxi-airplay-voice-prototype .lv-preview &gt; .lv-panel-header .lv-small { color: var(--lv-secondary); }
     #lingxi-airplay-voice-prototype .lv-conversation {
-      display: flex; flex-direction: column; min-width: 0; overflow: hidden;
-      background: transparent; border: 0; border-radius: 0;
+      display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
+      padding: 18px; background: var(--lv-panel); border: 0; border-radius: 22px;
+      box-shadow: 0 8px 30px var(--lv-shadow);
     }
     #lingxi-airplay-voice-prototype .lv-conversation &gt; .lv-panel-header {
       padding: 10px 0; border: 0; font-size: 15px; background: transparent;
@@ -1679,13 +1686,13 @@ html&gt;body{padding:0}&lt;/style&gt;
       font-size: 12px; font-weight: 500;
     }
     #lingxi-airplay-voice-prototype .lv-empty {
-      flex: 1; min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; justify-content: center;
       padding: 32px 24px; text-align: center; gap: 12px; color: var(--lv-fg);
     }
     #lingxi-airplay-voice-prototype .lv-empty &gt; svg { width: 28px; height: 28px; color: var(--lv-accent); }
     #lingxi-airplay-voice-prototype .lv-empty h2 { font-size: 21px; }
     #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-secondary); font-size: 13px; }
-    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; margin: 0; padding: 22px; background: transparent; }
+    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 22px; background: transparent; }
     #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 28px; letter-spacing: -.03em; margin: 5px 0 9px; }
     #lingxi-airplay-voice-prototype .lv-webpage-intro { color: var(--lv-secondary); font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-options {
@@ -1709,6 +1716,8 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-art-building-back { right: 12%; bottom: 0; width: 35%; height: 78%; background: var(--lv-sand); }
     #lingxi-airplay-voice-prototype .lv-art-window { width: 10%; height: 17%; left: 26%; bottom: 25%; background: var(--lv-art); border-radius: 10px 10px 0 0; }
     #lingxi-airplay-voice-prototype .lv-option h3 { font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-option-summary { margin-top: 5px; color: var(--lv-secondary); font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-option-budget { margin: 6px 0 9px; font-size: 12px; }
     #lingxi-airplay-voice-prototype .lv-vote-count { font-size: 12px; color: var(--lv-secondary); margin: 3px 0 8px; }
     #lingxi-airplay-voice-prototype .lv-web-button {
       font: inherit; font-size: 12px; width: 100%; padding: 7px 4px; min-height: 36px;
@@ -1718,6 +1727,23 @@ html&gt;body{padding:0}&lt;/style&gt;
       background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
+    #lingxi-airplay-voice-prototype .lv-guide { margin-top: 22px; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading { display: flex; align-items: center; gap: 16px; }
+    #lingxi-airplay-voice-prototype .lv-guide-art { flex: 0 0 120px; }
+    #lingxi-airplay-voice-prototype .lv-guide-art .lv-art { height: 100px; margin: 0; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading h3 { font-size: 20px; margin: 3px 0 5px; }
+    #lingxi-airplay-voice-prototype .lv-guide-heading p { color: var(--lv-secondary); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-guide-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 15px 0; margin-top: 12px; border-bottom: 1px solid var(--lv-line); }
+    #lingxi-airplay-voice-prototype .lv-guide-facts strong { display: block; margin-top: 3px; font-size: 14px; }
+    #lingxi-airplay-voice-prototype .lv-guide-body { display: grid; grid-template-columns: 1.1fr 1fr; gap: 24px; padding-top: 17px; }
+    #lingxi-airplay-voice-prototype .lv-guide-body h3 { font-size: 13px; margin-bottom: 11px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary { list-style: none; padding: 0; margin: 0; display: grid; gap: 13px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary li { font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-itinerary time { display: block; color: var(--lv-accent); margin-bottom: 3px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical { margin: 0; display: grid; gap: 12px; font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical dt { color: var(--lv-secondary); margin-bottom: 3px; }
+    #lingxi-airplay-voice-prototype .lv-guide-practical dd { margin: 0; }
+    #lingxi-airplay-voice-prototype .lv-guide-note { margin-top: 18px; color: var(--lv-secondary); font-size: 12px; }
     #lingxi-airplay-voice-prototype .lv-messages {
       flex: 1; min-height: 0; max-height: 360px; overflow-y: auto; overscroll-behavior: contain;
       padding: 14px 0; display: grid; align-content: start; gap: 18px;
@@ -1736,7 +1762,7 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-chat-row-user .lv-speaker { text-align: right; }
     #lingxi-airplay-voice-prototype .lv-message {
       padding: 11px 13px; border: 0; border-radius: 4px 15px 15px 15px;
-      font-size: 13px; overflow-wrap: anywhere; background: var(--lv-panel);
+      font-size: 13px; overflow-wrap: anywhere; background: var(--lv-bg);
     }
     #lingxi-airplay-voice-prototype .lv-user-message {
       border-radius: 15px 4px 15px 15px;
@@ -1761,11 +1787,11 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); padding: 2px 7px; border-radius: 5px; }
     #lingxi-airplay-voice-prototype .lv-voice-hint {
       display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-      padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
+      flex-shrink: 0; padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
     }
     #lingxi-airplay-voice-prototype .lv-controller-row {
       display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 22px;
-      align-items: center; margin-top: 18px;
+      flex: 0 0 140px; min-height: 0; align-items: center; margin-top: 12px;
     }
     #lingxi-airplay-voice-prototype .lv-hardware-wrap { display: flex; align-items: center; flex-direction: column; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-hardware {
@@ -1779,7 +1805,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       width: 25px; height: 3px; border-radius: 3px; background: var(--lv-device-text); opacity: .35;
     }
     #lingxi-airplay-voice-prototype[data-voice-phase=&quot;recording&quot;] .lv-hardware-light { background: var(--lv-led); opacity: 1; }
-    #lingxi-airplay-voice-prototype .lv-controller-content { min-width: 0; }
+    #lingxi-airplay-voice-prototype .lv-controller-content { min-width: 0; min-height: 0; height: 100%; overflow-y: auto; }
     #lingxi-airplay-voice-prototype .lv-capture {
       padding: 14px 16px; margin-bottom: 14px; border-radius: 14px;
       background: var(--lv-panel); border: 1px solid var(--lv-line);
@@ -1799,30 +1825,60 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-caption-label { font-size: 12px; color: var(--lv-secondary); margin-bottom: 5px; }
     #lingxi-airplay-voice-prototype .lv-caption-text { font-size: 14px; overflow-wrap: anywhere; }
     #lingxi-airplay-voice-prototype .lv-caption-empty { color: var(--lv-secondary); }
-    @media (max-width: 800px) {
-      #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; }
-      #lingxi-airplay-voice-prototype .lv-preview { min-height: 300px; }
-      #lingxi-airplay-voice-prototype .lv-empty { min-height: 220px; }
+    @media (max-width: 640px) {
+      #lingxi-airplay-voice-prototype .lv-step-label { height: 44px; gap: 0 12px; align-content: center; }
+      #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; grid-template-rows: repeat(2, minmax(0, 1fr)); }
+      #lingxi-airplay-voice-prototype .lv-empty { justify-content: flex-start; padding: 16px; }
       #lingxi-airplay-voice-prototype .lv-captions { grid-template-columns: 1fr; gap: 12px; }
+      #lingxi-airplay-voice-prototype .lv-guide-body { grid-template-columns: 1fr; gap: 20px; }
+      #lingxi-airplay-voice-prototype .lv-conversation { display: block; overflow-y: auto; }
+      #lingxi-airplay-voice-prototype .lv-messages { max-height: none; overflow: visible; }
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 160px; grid-template-columns: 1fr; grid-template-rows: 36px minmax(0, 1fr); gap: 0; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; justify-content: flex-start; gap: 8px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 56px; height: 32px; border-radius: 14px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 5px; }
+      #lingxi-airplay-voice-prototype[data-connected=&quot;true&quot;] .lv-captions { display: none; }
     }
     @media (max-width: 460px) {
-      #lingxi-airplay-voice-prototype .lv-receiver { padding: 20px 18px; min-height: 340px; }
-      #lingxi-airplay-voice-prototype .lv-receiver-main { min-height: 270px; }
+      #lingxi-airplay-voice-prototype .lv-receiver { padding: 20px 18px; }
       #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 22px; }
       #lingxi-airplay-voice-prototype .lv-app-header { padding: 14px; }
       #lingxi-airplay-voice-prototype .lv-workspace { padding: 14px; gap: 13px; }
       #lingxi-airplay-voice-prototype .lv-webpage { padding: 20px 13px; }
       #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 22px; }
+      #lingxi-airplay-voice-prototype .lv-guide-heading { align-items: flex-start; gap: 12px; }
+      #lingxi-airplay-voice-prototype .lv-guide-art { flex-basis: 72px; }
+      #lingxi-airplay-voice-prototype .lv-guide-art .lv-art { height: 82px; }
+      #lingxi-airplay-voice-prototype .lv-guide-heading h3 { font-size: 17px; }
       #lingxi-airplay-voice-prototype .lv-options { grid-template-columns: 1fr; }
       #lingxi-airplay-voice-prototype .lv-option { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 12px; }
       #lingxi-airplay-voice-prototype .lv-art { grid-column: 1; grid-row: 1 / 4; height: 76px; margin: 0; }
       #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-vote-count,
       #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
       #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
-      #lingxi-airplay-voice-prototype .lv-controller-row { grid-template-columns: 1fr; gap: 15px; }
-      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; flex-wrap: wrap; gap: 13px; }
-      #lingxi-airplay-voice-prototype .lv-hardware { width: 85px; height: 53px; border-radius: 22px; }
+    }
+    @media (max-height: 850px) {
+      #lingxi-airplay-voice-prototype .lv-app-header { padding: 12px 18px; gap: 8px; }
+      #lingxi-airplay-voice-prototype .lv-workspace { padding: 0 18px 14px; gap: 18px; }
+      #lingxi-airplay-voice-prototype .lv-conversation { padding: 12px; }
+      #lingxi-airplay-voice-prototype .lv-voice-hint { padding: 9px 14px; }
+      #lingxi-airplay-voice-prototype .lv-agents { padding-top: 8px; }
+      #lingxi-airplay-voice-prototype .lv-agent-list { margin-top: 5px; gap: 0; }
+      #lingxi-airplay-voice-prototype .lv-agent { padding: 2px 0; }
+      #lingxi-airplay-voice-prototype .lv-agent-icon { flex-basis: 22px; width: 22px; height: 22px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { gap: 4px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 88px; height: 48px; border-radius: 20px; }
       #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 8px; }
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 116px; }
+      #lingxi-airplay-voice-prototype .lv-capture { padding: 10px 14px; margin-bottom: 0; }
+      #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;recording&quot;] .lv-capture-detail { display: none; }
+      #lingxi-airplay-voice-prototype[data-connected=&quot;true&quot;] .lv-captions { display: none; }
+      #lingxi-airplay-voice-prototype[data-connected=&quot;false&quot;][data-has-caption=&quot;true&quot;] .lv-capture-detail { display: none; }
+    }
+    @media (max-width: 640px) and (max-height: 850px) {
+      #lingxi-airplay-voice-prototype .lv-controller-row { flex-basis: 160px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 56px; height: 32px; border-radius: 14px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 5px; }
     }
     @media (pointer: coarse) { #lingxi-airplay-voice-prototype .lv-demo-button { min-height: 44px; } }
   &lt;/style&gt;
@@ -1835,13 +1891,13 @@ html&gt;body{padding:0}&lt;/style&gt;
       &lt;button type=&quot;button&quot; class=&quot;lv-demo-button cursor-interaction&quot; data-demo-next&gt;下一步&lt;/button&gt;
     &lt;/div&gt;
   &lt;/div&gt;
-  &lt;div class=&quot;lv-step-label&quot;&gt;&lt;span class=&quot;lv-step-name&quot; data-step-name&gt;待唤醒，大家继续讨论&lt;/span&gt;&lt;span&gt;&lt;span data-step-number&gt;1 / 29&lt;/span&gt; · &lt;span data-screen-origin&gt;外部屏幕：接收端占位示意&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+  &lt;div class=&quot;lv-step-label&quot;&gt;&lt;span class=&quot;lv-step-name&quot; data-step-name&gt;待唤醒，大家继续讨论&lt;/span&gt;&lt;span&gt;&lt;span data-step-number&gt;1 / 35&lt;/span&gt; · &lt;span data-screen-origin&gt;外部屏幕：接收端占位示意&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
 
   &lt;div class=&quot;lv-screen&quot; aria-label=&quot;外部屏幕画面&quot;&gt;
     &lt;section class=&quot;lv-receiver&quot; data-receiver&gt;
       &lt;div class=&quot;lv-receiver-top&quot;&gt;&lt;span&gt;会议室电视&lt;/span&gt;&lt;span class=&quot;lv-airplay-label&quot;&gt;&lt;i data-lucide=&quot;airplay&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;AirPlay&lt;/span&gt;&lt;/div&gt;
       &lt;div class=&quot;lv-receiver-main&quot;&gt;
-        &lt;i data-lucide=&quot;monitor&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
+        &lt;div class=&quot;lv-receiver-symbol&quot; aria-hidden=&quot;true&quot;&gt;&lt;i data-lucide=&quot;airplay&quot;&gt;&lt;/i&gt;&lt;/div&gt;
         &lt;h2 data-receiver-title&gt;尚未接收到画面&lt;/h2&gt;
         &lt;div class=&quot;lv-passcode&quot; data-passcode hidden aria-label=&quot;示例验证码 4628&quot;&gt;&lt;span&gt;4&lt;/span&gt;&lt;span&gt;6&lt;/span&gt;&lt;span&gt;2&lt;/span&gt;&lt;span&gt;8&lt;/span&gt;&lt;/div&gt;
         &lt;p data-receiver-detail&gt;使用支持 AirPlay 的设备连接此屏幕。&lt;/p&gt;
@@ -1854,27 +1910,36 @@ html&gt;body{padding:0}&lt;/style&gt;
         &lt;div class=&quot;lv-status&quot; data-task-state=&quot;neutral&quot; role=&quot;status&quot;&gt;&lt;span class=&quot;lv-status-symbol&quot; data-task-symbol aria-hidden=&quot;true&quot;&gt;•&lt;/span&gt;&lt;span data-task-status&gt;等待你的需求&lt;/span&gt;&lt;/div&gt;
       &lt;/header&gt;
       &lt;div class=&quot;lv-workspace&quot;&gt;
-        &lt;section class=&quot;lv-preview&quot; aria-label=&quot;作品显示区&quot;&gt;
-          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span&gt;作品预览&lt;/span&gt;&lt;span class=&quot;lv-small&quot; data-preview-status&gt;还没有作品&lt;/span&gt;&lt;/div&gt;
+        &lt;section class=&quot;lv-preview&quot; aria-label=&quot;项目预览区&quot;&gt;
+          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span&gt;项目预览&lt;/span&gt;&lt;span class=&quot;lv-small&quot; data-preview-status hidden&gt;&lt;/span&gt;&lt;/div&gt;
           &lt;div class=&quot;lv-empty&quot; data-empty&gt;
             &lt;i data-lucide=&quot;sparkles&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;
-            &lt;h2 data-empty-title&gt;说出你想做的页面&lt;/h2&gt;
+            &lt;h2 data-empty-title&gt;聊聊你的想法吧。&lt;/h2&gt;
             &lt;p data-empty-description&gt;灵矽会安排 Agent 完成开发，并在这里展示结果。&lt;/p&gt;
           &lt;/div&gt;
           &lt;div class=&quot;lv-webpage&quot; data-webpage hidden aria-label=&quot;投票页面的显示画面，操作通过模拟语音触发&quot;&gt;
             &lt;div class=&quot;lv-small&quot;&gt;我们的周末计划&lt;/div&gt;
-            &lt;h2&gt;周末，一起去哪里？&lt;/h2&gt;
-            &lt;p class=&quot;lv-webpage-intro&quot;&gt;选一个想去的地方，把这一票投给它。&lt;/p&gt;
-            &lt;div class=&quot;lv-options&quot;&gt;
+            &lt;h2 data-web-title&gt;先看攻略，再一起决定&lt;/h2&gt;
+            &lt;p class=&quot;lv-webpage-intro&quot; data-web-intro&gt;比较三个场景的行程、节奏和预算，讨论后再投票。&lt;/p&gt;
+            &lt;section class=&quot;lv-guide&quot; data-guide hidden aria-label=&quot;场景详细攻略&quot;&gt;
+              &lt;div class=&quot;lv-guide-heading&quot;&gt;&lt;div class=&quot;lv-guide-art&quot; data-guide-art aria-hidden=&quot;true&quot;&gt;&lt;/div&gt;&lt;div&gt;&lt;div class=&quot;lv-small&quot; data-guide-index&gt;&lt;/div&gt;&lt;h3 data-guide-title&gt;&lt;/h3&gt;&lt;p data-guide-lead&gt;&lt;/p&gt;&lt;/div&gt;&lt;/div&gt;
+              &lt;div class=&quot;lv-guide-facts&quot;&gt;&lt;div&gt;&lt;span class=&quot;lv-small&quot;&gt;建议时长&lt;/span&gt;&lt;strong data-guide-duration&gt;&lt;/strong&gt;&lt;/div&gt;&lt;div&gt;&lt;span class=&quot;lv-small&quot;&gt;人均预算 · 示例&lt;/span&gt;&lt;strong data-guide-budget&gt;&lt;/strong&gt;&lt;/div&gt;&lt;/div&gt;
+              &lt;div class=&quot;lv-guide-body&quot;&gt;&lt;div&gt;&lt;h3&gt;行程安排&lt;/h3&gt;&lt;ol class=&quot;lv-itinerary&quot; data-guide-itinerary&gt;&lt;/ol&gt;&lt;/div&gt;&lt;dl class=&quot;lv-guide-practical&quot;&gt;&lt;div&gt;&lt;dt&gt;交通与集合&lt;/dt&gt;&lt;dd data-guide-transport&gt;&lt;/dd&gt;&lt;/div&gt;&lt;div&gt;&lt;dt&gt;适合的偏好&lt;/dt&gt;&lt;dd data-guide-fit&gt;&lt;/dd&gt;&lt;/div&gt;&lt;div&gt;&lt;dt&gt;出发前准备&lt;/dt&gt;&lt;dd data-guide-preparation&gt;&lt;/dd&gt;&lt;/div&gt;&lt;/dl&gt;&lt;/div&gt;
+              &lt;p class=&quot;lv-guide-note&quot;&gt;示例攻略 · 具体地点、日期、交通和费用待大家确认。&lt;/p&gt;
+            &lt;/section&gt;
+            &lt;div data-options-view&gt;
+              &lt;div class=&quot;lv-options&quot;&gt;
               &lt;article class=&quot;lv-option&quot;&gt;&lt;div class=&quot;lv-art&quot; aria-hidden=&quot;true&quot;&gt;&lt;span class=&quot;lv-art-sun&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-hill&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-hill-front&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;h3&gt;公园吹风&lt;/h3&gt;&lt;div class=&quot;lv-vote-count&quot;&gt;0 票&lt;/div&gt;&lt;button type=&quot;button&quot; class=&quot;lv-web-button&quot; disabled aria-label=&quot;作品中的投票按钮，通过语音操作&quot;&gt;投一票&lt;/button&gt;&lt;/article&gt;
               &lt;article class=&quot;lv-option&quot; data-sea-option&gt;&lt;div class=&quot;lv-art&quot; aria-hidden=&quot;true&quot;&gt;&lt;span class=&quot;lv-art-sun&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-water&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-shore&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;h3 data-sea-name&gt;海边散步&lt;/h3&gt;&lt;div class=&quot;lv-vote-count&quot;&gt;&lt;span data-sea-count&gt;0&lt;/span&gt; 票&lt;/div&gt;&lt;button type=&quot;button&quot; class=&quot;lv-web-button&quot; data-sea-button disabled aria-label=&quot;作品中的海边投票按钮，通过语音操作&quot;&gt;投一票&lt;/button&gt;&lt;/article&gt;
               &lt;article class=&quot;lv-option&quot;&gt;&lt;div class=&quot;lv-art&quot; aria-hidden=&quot;true&quot;&gt;&lt;span class=&quot;lv-art-sun&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-building-back&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-building&quot;&gt;&lt;/span&gt;&lt;span class=&quot;lv-art-window&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;h3&gt;一起看展&lt;/h3&gt;&lt;div class=&quot;lv-vote-count&quot;&gt;0 票&lt;/div&gt;&lt;button type=&quot;button&quot; class=&quot;lv-web-button&quot; disabled aria-label=&quot;作品中的投票按钮，通过语音操作&quot;&gt;投一票&lt;/button&gt;&lt;/article&gt;
+              &lt;/div&gt;
+              &lt;p class=&quot;lv-guide-note&quot; data-comparison-note&gt;示例方案 · 预算可调整，具体地点与日期待确认。&lt;/p&gt;
+              &lt;div class=&quot;lv-vote-feedback&quot; data-vote-feedback&gt;还未投票&lt;/div&gt;
             &lt;/div&gt;
-            &lt;div class=&quot;lv-vote-feedback&quot; data-vote-feedback&gt;还未投票&lt;/div&gt;
           &lt;/div&gt;
         &lt;/section&gt;
         &lt;aside class=&quot;lv-conversation&quot; aria-label=&quot;已发送的语音转写与灵矽回复&quot;&gt;
-          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span class=&quot;lv-chat-title&quot;&gt;&lt;i data-lucide=&quot;message-circle&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;与灵矽对话&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;发言人提交&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span class=&quot;lv-chat-title&quot;&gt;&lt;i data-lucide=&quot;message-circle&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;与灵矽对话&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;发言人&lt;/span&gt;&lt;/div&gt;
           &lt;div class=&quot;lv-messages&quot; data-messages role=&quot;log&quot; aria-label=&quot;对话记录&quot; tabindex=&quot;0&quot;&gt;&lt;/div&gt;
       &lt;section class=&quot;lv-agents&quot; data-agents hidden aria-label=&quot;本次实际调用的 Agent 的模拟状态&quot;&gt;
         &lt;div class=&quot;lv-small&quot;&gt;本次调用的 Agent&lt;/div&gt;&lt;div class=&quot;lv-agent-list&quot; data-agent-list&gt;&lt;/div&gt;
@@ -1894,7 +1959,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         &lt;div class=&quot;lv-draft&quot; data-live-transcript hidden&gt;&lt;div class=&quot;lv-small&quot;&gt;语音转写中 · 尚未提交&lt;/div&gt;&lt;p data-draft&gt;&lt;/p&gt;&lt;/div&gt;
       &lt;/section&gt;
       &lt;div class=&quot;lv-captions&quot; data-captions aria-live=&quot;polite&quot; aria-atomic=&quot;true&quot;&gt;
-        &lt;div&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;总发言人 · 已提交（模拟）&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-user-caption&gt;&lt;/p&gt;&lt;/div&gt;
+        &lt;div data-user-caption-row&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;总发言人 · 已提交（模拟）&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-user-caption&gt;&lt;/p&gt;&lt;/div&gt;
         &lt;div data-reply-caption&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;灵矽 · 控制端声音字幕&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-ai-caption&gt;&lt;/p&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
@@ -1904,21 +1969,30 @@ html&gt;body{padding:0}&lt;/style&gt;
     (() =&gt; {
       const root = document.getElementById(&#x27;lingxi-airplay-voice-prototype&#x27;);
       const find = name =&gt; root.querySelector(&#x27;[data-&#x27; + name + &#x27;]&#x27;);
+      const guides = [
+        {name:&#x27;公园吹风&#x27;, subtitle:&#x27;轻松聊聊，给彼此留点空白&#x27;, lead:&#x27;散步、野餐和自由交流，活动节奏由大家决定。&#x27;, duration:&#x27;半天 · 13:30–17:00&#x27;, budget:&#x27;¥30–80 / 人&#x27;, summary:&#x27;散步与野餐，自由聊天，节奏松弛。&#x27;, itinerary:[[&#x27;13:30–14:30&#x27;,&#x27;集合后沿绿道慢走，寻找适合休息的位置。&#x27;],[&#x27;14:30–16:00&#x27;,&#x27;分享自带零食，安排轻量小游戏或自由聊天。&#x27;],[&#x27;16:00–17:00&#x27;,&#x27;分组拍照、继续散步，收拾场地后返程。&#x27;]], transport:&#x27;优先公共交通；一起确认集合入口和末段步行路线。&#x27;, fit:&#x27;想放松聊天、控制预算、自由参与活动的人。&#x27;, preparation:&#x27;提前确认天气和场地野餐规则；带好饮水、坐垫及垃圾袋。&#x27;},
+        {name:&#x27;海边散步&#x27;, subtitle:&#x27;边走边聊，换个开阔的环境&#x27;, lead:&#x27;沿海岸散步、拍照，也留一段时间坐下来聊天。&#x27;, duration:&#x27;半天 · 13:30–17:00&#x27;, budget:&#x27;¥60–150 / 人&#x27;, summary:&#x27;沿岸散步与拍照，享受开阔景色。&#x27;, itinerary:[[&#x27;13:30–14:30&#x27;,&#x27;集合抵达海边，确认步行路线与返程集合点。&#x27;],[&#x27;14:30–16:00&#x27;,&#x27;沿开放步道慢走，途中拍照、休息。&#x27;],[&#x27;16:00–17:00&#x27;,&#x27;找合适的位置吃点东西，交流感受后返程。&#x27;]], transport:&#x27;按出发地比较公共交通与合乘，统一返程时间。&#x27;, fit:&#x27;喜欢户外景色、拍照、边走边讨论的人。&#x27;, preparation:&#x27;确认天气和海边开放情况，准备防晒与外套；看日落时按当地日落时间调整行程。&#x27;},
+        {name:&#x27;一起看展&#x27;, subtitle:&#x27;带着不同兴趣，找到共同话题&#x27;, lead:&#x27;先各自探索，再分享喜欢的作品，让讨论自然展开。&#x27;, duration:&#x27;半天 · 13:30–17:00&#x27;, budget:&#x27;¥80–180 / 人&#x27;, summary:&#x27;室内看展与分享，交流新的观点。&#x27;, itinerary:[[&#x27;13:30–14:30&#x27;,&#x27;集合入场，了解展览主题并浏览主要展区。&#x27;],[&#x27;14:30–16:00&#x27;,&#x27;自由或结伴观看，每人挑一件想分享的作品。&#x27;],[&#x27;16:00–17:00&#x27;,&#x27;在合适的休息区交流，整理大家的推荐后返程。&#x27;]], transport:&#x27;确定展馆后补充公共交通路线，约定统一入口集合。&#x27;, fit:&#x27;喜欢文化艺术、室内活动、交流新鲜观点的人。&#x27;, preparation:&#x27;提前确认开放时间、预约和拍照要求；预算包含交通、可能的门票及简单餐饮。&#x27;}
+      ];
       const scenario = [
         {title:&#x27;开始查找投屏设备&#x27;, view:&#x27;receiver&#x27;, user:&#x27;灵矽，连接屏幕。&#x27;, reply:&#x27;正在查找可用的 AirPlay 屏幕。&#x27;},
         {title:&#x27;用语音选择屏幕&#x27;, view:&#x27;receiver&#x27;, user:&#x27;&#x27;, reply:&#x27;找到“会议室电视”和“客厅电视”。你想连接哪一台？&#x27;},
         {title:&#x27;首次配对示例&#x27;, view:&#x27;pairing&#x27;, user:&#x27;连接会议室电视。&#x27;, reply:&#x27;请读出电视上显示的四位验证码。&#x27;},
-        {title:&#x27;AirPlay 连接成功&#x27;, view:&#x27;app&#x27;, user:&#x27;验证码是四六二八。&#x27;, redactUser:true, reply:&#x27;已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。&#x27;, status:&#x27;等待你的需求&#x27;, preview:&#x27;还没有作品&#x27;, empty:&#x27;说出你想做的页面&#x27;, detail:&#x27;灵矽会安排 Agent 完成开发，并在这里展示结果。&#x27;, hint:&#x27;再次主动唤醒后可说：“做一个周末出游投票页。”&#x27;, agents:[]},
-        {title:&#x27;Agent 开始工作：分析需求&#x27;, view:&#x27;app&#x27;, user:&#x27;做一个周末出游投票页，放三个选项，每个配个小图，可以投票。&#x27;, reply:&#x27;需求已收到，已结束收音。我会做好投票页面和配图，并检查投票交互。&#x27;, status:&#x27;正在分析需求&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在理解你的需求&#x27;, detail:&#x27;制作一个带有三个选项与配图的投票页。&#x27;, hint:&#x27;再次主动唤醒后可说：“再加一个要求……”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;分析中&#x27;]]},
-        {title:&#x27;Agent 正在执行&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;需求已明确，页面开发和绘图正在进行。&#x27;, status:&#x27;正在创建页面&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在制作页面与配图&#x27;, detail:&#x27;完成后，这里会显示可以体验的页面。&#x27;, hint:&#x27;再次主动唤醒后可说：“现在做到哪一步？”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;绘制中&#x27;],[&#x27;页面开发&#x27;,&#x27;开发中&#x27;]]},
-        {title:&#x27;预览已出现，继续检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面预览已生成，正在检查投票交互。&#x27;, status:&#x27;正在检查交互&#x27;, preview:&#x27;预览版本 · 检查中&#x27;, page:true, hint:&#x27;未收音 · 正在检查，完成后会告诉你。&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
-        {title:&#x27;作品完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面已完成，投票交互已检查。再次主动唤醒后，可以说“给海边投一票”来体验。&#x27;, status:&#x27;作品已就绪&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, hint:&#x27;再次主动唤醒后可说：“给海边投一票。”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
-        {title:&#x27;通过语音操作作品&#x27;, view:&#x27;app&#x27;, user:&#x27;给海边投一票。&#x27;, reply:&#x27;已为“海边散步”投出一票。&#x27;, status:&#x27;正在体验作品&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, hint:&#x27;再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”&#x27;, agents:[]},
-        {title:&#x27;继续用语音修改作品&#x27;, view:&#x27;app&#x27;, user:&#x27;把“海边散步”改成“海边日落”，保留我的投票。&#x27;, reply:&#x27;我会更新选项名称，并保留当前投票。&#x27;, status:&#x27;正在修改页面&#x27;, preview:&#x27;上一版 · 修改中&#x27;, page:true, voted:true, hint:&#x27;未收音 · 正在修改，完成后会更新预览。&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;修改中&#x27;]]},
-        {title:&#x27;新版本检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;选项名称已更新，正在检查投票状态是否保留。&#x27;, status:&#x27;正在检查修改&#x27;, preview:&#x27;新版本 · 检查中&#x27;, page:true, voted:true, renamed:true, hint:&#x27;再次主动唤醒后可说：“现在做到哪一步？”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
-        {title:&#x27;修改完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;已改为“海边日落”，你的投票已保留。&#x27;, status:&#x27;作品已更新&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;再次主动唤醒后可说：“继续修改……”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
+        {title:&#x27;AirPlay 连接成功&#x27;, view:&#x27;app&#x27;, user:&#x27;验证码是四六二八。&#x27;, redactUser:true, reply:&#x27;已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。&#x27;, status:&#x27;等待你的需求&#x27;, preview:&#x27;&#x27;, empty:&#x27;聊聊你的想法吧。&#x27;, detail:&#x27;灵矽会安排 Agent 完成开发，并在这里展示结果。&#x27;, hint:&#x27;再次主动唤醒后可说：“先做三个场景的攻略，看完再投票。”&#x27;, agents:[]},
+        {title:&#x27;Agent 开始工作：分析需求&#x27;, view:&#x27;app&#x27;, user:&#x27;做一个周末出游投票页，先给公园、海边和看展分别做详细攻略，大家看完再投票。&#x27;, reply:&#x27;需求已收到，已结束收音。我会先做好三个场景的攻略和配图，再准备投票。&#x27;, status:&#x27;正在分析需求&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在理解你的需求&#x27;, detail:&#x27;先准备三份详细攻略，帮助大家比较后再投票。&#x27;, hint:&#x27;再次主动唤醒后可说：“再加一个要求……”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;分析中&#x27;]]},
+        {title:&#x27;Agent 正在执行&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;正在整理三个场景的行程、交通、预算和注意事项，页面开发与绘图也在进行。&#x27;, status:&#x27;正在创建攻略页面&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在制作攻略与配图&#x27;, detail:&#x27;完成后，先展示三个场景的详细攻略。&#x27;, hint:&#x27;再次主动唤醒后可说：“现在做到哪一步？”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;绘制中&#x27;],[&#x27;页面开发&#x27;,&#x27;开发中&#x27;]]},
+        {title:&#x27;攻略预览已出现，继续检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;攻略预览已生成，正在检查页面和投票流程。&#x27;, status:&#x27;正在检查交互&#x27;, preview:&#x27;预览版本 · 检查中&#x27;, page:true, guide:0, hint:&#x27;未收音 · 正在检查，完成后会告诉你。&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
+        {title:&#x27;先看公园攻略&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;三个场景的攻略已整理好。先看公园：适合放松聊天，行程留有自由活动的时间。&#x27;, status:&#x27;攻略已就绪&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;场景攻略 · 1 / 3&#x27;, page:true, guide:0, duration:8500, hint:&#x27;先一起看攻略，讨论后再开启投票。&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
+        {title:&#x27;再看海边攻略&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;海边方案以沿岸散步、拍照和休息为主，需要一起确认交通、天气和返程安排。&#x27;, status:&#x27;正在展示攻略&#x27;, preview:&#x27;场景攻略 · 2 / 3&#x27;, page:true, guide:1, duration:8500, hint:&#x27;大家可以继续讨论，麦克风保持关闭。&#x27;, agents:[]},
+        {title:&#x27;再看看展攻略&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;看展方案先自由探索，再交流各自喜欢的作品。确定展馆后，再补齐预约和交通信息。&#x27;, status:&#x27;正在展示攻略&#x27;, preview:&#x27;场景攻略 · 3 / 3&#x27;, page:true, guide:2, duration:8500, hint:&#x27;看完三个场景后，再比较各自的行程和预算。&#x27;, agents:[]},
+        {title:&#x27;对比三个方案，讨论后再投票&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;三份攻略都已展示。大家先比较，确定可以投票后，由总发言人再次唤醒我说“开始投票”。&#x27;, status:&#x27;等待大家讨论&#x27;, preview:&#x27;三个场景 · 攻略对比&#x27;, page:true, comparison:true, hint:&#x27;再次主动唤醒后可说：“这三个方案我们看过了，开始投票。”&#x27;, agents:[]},
+        {title:&#x27;发言人确认，开启投票&#x27;, view:&#x27;app&#x27;, user:&#x27;这三个方案我们看过了，开始投票。&#x27;, reply:&#x27;已开启投票。请根据刚才的攻略选择想去的场景。&#x27;, status:&#x27;投票进行中&#x27;, preview:&#x27;当前版本 · 投票已开启&#x27;, page:true, votingOpen:true, hint:&#x27;再次主动唤醒后可说：“给海边投一票。”&#x27;, agents:[]},
+        {title:&#x27;通过语音操作作品&#x27;, view:&#x27;app&#x27;, user:&#x27;给海边投一票。&#x27;, reply:&#x27;已为“海边散步”投出一票。&#x27;, status:&#x27;正在体验作品&#x27;, preview:&#x27;当前版本 · 投票已开启&#x27;, page:true, votingOpen:true, voted:true, hint:&#x27;再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”&#x27;, agents:[]},
+        {title:&#x27;继续用语音修改作品&#x27;, view:&#x27;app&#x27;, user:&#x27;把“海边散步”改成“海边日落”，保留我的投票。&#x27;, reply:&#x27;我会更新选项名称，并保留当前投票。&#x27;, status:&#x27;正在修改页面&#x27;, preview:&#x27;上一版 · 修改中&#x27;, page:true, votingOpen:true, voted:true, hint:&#x27;未收音 · 正在修改，完成后会更新预览。&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;修改中&#x27;]]},
+        {title:&#x27;新版本检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;选项名称已更新，正在检查投票状态是否保留。&#x27;, status:&#x27;正在检查修改&#x27;, preview:&#x27;新版本 · 检查中&#x27;, page:true, votingOpen:true, voted:true, renamed:true, hint:&#x27;再次主动唤醒后可说：“现在做到哪一步？”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
+        {title:&#x27;修改完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;已改为“海边日落”，你的投票已保留。&#x27;, status:&#x27;作品已更新&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, votingOpen:true, voted:true, renamed:true, hint:&#x27;再次主动唤醒后可说：“继续修改……”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
         {title:&#x27;屏幕连接中断&#x27;, view:&#x27;disconnected&#x27;, user:&#x27;&#x27;, reply:&#x27;屏幕连接断开了，作品和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。&#x27;},
-        {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;待唤醒 · 有新的修改需求时，请再次主动唤醒。&#x27;, agents:[]}
+        {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, votingOpen:true, voted:true, renamed:true, hint:&#x27;待唤醒 · 有新的修改需求时，请再次主动唤醒。&#x27;, agents:[]}
       ];
       const states = [{title:&#x27;待唤醒，大家继续讨论&#x27;, view:&#x27;receiver&#x27;, user:&#x27;&#x27;, reply:&#x27;&#x27;, voicePhase:&#x27;idle&#x27;, agents:[]}];
       scenario.forEach(state =&gt; {
@@ -1955,6 +2029,10 @@ html&gt;body{padding:0}&lt;/style&gt;
         if (content !== undefined) node.textContent = content;
         return node;
       };
+      const options = Array.from(root.querySelectorAll(&#x27;.lv-option&#x27;));
+      options.forEach((option, index) =&gt; {
+        option.querySelector(&#x27;h3&#x27;).after(make(&#x27;p&#x27;, &#x27;lv-option-summary&#x27;, guides[index].summary), make(&#x27;p&#x27;, &#x27;lv-option-budget&#x27;, &#x27;半天 · &#x27; + guides[index].budget + &#x27;（示例）&#x27;));
+      });
       function addMessage(speaker, content, isUser) {
         const message = make(&#x27;div&#x27;, &#x27;lv-chat-row&#x27; + (isUser ? &#x27; lv-chat-row-user&#x27; : &#x27;&#x27;));
         const avatar = make(&#x27;div&#x27;, &#x27;lv-avatar&#x27;, isUser ? &#x27;发&#x27; : &#x27;灵&#x27;);
@@ -1979,6 +2057,10 @@ html&gt;body{padding:0}&lt;/style&gt;
         }
         conversationStep = current;
         messages.scrollTop = messages.scrollHeight;
+        if (getComputedStyle(messages).overflowY === &#x27;visible&#x27;) {
+          const conversation = root.querySelector(&#x27;.lv-conversation&#x27;);
+          conversation.scrollTop = conversation.scrollHeight;
+        }
       }
       function render() {
         const state = states[current];
@@ -1987,6 +2069,8 @@ html&gt;body{padding:0}&lt;/style&gt;
         const voiceState = voiceStates[state.voicePhase];
         const micState = recording ? &#x27;麦克风已开启&#x27; : &#x27;麦克风已关闭&#x27;;
         root.dataset.voicePhase = state.voicePhase;
+        root.dataset.connected = String(connected);
+        root.dataset.hasCaption = String(Boolean(state.user || state.reply));
         find(&#x27;capture&#x27;).dataset.voicePhase = state.voicePhase;
         find(&#x27;voice-state&#x27;).textContent = voiceState.label;
         find(&#x27;mic-state&#x27;).textContent = micState;
@@ -1997,6 +2081,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         find(&#x27;live-transcript&#x27;).hidden = !recording;
         find(&#x27;draft&#x27;).textContent = recording ? state.draft : &#x27;&#x27;;
         find(&#x27;captions&#x27;).hidden = !state.user &amp;&amp; !state.reply;
+        find(&#x27;user-caption-row&#x27;).hidden = !state.user;
         find(&#x27;reply-caption&#x27;).hidden = !state.reply;
         find(&#x27;step-name&#x27;).textContent = state.title;
         find(&#x27;step-number&#x27;).textContent = (current + 1) + &#x27; / &#x27; + states.length;
@@ -2014,12 +2099,36 @@ html&gt;body{padding:0}&lt;/style&gt;
           const statusTone = state.statusTone || &#x27;neutral&#x27;;
           find(&#x27;task-state&#x27;).dataset.taskState = statusTone;
           find(&#x27;task-symbol&#x27;).textContent = statusTone === &#x27;success&#x27; ? &#x27;✓&#x27; : statusTone === &#x27;error&#x27; ? &#x27;×&#x27; : &#x27;•&#x27;;
-          find(&#x27;preview-status&#x27;).textContent = state.preview;
+          find(&#x27;preview-status&#x27;).textContent = state.preview + (Number.isInteger(state.guide) ? &#x27; · 滚动查看&#x27; : &#x27;&#x27;);
+          find(&#x27;preview-status&#x27;).hidden = !state.preview;
           find(&#x27;empty&#x27;).hidden = Boolean(state.page);
           find(&#x27;webpage&#x27;).hidden = !state.page;
           find(&#x27;empty-title&#x27;).textContent = state.empty || &#x27;&#x27;;
           find(&#x27;empty-description&#x27;).textContent = state.detail || &#x27;&#x27;;
           find(&#x27;voice-hint&#x27;).textContent = state.hint;
+          const showingGuide = Number.isInteger(state.guide);
+          find(&#x27;guide&#x27;).hidden = !showingGuide;
+          find(&#x27;options-view&#x27;).hidden = showingGuide;
+          find(&#x27;web-title&#x27;).textContent = state.votingOpen ? &#x27;周末，一起去哪里？&#x27; : &#x27;先看攻略，再一起决定&#x27;;
+          find(&#x27;web-intro&#x27;).textContent = state.votingOpen ? &#x27;根据刚才的攻略，选一个想去的地方，把这一票投给它。&#x27; : &#x27;比较三个场景的行程、节奏和预算，讨论后再投票。&#x27;;
+          if (showingGuide) {
+            const guide = guides[state.guide];
+            find(&#x27;guide-index&#x27;).textContent = &#x27;场景攻略 · &#x27; + (state.guide + 1) + &#x27; / &#x27; + guides.length;
+            find(&#x27;guide-title&#x27;).textContent = guide.name + &#x27; · &#x27; + guide.subtitle;
+            [&#x27;lead&#x27;, &#x27;duration&#x27;, &#x27;budget&#x27;, &#x27;transport&#x27;, &#x27;fit&#x27;, &#x27;preparation&#x27;].forEach(key =&gt; { find(&#x27;guide-&#x27; + key).textContent = guide[key]; });
+            find(&#x27;guide-art&#x27;).replaceChildren(options[state.guide].querySelector(&#x27;.lv-art&#x27;).cloneNode(true));
+            find(&#x27;guide-itinerary&#x27;).replaceChildren();
+            guide.itinerary.forEach(([time, plan]) =&gt; {
+              const item = make(&#x27;li&#x27;);
+              item.append(make(&#x27;time&#x27;, &#x27;&#x27;, time), make(&#x27;p&#x27;, &#x27;&#x27;, plan));
+              find(&#x27;guide-itinerary&#x27;).append(item);
+            });
+          }
+          options.forEach(option =&gt; {
+            option.querySelector(&#x27;.lv-vote-count&#x27;).hidden = !state.votingOpen;
+            option.querySelector(&#x27;.lv-web-button&#x27;).hidden = !state.votingOpen;
+          });
+          find(&#x27;vote-feedback&#x27;).hidden = !state.votingOpen;
           const seaName = state.renamed ? &#x27;海边日落&#x27; : &#x27;海边散步&#x27;;
           find(&#x27;sea-name&#x27;).textContent = seaName;
           find(&#x27;sea-count&#x27;).textContent = state.voted ? &#x27;1&#x27; : &#x27;0&#x27;;
@@ -2058,7 +2167,7 @@ html&gt;body{padding:0}&lt;/style&gt;
           if (current === states.length - 1) stop();
           render();
           if (running) schedule();
-        }, states[current].voicePhase === &#x27;recording&#x27; || states[current].voicePhase === &#x27;submitted&#x27; ? 3000 : 4500);
+        }, states[current].voicePhase === &#x27;recording&#x27; || states[current].voicePhase === &#x27;submitted&#x27; ? 3000 : (states[current].duration || 4500));
       }
       previous.addEventListener(&#x27;click&#x27;, () =&gt; { stop(); current = Math.max(0, current - 1); render(); });
       next.addEventListener(&#x27;click&#x27;, () =&gt; { stop(); current = Math.min(states.length - 1, current + 1); render(); });
@@ -2759,15 +2868,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       return;
     }
     if (data.type === "height") {
-      const height = data.height;
-      if (
-        typeof height === "number" &&
-        Number.isFinite(height) &&
-        height >= 0 &&
-        height <= 10_000
-      ) {
-        frame.style.height = Math.ceil(height) + "px";
-      }
+      // Keep the prototype within the browser viewport; panels scroll internally.
       return;
     }
     if (data.type === "scroll-to") {

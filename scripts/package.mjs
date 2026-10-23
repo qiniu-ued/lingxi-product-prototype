@@ -42,7 +42,7 @@ try {
   await cp(join(root, 'docs'), join(stage, 'docs'), { recursive: true });
   await writeFile(
     join(stage, 'README.md'),
-    '# 灵矽共创工作台运行包\n\n需要 Node.js 24.x，在终端进入此目录执行 `./start.sh`。\n\n操作台：http://127.0.0.1:4310/ ，大屏：http://127.0.0.1:4310/display 。Ctrl+C 停止。\n\nMac 数据默认保存在 `~/Library/Application Support/Lingxi/lingxi.db`，可通过 `LINGXI_DB_PATH` 覆盖。\n\n当前实现建议保存与双端同步，Codex 与灵矽语音尚未接入。\n\n完整安装、配置、更新、备份与回退方法见 [部署文档](docs/deployment.md)。构建来源见 `runtime-manifest.json`。\n',
+    '# 灵矽共创工作台运行包\n\n需要 Node.js 24.x，在终端进入此目录执行 `./start.sh`。\n\n操作台：http://127.0.0.1:4310/ ，大屏：http://127.0.0.1:4310/display 。Ctrl+C 停止。\n\n连接向导：http://127.0.0.1:4310/setup 。先查看两项环境检查结果，再按需安装最新版 Codex CLI、登录或准备灵矽账号与设备。安装按钮需要本机 npm 与网络；灵矽暂无法自动检测。\n\nMac 数据默认保存在 `~/Library/Application Support/Lingxi/lingxi.db`，可通过 `LINGXI_DB_PATH` 覆盖。\n\n当前实现建议保存与双端同步，实际 Codex 任务执行与灵矽语音控制尚未接入。\n\n完整安装、配置、更新、备份与回退方法见 [部署文档](docs/deployment.md)，连接步骤见 [Mac 指南](docs/mac-setup.md)。构建来源见 `runtime-manifest.json`。\n',
   );
   await writeFile(
     join(stage, 'start.sh'),

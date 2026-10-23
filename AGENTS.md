@@ -13,6 +13,7 @@
 - `apps/server/`: Fastify, SQLite, SSE and future local-process/provider adapters. Keep loopback binding and Host/Origin validation.
 - `packages/protocol/`: shared Zod schemas, types and adapter contracts. Validate HTTP input and external-provider events at boundaries.
 - `scripts/`: production smoke checks and architecture-specific runtime packaging.
+- `/setup` first inspects both Codex and Lingxi, then offers steps based on results. Keep diagnostics read-only: no installation, login, thread creation, turns or credential-file reads. Separate explicit-click actions may install the stable latest Codex into managed storage or start official browser login. Keep fixed operations, strict local Origin validation, retry IDs, cancellation and child cleanup; never accept arbitrary executable input from HTTP. Diagnostic readiness must not enable task/voice integrations. Lingxi is currently uncheckable, not implicitly missing.
 - `docs/development.md`, `docs/deployment.md`, `docs/testing.md`: authoritative run, delivery and verification instructions; update them when commands or behavior change.
 
 ## Development

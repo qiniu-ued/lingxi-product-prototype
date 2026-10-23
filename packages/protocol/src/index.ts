@@ -64,6 +64,91 @@ export type SubmitCommand = z.infer<typeof submitCommandSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type ErrorCode = z.infer<typeof errorSchema>['error'];
 
+export const CODEX_SETUP_PACKAGE = '@openai/codex@latest';
+
+export const setupStatusSchema = z.strictObject({
+  checkedAt: z.string().datetime(),
+  host: z.strictObject({
+    platform: z.string(),
+    arch: z.string(),
+    nodeVersion: z.string(),
+    nodeSupported: z.boolean(),
+  }),
+  capabilities: z.strictObject({ codexTasks: z.literal(false), lingxiVoice: z.literal(false) }),
+});
+
+export const codexCheckSchema = z.strictObject({
+  checkedAt: z.string().datetime(),
+  status: z.enum(['ready', 'not-installed', 'signed-out', 'failed', 'timed-out']),
+  cliVersion: z.string().nullable(),
+  authentication: z.enum(['chatgpt', 'api-key', 'provider']).nullable(),
+});
+
+export const setupInspectionSchema = z.strictObject({
+  environment: setupStatusSchema,
+  codex: codexCheckSchema,
+  lingxi: z.strictObject({
+    checkedAt: z.string().datetime(),
+    status: z.literal('unavailable'),
+    reason: z.literal('adapter-not-connected'),
+  }),
+});
+export type SetupInspection = z.infer<typeof setupInspectionSchema>;
+
+export type SetupStatus = z.infer<typeof setupStatusSchema>;
+export type CodexCheck = z.infer<typeof codexCheckSchema>;
+
+export const codexAuthorizationUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === 'https:' &&
+        !url.username &&
+        !url.password &&
+        !url.port &&
+        ['auth.openai.com', 'chatgpt.com'].includes(url.hostname)
+      );
+    } catch {
+      return false;
+    }
+  });
+export const codexSetupRequestSchema = z.strictObject({
+  requestId: z.string().uuid(),
+  kind: z.enum(['install', 'login']),
+});
+export const codexSetupActionSchema = z.strictObject({
+  id: z.string().uuid(),
+  kind: z.enum(['install', 'login']),
+  state: z.enum([
+    'installing',
+    'starting-login',
+    'waiting-for-login',
+    'checking',
+    'cancelling',
+    'succeeded',
+    'failed',
+    'cancelled',
+  ]),
+  error: z
+    .enum([
+      'install_failed',
+      'verification_failed',
+      'login_failed',
+      'timed_out',
+      'custom_path_configured',
+    ])
+    .nullable(),
+  authUrl: codexAuthorizationUrlSchema.nullable(),
+  check: codexCheckSchema.nullable(),
+  updatedAt: z.string().datetime(),
+});
+export const codexSetupStateSchema = z.strictObject({ action: codexSetupActionSchema.nullable() });
+export type CodexSetupAction = z.infer<typeof codexSetupActionSchema>;
+export type CodexSetupRequest = z.infer<typeof codexSetupRequestSchema>;
+
 // Connection state is independent from durable session and task state.
 export type AgentEvent =
   | { type: 'task.started'; taskId: string }

@@ -7,6 +7,7 @@
 - 电脑操作台：输入并保存待执行的修改建议。
 - 大屏视图：实时同步本地会话，刷新或断线后恢复最新状态。
 - 本地服务：SQLite 保存建议，处理重复提交与版本冲突。
+- 连接向导：`/setup` 显示真实服务环境，按需检查 Codex CLI、App Server 与认证配置，指导灵矽账号、设备和音频准备。
 - 自动检查：格式、类型、协议、持久化、HTTP、双端浏览器与生产构建。
 
 Codex、七牛灵矽的真实适配器，项目启动、元素点选、语音采集及自动投屏尚未实现。启动和测试无需模型账号或密钥，界面明确显示“已保存、尚未执行”。
@@ -65,5 +66,6 @@ dist/                 原型导出页面（继续提交到 Git）
 - [Codex、灵矽、AirPlay 与 A2UI 接入](integrations.md)
 - [测试策略](testing.md) 与 [实施清单](roadmap.md)
 - [运行、交付与更新](deployment.md)
+- [Mac 首次运行与连接准备](mac-setup.md)
 
 GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 Chromium 测试；通过后生成两个 Mac 运行包。真实语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。

@@ -2,14 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main, "foundation/**"]
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -31,11 +32,24 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - name: Production dependency audit
+        if: runner.os == 'Linux'
+        run: npm run audit:production
+      - name: Validate GitHub Actions workflows
+        if: runner.os == 'Linux'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 7
 
   browser:
     name: Browser synchronization
     needs: checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -57,3 +71,29 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  package:
+    name: Runtime (${{ matrix.os }})
+    needs: [checks, browser]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci
+      - run: npm run release:pack
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runtime-${{ matrix.os }}-${{ github.sha }}
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14

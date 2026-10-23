@@ -8,6 +8,7 @@ packages/*/dist/
 coverage/
 playwright-report/
 test-results/
+artifacts/
 *.tsbuildinfo
 *.db
 *.db-shm

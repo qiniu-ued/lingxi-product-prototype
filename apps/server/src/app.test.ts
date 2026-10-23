@@ -57,6 +57,56 @@ describe('local command API', () => {
     expect(retry.statusCode).toBe(200);
     expect(retry.json().commands).toHaveLength(1);
   });
+  it('streams durable snapshots, catches up on reconnect and closes subscribers on shutdown', async () => {
+    const app = create();
+    const address = await app.listen({ host: '127.0.0.1', port: 0 });
+    const connect = async () => {
+      const controller = new AbortController();
+      const response = await fetch(`${address}/api/events`, {
+        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
+      });
+      expect(response.headers.get('content-type')).toBe('text/event-stream');
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('Missing event stream');
+      const decoder = new TextDecoder();
+      let pending = '';
+      return {
+        controller,
+        reader,
+        async snapshot() {
+          while (!pending.includes('\n\n')) {
+            const chunk = await reader.read();
+            if (chunk.done) throw new Error('Stream ended before snapshot');
+            pending += decoder.decode(chunk.value, { stream: true });
+          }
+          const boundary = pending.indexOf('\n\n');
+          const frame = pending.slice(0, boundary);
+          pending = pending.slice(boundary + 2);
+          expect(frame).toContain('event: session.snapshot');
+          const data = frame.split('\n').find((line) => line.startsWith('data: '));
+          if (!data) throw new Error('Missing snapshot data');
+          return JSON.parse(data.slice(6));
+        },
+      };
+    };
+    const stream = await connect();
+    try {
+      expect((await stream.snapshot()).revision).toBe(0);
+      const saved = await app.inject({ method: 'POST', url: '/api/commands', payload: input() });
+      expect(await stream.snapshot()).toEqual(saved.json());
+      stream.controller.abort();
+      const reconnected = await connect();
+      try {
+        expect(await reconnected.snapshot()).toEqual(saved.json());
+        await app.close();
+        expect((await reconnected.reader.read()).done).toBe(true);
+      } finally {
+        reconnected.controller.abort();
+      }
+    } finally {
+      stream.controller.abort();
+    }
+  });
   it('returns useful errors for malformed and conflicting submissions', async () => {
     const app = create();
     expect(

@@ -12,6 +12,7 @@
 - [当前产品设计](docs/product-design.md)
 - [技术架构与 ADR](docs/adr/0001-local-web-architecture.md)
 - [开发、运行与工程结构](docs/development.md)
+- [部署、运行包、更新与回退](docs/deployment.md)
 - [测试策略](docs/testing.md) 与 [实施清单](docs/roadmap.md)
 
 快速开始（Node.js 24.x、npm 11.x）：

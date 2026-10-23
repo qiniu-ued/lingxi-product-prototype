@@ -21,8 +21,12 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "npm run build -w @lingxi/protocol && vitest run",
+    "test:coverage": "npm run test -- --coverage",
     "test:e2e": "npm run build -w @lingxi/protocol && playwright test",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "smoke": "node scripts/smoke.mjs",
+    "release:pack": "npm run build && node scripts/package.mjs",
+    "audit:production": "npm audit --omit=dev --audit-level=high",
+    "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run smoke",
     "prototype": "python3 -m http.server 8080 --directory dist"
   },
   "devDependencies": {

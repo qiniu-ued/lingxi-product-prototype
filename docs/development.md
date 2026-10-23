@@ -40,7 +40,9 @@ npm run build
 npm start
 ```
 
-`npm run check` 包含静态/类型检查、单元与接口测试、生产构建。`npm start` 使用构建结果，在 <http://127.0.0.1:4310/> 和 `/display` 提供页面。浏览器测试另行执行，详见 [测试策略](testing.md)。
+`npm run check` 包含静态/类型检查、单元与接口覆盖率、生产构建、真实进程启动与重启恢复。`npm start` 使用构建结果，在 <http://127.0.0.1:4310/> 和 `/display` 提供页面。浏览器测试另行执行，详见 [测试策略](testing.md)。
+
+日常运行推荐将数据放到版本目录之外。Mac 运行包下载、安装、配置、更新、备份与回退见 [运行与部署](deployment.md)。目前不能只部署网页；服务需要在使用 Codex 的那台 Mac 上启动。
 
 原静态演示通过 `npm run prototype` 启动，地址 <http://127.0.0.1:8080/>（需要 Python 3）。其语音、AirPlay、Agent、投票及重连均为预设剧情，不调用真实服务，也不保存真实会话。
 
@@ -51,6 +53,7 @@ apps/web/             React + Vite，电脑与大屏
 apps/server/          Fastify、SSE、SQLite
 packages/protocol/    Zod 校验、共享类型、适配器接口
 tests/e2e/            Playwright 双端与重连测试
+scripts/              生产检查与运行包构建
 docs/                 设计、架构、ADR 与测试策略
 source/               原交互原型源文件
 dist/                 原型导出页面（继续提交到 Git）
@@ -61,5 +64,6 @@ dist/                 原型导出页面（继续提交到 Git）
 - [ADR 0001：技术架构取舍](adr/0001-local-web-architecture.md)
 - [Codex、灵矽、AirPlay 与 A2UI 接入](integrations.md)
 - [测试策略](testing.md) 与 [实施清单](roadmap.md)
+- [运行、交付与更新](deployment.md)
 
-GitHub Actions 检查 Linux/macOS 基础工程，并在 Linux 运行 Chromium 测试。真实语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。
+GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 Chromium 测试；通过后生成两个 Mac 运行包。真实语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。

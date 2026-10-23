@@ -1,0 +1,379 @@
+<div id="lingxi-airplay-voice-prototype" aria-label="灵矽纯语音连接 AirPlay、创作页面与体验作品的流程原型">
+  <style>
+    #lingxi-airplay-voice-prototype {
+      --lv-bg: light-dark(#f4f5f8, #14171d);
+      --lv-panel: light-dark(#ffffff, #1e222b);
+      --lv-fg: light-dark(#252934, #f0f1f6);
+      --lv-secondary: light-dark(#626b7a, #aeb8c7);
+      --lv-line: light-dark(#dfe4ec, #363d4a);
+      --lv-soft: light-dark(#eeecfa, #322e47);
+      --lv-accent: light-dark(#5542a2, #c5baff);
+      --lv-primary: light-dark(#302740, #ece7f6);
+      --lv-on-primary: light-dark(#ffffff, #271f36);
+      --lv-receiver: light-dark(#19212c, #101722);
+      --lv-receiver-fg: light-dark(#f0f3fa, #f0f3fa);
+      --lv-receiver-muted: light-dark(#b2bfce, #a9b7c9);
+      --lv-device: light-dark(#3b3d46, #343640);
+      --lv-device-text: light-dark(#c4c7cf, #c4c7cf);
+      --lv-led: light-dark(#c4b5ff, #c4b5ff);
+      --lv-art: light-dark(#f1ede6, #34312d);
+      color: var(--lv-fg); font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-size: 14px; line-height: 1.6; width: 100%; background: transparent;
+    }
+    #lingxi-airplay-voice-prototype * { box-sizing: border-box; }
+    #lingxi-airplay-voice-prototype [hidden] { display: none !important; }
+    #lingxi-airplay-voice-prototype h2, #lingxi-airplay-voice-prototype h3,
+    #lingxi-airplay-voice-prototype p { margin: 0; }
+    #lingxi-airplay-voice-prototype h2, #lingxi-airplay-voice-prototype h3,
+    #lingxi-airplay-voice-prototype strong { font-weight: 500; }
+    #lingxi-airplay-voice-prototype .lv-demo-controls {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; flex-wrap: wrap; margin-bottom: 13px;
+    }
+    #lingxi-airplay-voice-prototype .lv-demo-title { font-size: 13px; font-weight: 500; }
+    #lingxi-airplay-voice-prototype .lv-small { font-size: 12px; color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-step-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+    #lingxi-airplay-voice-prototype .lv-demo-button {
+      font: inherit; font-size: 12px; padding: 7px 11px; min-height: 34px;
+      color: var(--lv-fg); background: var(--lv-panel); border: 1px solid var(--lv-line); border-radius: 7px;
+    }
+    #lingxi-airplay-voice-prototype .lv-demo-button:disabled { opacity: .45; }
+    #lingxi-airplay-voice-prototype .lv-play { background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary); }
+    #lingxi-airplay-voice-prototype .lv-step-label {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; color: var(--lv-secondary);
+    }
+    #lingxi-airplay-voice-prototype .lv-step-name { color: var(--lv-fg); font-weight: 500; }
+    #lingxi-airplay-voice-prototype .lv-screen {
+      border: 1px solid var(--lv-line); border-radius: 14px; background: var(--lv-bg);
+      min-width: 0;
+    }
+    #lingxi-airplay-voice-prototype .lv-receiver {
+      padding: 28px 30px 38px; min-height: 430px; background: var(--lv-receiver);
+      color: var(--lv-receiver-fg); border-radius: 13px;
+    }
+    #lingxi-airplay-voice-prototype .lv-receiver-top {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+      font-size: 13px; color: var(--lv-receiver-muted);
+    }
+    #lingxi-airplay-voice-prototype .lv-airplay-label { display: inline-flex; align-items: center; gap: 7px; }
+    #lingxi-airplay-voice-prototype .lv-airplay-label svg { width: 16px; height: 16px; }
+    #lingxi-airplay-voice-prototype .lv-receiver-main {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; min-height: 320px; padding: 34px 0 8px; gap: 16px;
+    }
+    #lingxi-airplay-voice-prototype .lv-receiver-main > svg { width: 42px; height: 42px; stroke-width: 1.3; color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 25px; }
+    #lingxi-airplay-voice-prototype .lv-receiver-main p { color: var(--lv-receiver-muted); font-size: 13px; max-width: 360px; }
+    #lingxi-airplay-voice-prototype .lv-passcode { display: flex; justify-content: center; gap: 10px; }
+    #lingxi-airplay-voice-prototype .lv-passcode span {
+      display: grid; place-items: center; width: 48px; height: 58px;
+      font-size: 30px; font-weight: 500; border: 1px solid var(--lv-receiver-muted); border-radius: 8px;
+    }
+    #lingxi-airplay-voice-prototype .lv-app-header {
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+      gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--lv-line);
+    }
+    #lingxi-airplay-voice-prototype .lv-brand { display: flex; align-items: center; gap: 11px; }
+    #lingxi-airplay-voice-prototype .lv-brand-mark {
+      width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px;
+      background: var(--lv-primary); color: var(--lv-on-primary); font-weight: 500; font-size: 18px;
+    }
+    #lingxi-airplay-voice-prototype .lv-brand-name { font-size: 17px; font-weight: 500; }
+    #lingxi-airplay-voice-prototype .lv-status {
+      display: flex; align-items: center; gap: 7px; border-radius: 20px;
+      padding: 6px 11px; background: var(--lv-soft); color: var(--lv-accent); font-size: 12px;
+    }
+    #lingxi-airplay-voice-prototype .lv-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    #lingxi-airplay-voice-prototype .lv-workspace {
+      display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
+      gap: 16px; padding: 18px 20px;
+    }
+    #lingxi-airplay-voice-prototype .lv-preview, #lingxi-airplay-voice-prototype .lv-conversation {
+      background: var(--lv-panel); border: 1px solid var(--lv-line); border-radius: 10px; min-width: 0;
+    }
+    #lingxi-airplay-voice-prototype .lv-panel-header {
+      padding: 10px 14px; border-bottom: 1px solid var(--lv-line);
+      display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+      font-size: 12px; font-weight: 500;
+    }
+    #lingxi-airplay-voice-prototype .lv-empty {
+      min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 24px; text-align: center; gap: 12px;
+    }
+    #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-empty h2 { font-size: 21px; }
+    #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-secondary); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-webpage { padding: 26px 20px 20px; }
+    #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 25px; letter-spacing: -.03em; margin: 5px 0 9px; }
+    #lingxi-airplay-voice-prototype .lv-webpage-intro { color: var(--lv-secondary); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-options {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 20px;
+    }
+    #lingxi-airplay-voice-prototype .lv-option {
+      min-width: 0; padding: 10px; border: 1px solid var(--lv-line); border-radius: 10px;
+    }
+    #lingxi-airplay-voice-prototype .lv-option.lv-chosen { background: var(--lv-soft); }
+    #lingxi-airplay-voice-prototype .lv-art {
+      display: grid; place-items: center; height: 65px; border-radius: 7px;
+      background: var(--lv-art); color: var(--lv-secondary); margin-bottom: 11px;
+    }
+    #lingxi-airplay-voice-prototype .lv-art svg { width: 28px; height: 28px; stroke-width: 1.5; }
+    #lingxi-airplay-voice-prototype .lv-option h3 { font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-vote-count { font-size: 12px; color: var(--lv-secondary); margin: 3px 0 8px; }
+    #lingxi-airplay-voice-prototype .lv-web-button {
+      font: inherit; font-size: 12px; width: 100%; padding: 7px 4px; min-height: 36px;
+      color: var(--lv-fg); background: var(--lv-panel); border: 1px solid var(--lv-line); border-radius: 6px; opacity: 1;
+    }
+    #lingxi-airplay-voice-prototype .lv-chosen .lv-web-button {
+      background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
+    }
+    #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
+    #lingxi-airplay-voice-prototype .lv-messages { padding: 14px; display: grid; gap: 18px; }
+    #lingxi-airplay-voice-prototype .lv-speaker { font-size: 12px; color: var(--lv-secondary); margin-bottom: 6px; }
+    #lingxi-airplay-voice-prototype .lv-message { font-size: 13px; overflow-wrap: anywhere; }
+    #lingxi-airplay-voice-prototype .lv-user-message { padding: 11px; border-radius: 8px; background: var(--lv-bg); }
+    #lingxi-airplay-voice-prototype .lv-agents { padding: 0 20px 16px; }
+    #lingxi-airplay-voice-prototype .lv-agent-list {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)); gap: 9px; margin-top: 8px;
+    }
+    #lingxi-airplay-voice-prototype .lv-agent {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+      padding: 10px 12px; background: var(--lv-panel); border-radius: 8px; font-size: 12px;
+    }
+    #lingxi-airplay-voice-prototype .lv-agent-current { background: var(--lv-soft); }
+    #lingxi-airplay-voice-prototype .lv-agent-current .lv-agent-state { color: var(--lv-accent); }
+    #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-voice-hint {
+      display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
+      padding: 11px 17px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
+    }
+    #lingxi-airplay-voice-prototype .lv-voice-hint svg { width: 15px; height: 15px; }
+    #lingxi-airplay-voice-prototype .lv-controller-row {
+      display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 22px;
+      align-items: center; margin-top: 18px;
+    }
+    #lingxi-airplay-voice-prototype .lv-hardware-wrap { display: flex; align-items: center; flex-direction: column; gap: 8px; }
+    #lingxi-airplay-voice-prototype .lv-hardware {
+      position: relative; width: 116px; height: 69px; border-radius: 29px;
+      background: var(--lv-device); color: var(--lv-device-text); display: grid; place-items: center;
+      box-shadow: inset 0 1px 0 color-mix(in srgb, var(--lv-device-text) 25%, transparent);
+    }
+    #lingxi-airplay-voice-prototype .lv-hardware-brand { font-size: 12px; letter-spacing: .14em; }
+    #lingxi-airplay-voice-prototype .lv-hardware-light {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      width: 25px; height: 3px; border-radius: 3px; background: var(--lv-led);
+    }
+    #lingxi-airplay-voice-prototype .lv-captions { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 22px; }
+    #lingxi-airplay-voice-prototype .lv-caption-label { font-size: 12px; color: var(--lv-secondary); margin-bottom: 5px; }
+    #lingxi-airplay-voice-prototype .lv-caption-text { font-size: 14px; overflow-wrap: anywhere; }
+    #lingxi-airplay-voice-prototype .lv-caption-empty { color: var(--lv-secondary); }
+    @media (max-width: 800px) {
+      #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; }
+      #lingxi-airplay-voice-prototype .lv-empty { min-height: 220px; }
+      #lingxi-airplay-voice-prototype .lv-captions { grid-template-columns: 1fr; gap: 12px; }
+    }
+    @media (max-width: 460px) {
+      #lingxi-airplay-voice-prototype .lv-receiver { padding: 20px 18px; min-height: 340px; }
+      #lingxi-airplay-voice-prototype .lv-receiver-main { min-height: 270px; }
+      #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 22px; }
+      #lingxi-airplay-voice-prototype .lv-app-header { padding: 14px; }
+      #lingxi-airplay-voice-prototype .lv-workspace { padding: 14px; gap: 13px; }
+      #lingxi-airplay-voice-prototype .lv-webpage { padding: 20px 13px; }
+      #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 22px; }
+      #lingxi-airplay-voice-prototype .lv-options { grid-template-columns: 1fr; }
+      #lingxi-airplay-voice-prototype .lv-option { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 12px; }
+      #lingxi-airplay-voice-prototype .lv-art { grid-column: 1; grid-row: 1 / 4; height: 76px; margin: 0; }
+      #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-vote-count,
+      #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
+      #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
+      #lingxi-airplay-voice-prototype .lv-agents { padding: 0 14px 14px; }
+      #lingxi-airplay-voice-prototype .lv-agent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #lingxi-airplay-voice-prototype .lv-controller-row { grid-template-columns: 1fr; gap: 15px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; gap: 13px; }
+      #lingxi-airplay-voice-prototype .lv-hardware { width: 85px; height: 53px; border-radius: 22px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 8px; }
+    }
+    @media (pointer: coarse) { #lingxi-airplay-voice-prototype .lv-demo-button { min-height: 44px; } }
+  </style>
+
+  <div class="lv-demo-controls" role="group" aria-label="仅用于评审的演示控制，不属于产品操作">
+    <div><div class="lv-demo-title">演示控制 · 不属于产品界面</div><div class="lv-small">语音、AirPlay 与 Agent 状态均为模拟</div></div>
+    <div class="lv-step-controls">
+      <button type="button" class="lv-demo-button cursor-interaction" data-demo-prev disabled>上一句</button>
+      <button type="button" class="lv-demo-button lv-play cursor-interaction" data-demo-play>自动演示</button>
+      <button type="button" class="lv-demo-button cursor-interaction" data-demo-next>下一句</button>
+    </div>
+  </div>
+  <div class="lv-step-label"><span class="lv-step-name" data-step-name>发起连接</span><span><span data-step-number>1 / 14</span> · <span data-screen-origin>外部屏幕：接收端占位示意</span></span></div>
+
+  <div class="lv-screen" aria-label="外部屏幕画面">
+    <section class="lv-receiver" data-receiver>
+      <div class="lv-receiver-top"><span>会议室电视</span><span class="lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay</span></div>
+      <div class="lv-receiver-main">
+        <i data-lucide="monitor" aria-hidden="true"></i>
+        <h2 data-receiver-title>尚未接收到画面</h2>
+        <div class="lv-passcode" data-passcode hidden aria-label="示例验证码 4628"><span>4</span><span>6</span><span>2</span><span>8</span></div>
+        <p data-receiver-detail>使用支持 AirPlay 的设备连接此屏幕。</p>
+      </div>
+    </section>
+
+    <section data-app hidden aria-label="灵矽投屏工作台，只呈现作品、对话和状态">
+      <header class="lv-app-header">
+        <div class="lv-brand"><div class="lv-brand-mark" aria-hidden="true">灵</div><div><div class="lv-brand-name">灵矽</div><div class="lv-small lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay · 会议室电视 · 已连接</div></div></div>
+        <div class="lv-status"><span class="lv-dot" aria-hidden="true"></span><span data-task-status>等待你的需求</span></div>
+      </header>
+      <div class="lv-workspace">
+        <section class="lv-preview" aria-label="作品显示区">
+          <div class="lv-panel-header"><span>作品预览</span><span class="lv-small" data-preview-status>还没有作品</span></div>
+          <div class="lv-empty" data-empty>
+            <i data-lucide="sparkles" aria-hidden="true"></i>
+            <h2 data-empty-title>说出你想做的页面</h2>
+            <p data-empty-description>灵矽会安排 Agent 完成开发，并在这里展示结果。</p>
+          </div>
+          <div class="lv-webpage" data-webpage hidden aria-label="投票页面的显示画面，操作通过模拟语音触发">
+            <div class="lv-small">我们的周末计划</div>
+            <h2>周末，一起去哪里？</h2>
+            <p class="lv-webpage-intro">选一个想去的地方，把这一票投给它。</p>
+            <div class="lv-options">
+              <article class="lv-option"><div class="lv-art"><i data-lucide="trees" aria-hidden="true"></i></div><h3>公园吹风</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option" data-sea-option><div class="lv-art"><i data-lucide="waves" aria-hidden="true"></i></div><h3 data-sea-name>海边散步</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div><button type="button" class="lv-web-button" data-sea-button disabled aria-label="作品中的海边投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option"><div class="lv-art"><i data-lucide="landmark" aria-hidden="true"></i></div><h3>一起看展</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+            </div>
+            <div class="lv-vote-feedback" data-vote-feedback>还未投票</div>
+          </div>
+        </section>
+        <aside class="lv-conversation" aria-label="已发送的语音转写与灵矽回复">
+          <div class="lv-panel-header"><span>与灵矽的对话</span><span class="lv-small">本轮</span></div>
+          <div class="lv-messages" data-messages></div>
+        </aside>
+      </div>
+      <section class="lv-agents" data-agents hidden aria-label="本次实际调用的 Agent 的模拟状态">
+        <div class="lv-small">本次调用的 Agent</div><div class="lv-agent-list" data-agent-list></div>
+      </section>
+      <div class="lv-voice-hint"><i data-lucide="mic" aria-hidden="true"></i><span data-voice-hint>可以说：“做一个周末出游投票页。”</span></div>
+    </section>
+  </div>
+
+  <div class="lv-controller-row">
+    <div class="lv-hardware-wrap"><div class="lv-hardware" aria-label="无屏灵矽控制端的外观示意"><span class="lv-hardware-brand">灵矽</span><span class="lv-hardware-light" aria-hidden="true"></span></div><span class="lv-small">无屏控制端</span></div>
+    <div class="lv-captions" aria-live="polite" aria-atomic="true">
+      <div><div class="lv-caption-label">用户 · 模拟语音</div><p class="lv-caption-text" data-user-caption>“灵矽，连接屏幕。”</p></div>
+      <div><div class="lv-caption-label">灵矽 · 控制端声音字幕</div><p class="lv-caption-text" data-ai-caption>正在查找可用的 AirPlay 屏幕。</p></div>
+    </div>
+  </div>
+
+  <script>
+    (() => {
+      const root = document.getElementById('lingxi-airplay-voice-prototype');
+      const find = name => root.querySelector('[data-' + name + ']');
+      const states = [
+        {title:'发起连接', view:'receiver', user:'灵矽，连接屏幕。', reply:'正在查找可用的 AirPlay 屏幕。'},
+        {title:'用语音选择屏幕', view:'receiver', user:'', reply:'找到“会议室电视”和“客厅电视”。你想连接哪一台？'},
+        {title:'首次配对示例', view:'pairing', user:'连接会议室电视。', reply:'请读出电视上显示的四位验证码。'},
+        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', reply:'已连接会议室电视。你想做一个什么样的页面？', status:'等待你的需求', preview:'还没有作品', empty:'说出你想做的页面', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'可以说：“做一个周末出游投票页。”', agents:[]},
+        {title:'说出创作需求', view:'app', user:'做一个周末出游投票页，放三个选项，每个配个小图，可以投票。', reply:'我会做好投票页面和配图，并检查投票交互。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'制作一个带有三个选项与配图的投票页。', hint:'可以说：“再加一个要求……”', agents:[['需求分析','分析中']]},
+        {title:'Agent 正在执行', view:'app', user:'', reply:'需求已明确，页面开发和绘图正在进行。', status:'正在创建页面', preview:'正在创建', empty:'正在制作页面与配图', detail:'完成后，这里会显示可以体验的页面。', hint:'可以说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
+        {title:'预览已出现，继续检查', view:'app', user:'', reply:'页面预览已生成，正在检查投票交互。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, hint:'正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'作品完成', view:'app', user:'', reply:'页面已完成，投票交互已检查。你可以说“给海边投一票”来体验。', status:'作品已就绪', preview:'当前版本 · 检查完成', page:true, hint:'可以说：“给海边投一票。”', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 检查完成', page:true, voted:true, hint:'可以说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
+        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, voted:true, hint:'正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
+        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, voted:true, renamed:true, hint:'可以说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。你可以说“重新连接会议室电视”。'},
+        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以继续说出修改需求。', agents:[]}
+      ];
+      let current = 0;
+      let running = false;
+      let timer = null;
+      const previous = find('demo-prev');
+      const next = find('demo-next');
+      const play = find('demo-play');
+      const make = (tag, className, content) => {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (content !== undefined) node.textContent = content;
+        return node;
+      };
+      function addMessage(speaker, content, isUser) {
+        const message = make('div');
+        message.append(make('div', 'lv-speaker', speaker));
+        message.append(make('p', 'lv-message' + (isUser ? ' lv-user-message' : ''), content));
+        find('messages').append(message);
+      }
+      function renderConversation() {
+        find('messages').replaceChildren();
+        let start = current;
+        while (start > 3 && !states[start].user) start--;
+        const request = states[start].user;
+        if (request) addMessage('你 · 语音转写 · 已发送', current === 3 ? '验证码已提交' : request, true);
+        const replies = states.slice(Math.max(start, 3), current + 1).filter(state => state.view === 'app').map(state => state.reply).slice(-2);
+        replies.forEach(reply => addMessage('灵矽', reply, false));
+      }
+      function render() {
+        const state = states[current];
+        const connected = state.view === 'app';
+        find('step-name').textContent = state.title;
+        find('step-number').textContent = (current + 1) + ' / ' + states.length;
+        find('screen-origin').textContent = connected ? '外部屏幕：灵矽投屏画面' : '外部屏幕：接收端占位示意';
+        find('receiver').hidden = connected;
+        find('app').hidden = !connected;
+        find('passcode').hidden = state.view !== 'pairing';
+        find('receiver-title').textContent = state.view === 'pairing' ? 'AirPlay 验证码' : state.view === 'disconnected' ? '当前没有接收画面' : '尚未接收到画面';
+        find('receiver-detail').textContent = state.view === 'pairing' ? '配对画面示意 · 示例验证码' : state.view === 'disconnected' ? '等待新的 AirPlay 连接。' : '使用支持 AirPlay 的设备连接此屏幕。';
+        find('user-caption').textContent = state.user ? '“' + state.user + '”' : '本段没有新的语音指令';
+        find('user-caption').classList.toggle('lv-caption-empty', !state.user);
+        find('ai-caption').textContent = state.reply;
+        if (connected) {
+          find('task-status').textContent = state.status;
+          find('preview-status').textContent = state.preview;
+          find('empty').hidden = Boolean(state.page);
+          find('webpage').hidden = !state.page;
+          find('empty-title').textContent = state.empty || '';
+          find('empty-description').textContent = state.detail || '';
+          find('voice-hint').textContent = state.hint;
+          const seaName = state.renamed ? '海边日落' : '海边散步';
+          find('sea-name').textContent = seaName;
+          find('sea-count').textContent = state.voted ? '1' : '0';
+          find('sea-button').textContent = state.voted ? '已投票' : '投一票';
+          find('sea-option').classList.toggle('lv-chosen', Boolean(state.voted));
+          find('vote-feedback').textContent = state.voted ? '你的选择：' + seaName : '还未投票';
+          find('agents').hidden = !state.agents.length;
+          find('agent-list').replaceChildren();
+          state.agents.forEach(([name, status]) => {
+            const agent = make('div', 'lv-agent' + (status === '已完成' ? '' : ' lv-agent-current'));
+            agent.append(make('span', '', name));
+            agent.append(make('span', 'lv-agent-state', (status === '已完成' ? '✓ ' : '') + status));
+            find('agent-list').append(agent);
+          });
+          renderConversation();
+        }
+        previous.disabled = current === 0;
+        next.disabled = current === states.length - 1;
+        play.textContent = running ? '暂停演示' : current === states.length - 1 ? '重新演示' : '自动演示';
+      }
+      function stop() {
+        running = false;
+        clearTimeout(timer);
+        timer = null;
+      }
+      function schedule() {
+        timer = setTimeout(() => {
+          if (!root.isConnected) { stop(); return; }
+          if (current < states.length - 1) current++;
+          if (current === states.length - 1) stop();
+          render();
+          if (running) schedule();
+        }, 4500);
+      }
+      previous.addEventListener('click', () => { stop(); current = Math.max(0, current - 1); render(); });
+      next.addEventListener('click', () => { stop(); current = Math.min(states.length - 1, current + 1); render(); });
+      play.addEventListener('click', () => {
+        if (running) stop();
+        else { if (current === states.length - 1) current = 0; running = true; schedule(); }
+        render();
+      });
+      render();
+    })();
+  </script>
+</div>

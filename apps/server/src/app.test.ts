@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { codexCheckSchema, setupStatusSchema } from '@lingxi/protocol';
+import { codexCheckSchema, setupInspectionSchema, setupStatusSchema } from '@lingxi/protocol';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from './app.js';
 
@@ -197,15 +197,24 @@ describe('local command API', () => {
     });
     const app = buildApp({ databasePath: ':memory:', checkCodex });
     apps.push(app);
-    const requests = [1, 2].map(() =>
-      app
-        .inject({ method: 'POST', url: '/api/setup/codex/check', payload: {} })
-        .then((response) => response.json()),
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/setup/check',
+      payload: { executable: 'shell' },
+    });
+    expect(invalid.statusCode).toBe(400);
+    const requests = ['/api/setup/codex/check', '/api/setup/check'].map((url) =>
+      app.inject({ method: 'POST', url, payload: {} }).then((response) => response.json()),
     );
     await vi.waitFor(() => expect(checkCodex).toHaveBeenCalledTimes(1));
     release?.();
     const results = await Promise.all(requests);
-    expect(results[0]).toEqual(results[1]);
+    const inspection = setupInspectionSchema.parse(results[1]);
+    expect(results[0]).toEqual(inspection.codex);
+    expect(inspection.lingxi).toMatchObject({
+      status: 'unavailable',
+      reason: 'adapter-not-connected',
+    });
     expect(checkCodex).toHaveBeenCalledTimes(1);
   });
 });

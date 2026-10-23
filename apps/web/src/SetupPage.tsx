@@ -1,36 +1,55 @@
 import {
-  CODEX_SETUP_VERSION,
+  CODEX_SETUP_PACKAGE,
   type CodexCheck,
+  type CodexSetupAction,
+  type CodexSetupRequest,
   codexCheckSchema,
+  codexSetupStateSchema,
+  type SetupInspection,
   type SetupStatus,
-  setupStatusSchema,
+  setupInspectionSchema,
 } from '@lingxi/protocol';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-const steps = ['运行工作台', '准备 Codex', '准备灵矽语音', '连接大屏'];
-const codexInstall = `npm install -g @openai/codex@${CODEX_SETUP_VERSION}`;
+const steps = ['配置 Codex', '配置灵矽'];
+const finished = (action: CodexSetupAction) =>
+  ['succeeded', 'failed', 'cancelled'].includes(action.state);
 const codexMessages: Record<CodexCheck['status'], { title: string; detail: string }> = {
   ready: {
     title: 'Codex 环境检查通过',
-    detail: 'CLI 与 App Server 可用，已读取本机认证配置。当前版本仍未开放执行任务。',
+    detail: 'CLI、App Server 与认证配置可用，可以继续配置灵矽。当前版本仍未开放执行任务。',
   },
   'not-installed': {
     title: '未找到 Codex CLI',
-    detail: '请在这台 Mac 的终端安装 CLI，再从同一终端重新启动工作台。桌面应用可以继续使用。',
+    detail: '可在此安装最新版。只有 Codex 桌面应用时，也需要 CLI 来提供本地接口。',
   },
   'signed-out': {
     title: 'Codex 尚未登录',
-    detail: 'App Server 可以启动。请在终端完成 codex login 后重新检测。',
+    detail: 'CLI 与 App Server 可用。下一步是在官方网页完成账号授权。',
   },
   failed: {
     title: '未能完成 Codex 检查',
-    detail:
-      '在终端确认 codex --version 和 codex login status 可以运行，然后重试。自定义安装路径见下方说明。',
+    detail: '请重新检测；仍失败时，展开下方终端操作说明检查 CLI 与配置。',
   },
-  'timed-out': {
-    title: 'Codex 检查超时',
-    detail: '请在终端确认 CLI 可以正常启动，检查网络后重试。',
-  },
+  'timed-out': { title: 'Codex 检查超时', detail: '请确认 CLI 可以正常启动，检查网络后重试。' },
+};
+const actionLabels: Record<CodexSetupAction['state'], string> = {
+  installing: '正在下载并安装最新版 Codex…',
+  'starting-login': '正在准备官方登录…',
+  'waiting-for-login': '等待你在官方网页完成授权…',
+  checking: '正在重新检查 Codex…',
+  cancelling: '正在停止并清理进程…',
+  succeeded: '操作完成',
+  failed: '操作未完成',
+  cancelled: '已停止本次操作',
+};
+const errors: Record<NonNullable<CodexSetupAction['error']>, string> = {
+  install_failed: '安装失败，请检查网络与 npm 是否可用，然后重试或使用终端安装。',
+  verification_failed: '安装或授权后未通过环境检查。请重新检测，查看终端操作说明。',
+  login_failed: '未完成官方授权，请重试或在终端运行 codex login。',
+  timed_out: '操作超时，已停止等待。可以重试。',
+  custom_path_configured:
+    '服务已指定自定义 CLI 路径，请在终端更新该安装，或移除路径设置后重启服务。',
 };
 
 function Command({ children }: { children: string }) {
@@ -62,7 +81,6 @@ function Command({ children }: { children: string }) {
     </div>
   );
 }
-
 function ExternalLink({ href, children }: { href: string; children: string }) {
   return (
     <a className="setup-link" href={href} target="_blank" rel="noreferrer">
@@ -70,45 +88,185 @@ function ExternalLink({ href, children }: { href: string; children: string }) {
     </a>
   );
 }
+async function readCheck(signal?: AbortSignal) {
+  const response = await fetch('/api/setup/codex/check', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal: signal ?? AbortSignal.timeout(25000),
+  });
+  if (!response.ok) throw new Error('check unavailable');
+  return codexCheckSchema.parse(await response.json());
+}
 
 export function SetupPage() {
   const [step, setStep] = useState(0);
   const [runtime, setRuntime] = useState<SetupStatus | null>(null);
-  const [runtimeError, setRuntimeError] = useState(false);
+  const [lingxi, setLingxi] = useState<SetupInspection['lingxi'] | null>(null);
+  const [loading, setLoading] = useState(true);
   const [check, setCheck] = useState<CodexCheck | null>(null);
   const [checking, setChecking] = useState(false);
-  const [checkError, setCheckError] = useState('');
+  const [action, setAction] = useState<CodexSetupAction | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const retryRequest = useRef<CodexSetupRequest | null>(null);
+  const popup = useRef<Window | null>(null);
+  const openedUrl = useRef('');
+  const busy = submitting || !!(action && !finished(action));
 
+  const inspectEnvironment = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError('');
+    try {
+      const [hostResponse, actionResponse] = await Promise.all([
+        fetch('/api/setup/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+          signal: signal ?? AbortSignal.timeout(25000),
+        }),
+        fetch('/api/setup/codex/action', { cache: 'no-store', ...(signal ? { signal } : {}) }),
+      ]);
+      if (!hostResponse.ok || !actionResponse.ok) throw new Error('setup unavailable');
+      const inspection = setupInspectionSchema.parse(await hostResponse.json());
+      const current = codexSetupStateSchema.parse(await actionResponse.json()).action;
+      setRuntime(inspection.environment);
+      setLingxi(inspection.lingxi);
+      setCheck(inspection.codex);
+      setAction(current && !finished(current) ? current : null);
+      setStep(inspection.codex.status === 'ready' ? 1 : 0);
+    } catch {
+      if (!signal?.aborted) setError('未收到检测结果，请确认本地服务仍在运行后重试。');
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, []);
   useEffect(() => {
     const controller = new AbortController();
-    fetch('/api/setup', { signal: controller.signal, cache: 'no-store' })
-      .then(async (response) => {
-        if (!response.ok) throw new Error('setup unavailable');
-        setRuntime(setupStatusSchema.parse(await response.json()));
-      })
+    void inspectEnvironment(controller.signal);
+    return () => controller.abort();
+  }, [inspectEnvironment]);
+
+  useEffect(() => {
+    if (!action || finished(action)) return;
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch('/api/setup/codex/action', {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error('action unavailable');
+        const current = codexSetupStateSchema.parse(await response.json()).action;
+        setAction(current);
+        setError('');
+      } catch {
+        if (!controller.signal.aborted) {
+          setError('暂时无法获取操作进度；本地操作可能仍在继续。正在重试。');
+          setAction({ ...action });
+        }
+      }
+    }, 800);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [action]);
+
+  useEffect(() => {
+    if (!action || !finished(action)) return;
+    popup.current?.close();
+    popup.current = null;
+    if (action.state === 'succeeded' && action.check) {
+      setCheck(action.check);
+      return;
+    }
+    const controller = new AbortController();
+    void readCheck(controller.signal)
+      .then(setCheck)
       .catch(() => {
-        if (!controller.signal.aborted) setRuntimeError(true);
+        if (!controller.signal.aborted)
+          setError('操作已结束，但未收到复查结果，请重新检测 Codex。');
       });
     return () => controller.abort();
-  }, []);
+  }, [action]);
+
+  useEffect(() => {
+    if (
+      action?.authUrl &&
+      popup.current &&
+      !popup.current.closed &&
+      openedUrl.current !== action.authUrl
+    ) {
+      openedUrl.current = action.authUrl;
+      popup.current.location.href = action.authUrl;
+    }
+  }, [action]);
 
   async function inspectCodex() {
     setChecking(true);
-    setCheck(null);
-    setCheckError('');
+    setError('');
     try {
-      const response = await fetch('/api/setup/codex/check', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-        signal: AbortSignal.timeout(25000),
-      });
-      if (!response.ok) throw new Error('check unavailable');
-      setCheck(codexCheckSchema.parse(await response.json()));
+      setCheck(await readCheck());
     } catch {
-      setCheckError('未收到检测结果，请确认本地服务仍在运行后重试。');
+      setError('未收到检测结果，请确认本地服务仍在运行后重试。');
     } finally {
       setChecking(false);
+    }
+  }
+  async function start(kind: CodexSetupRequest['kind']) {
+    setSubmitting(true);
+    setError('');
+    if (kind === 'login') {
+      popup.current = window.open('about:blank', '_blank');
+      if (popup.current) popup.current.opener = null;
+      openedUrl.current = '';
+    }
+    const request =
+      retryRequest.current?.kind === kind
+        ? retryRequest.current
+        : { requestId: crypto.randomUUID(), kind };
+    retryRequest.current = request;
+    try {
+      const response = await fetch('/api/setup/codex/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok && response.status !== 409) throw new Error('action unavailable');
+      const current = codexSetupStateSchema.parse(await response.json()).action;
+      setAction(current);
+      if (kind === 'login' && current?.kind !== 'login') {
+        popup.current?.close();
+        popup.current = null;
+      }
+      retryRequest.current = null;
+    } catch {
+      popup.current?.close();
+      popup.current = null;
+      setError('未能确认操作是否开始。可以重试，同一次请求不会重复执行。');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+  async function cancel() {
+    if (!action) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/setup/codex/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: action.id }),
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!response.ok) throw new Error('cancel unavailable');
+      setAction(codexSetupStateSchema.parse(await response.json()).action);
+    } catch {
+      setError('未能确认停止结果，请重试。');
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -126,217 +284,242 @@ export function SetupPage() {
         </a>
       </header>
       <section className="intro">
-        <p className="eyebrow">从这台 Mac 开始</p>
-        <h1>把准备工作，一步步做好。</h1>
-        <p className="intro-detail">
-          先运行工作台，再准备 Codex、灵矽语音和大屏。你可以随时回来继续。
-        </p>
+        <p className="eyebrow">连接你的工具</p>
+        <h1>先检查，再配置。</h1>
+        <p className="intro-detail">根据这台电脑的实际状态，准备 Codex 和灵矽。</p>
       </section>
-      <p className="setup-scope">
-        当前版本支持保存建议和同步大屏。自动修改代码与语音控制尚未开放；本向导帮助检查环境、完成账号和客户端准备。
-      </p>
-      <main className="setup-layout">
-        <nav className="setup-steps" aria-label="连接步骤">
-          {steps.map((title, index) => (
-            <button
-              type="button"
-              key={title}
-              aria-current={step === index ? 'step' : undefined}
-              onClick={() => setStep(index)}
-            >
-              <span className="step-number">{String(index + 1).padStart(2, '0')}</span>
-              <span>{title}</span>
-            </button>
-          ))}
-        </nav>
-        <section className="panel setup-content" aria-labelledby="setup-step-title">
-          <p className="eyebrow">
-            步骤 {step + 1} / {steps.length}
-          </p>
-          <h2 id="setup-step-title">{steps[step]}</h2>
-          {step === 0 && (
-            <>
-              <p>
-                在你的 Mac 上启动本地服务，再用同一台 Mac 的浏览器打开工作台。窗口可以通过 AirPlay
-                放到电视上。
-              </p>
-              <div className="setup-result" role="status">
-                {runtime ? (
-                  <>
-                    <strong>工作台服务已响应</strong>
-                    <p>
-                      服务所在电脑：
-                      {runtime.host.platform === 'darwin' ? 'macOS' : runtime.host.platform} ·{' '}
-                      {runtime.host.arch} · Node.js {runtime.host.nodeVersion}
-                    </p>
-                    {!runtime.host.nodeSupported && <p>请切换到 Node.js 24.x 并重新启动。</p>}
-                    {runtime.host.platform !== 'darwin' && (
-                      <p>这份检测来自服务所在电脑。要连接你的 Mac，请在 Mac 的终端启动工作台。</p>
-                    )}
-                  </>
-                ) : runtimeError ? (
-                  <>
-                    <strong>暂时无法读取本地环境</strong>
-                    <p>确认服务仍在运行，刷新本页后再试。</p>
-                  </>
-                ) : (
-                  '正在读取本地环境…'
-                )}
-              </div>
-              <h3>第一次从源码启动</h3>
-              <p>先安装 Node.js 24.x 和 npm 11.x。以下命令适用于尚未下载过项目的情况。</p>
-              <Command>
-                {
-                  'git clone https://github.com/qiniu-ued/lingxi-product-prototype.git\ncd lingxi-product-prototype\nnpm ci\nnpm run build\nnpm start'
-                }
-              </Command>
-              <p>
-                日常打开 <code>http://127.0.0.1:4310/</code>。保留启动服务的终端窗口，按 Ctrl+C
-                停止。
-              </p>
-              <ExternalLink href="https://nodejs.org/en/download">安装 Node.js 24</ExternalLink>
-            </>
-          )}
-          {step === 1 && (
-            <>
-              <p>
-                保留工作台运行，另开一个终端标签页。只有 Codex 桌面应用时，先安装 CLI。
-                工作台通过它检查 App Server，并使用该 CLI 的登录状态。
-              </p>
-              <h3>1. 安装 CLI</h3>
-              <Command>{codexInstall}</Command>
-              <h3>2. 检查登录</h3>
-              <Command>{'codex --version\ncodex login status'}</Command>
-              <p>如果显示未登录，再执行下面的命令，在打开的网页中完成登录。登录后重新检测即可。</p>
-              <Command>{'codex login'}</Command>
-              <h3>3. 从工作台检测</h3>
-              <p>检测会短暂启动 App Server，读取登录类型后关闭进程。不会创建任务或修改项目文件。</p>
-              <button
-                className="button secondary"
-                type="button"
-                disabled={checking}
-                onClick={inspectCodex}
-              >
-                {checking ? '正在检测 Codex…' : '检测 Codex 环境'}
-              </button>
-              {check && (
-                <div
-                  className={`setup-result ${check.status === 'ready' ? 'verified' : ''}`}
-                  role="status"
+      {loading ? (
+        <div className="panel setup-result" role="status">
+          <strong>正在检查 Codex 和灵矽…</strong>
+          <p>检查本地环境与两项集成的可检测状态，不安装软件或发起登录。</p>
+        </div>
+      ) : !runtime || (!check && (!action || finished(action))) ? (
+        <div className="panel setup-result">
+          <p role="alert">{error}</p>
+          <button
+            type="button"
+            className="button secondary"
+            onClick={() => void inspectEnvironment()}
+          >
+            重新检查环境
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="setup-scope">
+            <strong>环境检查已完成</strong> ·{' '}
+            {runtime.host.platform === 'darwin' ? 'macOS' : runtime.host.platform} ·{' '}
+            {runtime.host.arch} · Node.js {runtime.host.nodeVersion}
+            {!runtime.host.nodeSupported && <p>请使用 Node.js 24.x 重新启动服务。</p>}
+            {runtime.host.platform !== 'darwin' && (
+              <p>检测来自服务所在电脑；连接 Mac 时，请在 Mac 上运行本地服务。</p>
+            )}
+            <p>当前可保存建议和同步大屏。自动修改代码与灵矽语音控制尚未开放。</p>
+          </div>
+          <section className="setup-overview" aria-label="环境检查结果">
+            <div className="panel">
+              <p className="eyebrow">Codex</p>
+              <h2>{check ? codexMessages[check.status].title : '操作进行中'}</h2>
+              <p>{check ? codexMessages[check.status].detail : '正在准备本地接口。'}</p>
+            </div>
+            <div className="panel">
+              <p className="eyebrow">灵矽 AI</p>
+              <h2>{lingxi?.status === 'unavailable' ? '暂无法检测灵矽' : '等待检查'}</h2>
+              <p>检测接口尚未接入，无法确认账号和设备状态。可继续按下方步骤准备。</p>
+            </div>
+          </section>
+          <main className="setup-layout">
+            <nav className="setup-steps" aria-label="连接步骤">
+              {steps.map((title, index) => (
+                <button
+                  type="button"
+                  key={title}
+                  aria-current={step === index ? 'step' : undefined}
+                  onClick={() => setStep(index)}
                 >
-                  <strong>{codexMessages[check.status].title}</strong>
-                  <p>{codexMessages[check.status].detail}</p>
-                  {check.cliVersion && (
-                    <p>
-                      CLI {check.cliVersion} ·{' '}
-                      {check.authentication === 'chatgpt'
-                        ? 'ChatGPT 登录'
-                        : check.authentication === 'api-key'
-                          ? 'API Key 登录'
-                          : check.authentication === 'provider'
-                            ? '模型提供方配置'
-                            : '未确认登录'}
+                  <span className="step-number">0{index + 1}</span>
+                  <span>{title}</span>
+                </button>
+              ))}
+            </nav>
+            <section className="panel setup-content" aria-labelledby="setup-step-title">
+              <p className="eyebrow">步骤 {step + 1} / 2</p>
+              <h2 id="setup-step-title">{steps[step]}</h2>
+              {step === 0 ? (
+                <>
+                  {check && (
+                    <div
+                      className={`setup-result ${check.status === 'ready' ? 'verified' : ''}`}
+                      role="status"
+                    >
+                      <strong>{codexMessages[check.status].title}</strong>
+                      <p>{codexMessages[check.status].detail}</p>
+                      {check.cliVersion && (
+                        <p>
+                          CLI {check.cliVersion} ·{' '}
+                          {check.authentication === 'chatgpt'
+                            ? 'ChatGPT 登录'
+                            : check.authentication === 'api-key'
+                              ? 'API Key 登录'
+                              : check.authentication === 'provider'
+                                ? '模型提供方配置'
+                                : '未确认登录'}
+                        </p>
+                      )}
+                      <p className="muted">
+                        本次检查：{new Date(check.checkedAt).toLocaleString()}
+                      </p>
+                    </div>
+                  )}
+                  {check?.status === 'not-installed' && (
+                    <>
+                      <p>
+                        下载稳定通道的最新版，安装到工作台自己的工具目录。无需管理员权限，保留已有全局安装。
+                      </p>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy || checking}
+                        onClick={() => void start('install')}
+                      >
+                        一键安装最新版 Codex
+                      </button>
+                    </>
+                  )}
+                  {check?.status === 'signed-out' && (
+                    <>
+                      <p>打开官方授权页完成登录。工作台不接收你的密码或密钥。</p>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        disabled={busy || checking}
+                        onClick={() => void start('login')}
+                      >
+                        在浏览器登录 Codex
+                      </button>
+                    </>
+                  )}
+                  {action && (
+                    <div className="setup-result" role="status">
+                      <strong>{actionLabels[action.state]}</strong>
+                      {action.error && <p>{errors[action.error]}</p>}
+                      {action.state === 'succeeded' && action.kind === 'install' && (
+                        <p>
+                          已安装 CLI {action.check?.cliVersion}，并完成接口检查。
+                          {action.check?.status === 'signed-out' ? '下一步请登录。' : ''}
+                        </p>
+                      )}
+                      {action.state === 'succeeded' && action.kind === 'login' && (
+                        <p>官方授权已完成，认证配置复查通过。</p>
+                      )}
+                      {action.authUrl && (
+                        <ExternalLink href={action.authUrl}>打开官方授权页</ExternalLink>
+                      )}
+                      {!finished(action) && (
+                        <button
+                          className="button secondary"
+                          type="button"
+                          disabled={submitting || action.state === 'cancelling'}
+                          onClick={() => void cancel()}
+                        >
+                          {action.kind === 'login' ? '停止等待登录' : '停止安装'}
+                        </button>
+                      )}
+                      {action.state === 'cancelled' && (
+                        <p>停止操作不撤销已经完成的安装或账号授权。</p>
+                      )}
+                    </div>
+                  )}
+                  <p>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      disabled={busy || checking}
+                      onClick={() => void inspectCodex()}
+                    >
+                      {checking ? '正在检测 Codex…' : '重新检测 Codex'}
+                    </button>
+                  </p>
+                  {error && (
+                    <p className="error" role="alert">
+                      {error}
                     </p>
                   )}
-                  <p className="muted">本次检查：{new Date(check.checkedAt).toLocaleString()}</p>
-                </div>
+                  <details>
+                    <summary>使用终端配置或排查问题</summary>
+                    <p>也可自行安装稳定通道最新版；已有 CLI 时先检查，不必重新安装。</p>
+                    <Command>{`npm install -g ${CODEX_SETUP_PACKAGE}`}</Command>
+                    <Command>
+                      {'codex --version\ncodex login status\n# 未登录时再执行\ncodex login'}
+                    </Command>
+                    <p>
+                      检测会短暂启动 App Server，读取认证配置后关闭。已有 CLI
+                      不会自动升级。网页按钮安装的 CLI 由工作台管理，终端里的 codex
+                      可能是另一份安装。
+                    </p>
+                    <p>
+                      找不到已有 CLI 时，运行 <code>command -v codex</code>
+                      ，从相同终端重启工作台；也可在服务启动时用 <code>LINGXI_CODEX_BIN</code>{' '}
+                      指定可执行文件的绝对路径。
+                    </p>
+                  </details>
+                  <ExternalLink href="https://developers.openai.com/codex/app-server/">
+                    Codex 官方接入说明
+                  </ExternalLink>
+                </>
+              ) : (
+                <>
+                  <div className="setup-result" role="status">
+                    <strong>灵矽连接尚未验证</strong>
+                    <p>工作台尚未接入灵矽检测接口，暂时无法自动确认账号、客户端和设备绑定状态。</p>
+                  </div>
+                  <h3>1. 准备账号与智能体</h3>
+                  <p>
+                    已有账号和智能体可直接使用；尚未准备时，在七牛灵矽控制台注册或登录并创建智能体。
+                  </p>
+                  <ExternalLink href="https://xrobo.qiniu.com/">打开灵矽控制台</ExternalLink>
+                  <h3>2. 运行并绑定 Mac 音频客户端</h3>
+                  <p>
+                    按官方文档安装 C++ / PortAudio
+                    客户端，用设备验证码绑定智能体。已有绑定可跳过这一步。
+                  </p>
+                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/client-demo">
+                    Mac 音频客户端安装文档
+                  </ExternalLink>
+                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/quick-start">
+                    智能体与设备绑定步骤
+                  </ExternalLink>
+                  <h3>3. 确认能听和说</h3>
+                  <p>
+                    在 macOS「系统设置 → 隐私与安全性 →
+                    麦克风」允许客户端录音；说一句测试话，确认有识别结果并能听到回复。
+                  </p>
+                  <p>完成账号和设备绑定不会自动开启语音编程，还需要接入工作台的任务工具。</p>
+                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/mcp/hardware-mcp">
+                    端侧 MCP 工具通道文档
+                  </ExternalLink>
+                </>
               )}
-              {checkError && (
-                <p className="error" role="alert">
-                  {checkError}
-                </p>
-              )}
-              <details>
-                <summary>安装了 CLI，但工作台找不到？</summary>
-                <p>
-                  在终端运行 <code>command -v codex</code>
-                  。从这个终端重新启动工作台；自定义位置可在启动时设置 <code>LINGXI_CODEX_BIN</code>{' '}
-                  为可执行文件的绝对路径。此设置属于本机服务，页面不会接收任意程序路径。
-                </p>
-              </details>
-              <ExternalLink href="https://developers.openai.com/codex/app-server/">
-                Codex 官方接入说明
-              </ExternalLink>
-            </>
-          )}
-          {step === 2 && (
-            <>
-              <p>
-                还没有灵矽账号时，先完成账号与音频客户端准备。当前工作台尚不能直接录音或调用灵矽。
-              </p>
-              <h3>1. 创建账号与智能体</h3>
-              <p>
-                打开七牛灵矽控制台，完成注册或登录，创建一个供工作台使用的智能体。模型与音色可以先使用平台提供的配置。
-              </p>
-              <ExternalLink href="https://xrobo.qiniu.com/">打开灵矽控制台</ExternalLink>
-              <h3>2. 运行 Mac 音频客户端</h3>
-              <p>
-                官方演示客户端支持 macOS，使用 C++ 和
-                PortAudio。先按官方文档安装编译依赖、编译运行，再按客户端提供的验证码把设备绑定到智能体。
-              </p>
-              <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/client-demo">
-                Mac 音频客户端安装文档
-              </ExternalLink>
-              <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/quick-start">
-                智能体与设备绑定步骤
-              </ExternalLink>
-              <h3>3. 验证听和说</h3>
-              <p>
-                在 macOS「系统设置 → 隐私与安全性 →
-                麦克风」允许运行客户端的应用录音，检查输入输出设备。先说一句测试话，确认有识别结果并能听到回复。
-              </p>
-              <div className="setup-result">
-                <strong>语音控制尚待接入</strong>
-                <p>
-                  音频客户端能对话后，还需要把提交、查询、补充和停止任务接入工作台。完成账号和设备绑定不会自动开启语音编程。
-                </p>
+              <div className="setup-pagination">
+                {step === 0 ? (
+                  <button className="button secondary" type="button" onClick={() => setStep(1)}>
+                    下一步：配置灵矽
+                  </button>
+                ) : (
+                  <>
+                    <button className="button secondary" type="button" onClick={() => setStep(0)}>
+                      上一步
+                    </button>
+                    <a className="button secondary" href="/">
+                      回到工作台
+                    </a>
+                  </>
+                )}
               </div>
-              <ExternalLink href="https://linx.qiniu.com/docs/xrobot/mcp/hardware-mcp">
-                端侧 MCP 工具通道文档
-              </ExternalLink>
-            </>
-          )}
-          {step === 3 && (
-            <>
-              <p>先在同一台 Mac 打开操作台和大屏，保存一条建议，确认两个窗口同步。</p>
-              <a className="button secondary" href="/display" target="_blank" rel="noreferrer">
-                打开大屏 ↗
-              </a>
-              <h3>通过 AirPlay 放到电视</h3>
-              <ol>
-                <li>在 Mac 控制中心打开「屏幕镜像」，选择电视或会议室屏幕。</li>
-                <li>支持时选择扩展显示，把大屏窗口移过去并全屏。</li>
-                <li>电脑保留操作台，继续输入建议。只能镜像时，两块屏幕显示相同画面。</li>
-              </ol>
-              <p>网页连接状态代表工作台同步连接；电视是否收到画面，需要你在屏幕上确认。</p>
-              <div className="setup-result">
-                <strong>准备完成后可以体验什么？</strong>
-                <p>
-                  现在可以保存建议、同步大屏并恢复会话。真实代码修改、作品预览和灵矽语音控制将在后续接入。
-                </p>
-              </div>
-              <a className="button secondary" href="/">
-                回到工作台
-              </a>
-            </>
-          )}
-          <div className="setup-pagination">
-            <button
-              className="button secondary"
-              type="button"
-              disabled={step === 0}
-              onClick={() => setStep(step - 1)}
-            >
-              上一步
-            </button>
-            {step < steps.length - 1 && (
-              <button className="button secondary" type="button" onClick={() => setStep(step + 1)}>
-                下一步：{steps[step + 1]}
-              </button>
-            )}
-          </div>
-        </section>
-      </main>
+            </section>
+          </main>
+        </>
+      )}
     </div>
   );
 }

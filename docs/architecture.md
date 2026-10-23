@@ -19,14 +19,18 @@ AirPlay 首版由用户在 macOS 手动连接，网页仅放到扩展屏幕，�
 
 ## 当前协议（版本 1）
 
-| 接口                          | 行为                                                |
-| ----------------------------- | --------------------------------------------------- |
-| `GET /api/health`             | 存活与协议版本                                      |
-| `GET /api/session`            | 完整当前会话                                        |
-| `POST /api/commands`          | 保存建议，首次 201、重试 200                        |
-| `GET /api/events`             | `session.snapshot` SSE，初始和更新时发完整快照      |
-| `GET /api/setup`              | 后端所在电脑环境与当前能力边界，不启动 Codex        |
-| `POST /api/setup/codex/check` | 空 JSON 请求触发只读 CLI、App Server 和认证配置检查 |
+| 接口                           | 行为                                                     |
+| ------------------------------ | -------------------------------------------------------- |
+| `GET /api/health`              | 存活与协议版本                                           |
+| `GET /api/session`             | 完整当前会话                                             |
+| `POST /api/commands`           | 保存建议，首次 201、重试 200                             |
+| `GET /api/events`              | `session.snapshot` SSE，初始和更新时发完整快照           |
+| `GET /api/setup`               | 后端所在电脑环境与当前能力边界，不启动 Codex             |
+| `POST /api/setup/check`        | 一次汇总环境、Codex 与灵矽检测结果（后者当前为无法检测） |
+| `GET /api/setup/codex/action`  | 当前安装或授权操作状态                                   |
+| `POST /api/setup/codex/action` | 固定 install / login 动作，requestId 去重，202 / 409     |
+| `POST /api/setup/codex/cancel` | 按操作 ID 停止并回收进程                                 |
+| `POST /api/setup/codex/check`  | 空 JSON 请求触发只读 CLI、App Server 和认证配置检查      |
 
 ```json
 {
@@ -49,7 +53,7 @@ SSE 使用会话版本作为事件 ID，每 15 秒注释心跳。任何重连都
 
 数据库默认 `.local/lingxi.db`，WAL 模式。重开数据库恢复会话 ID、建议和版本。当前没有运行中的 Agent 任务；未来恢复需核对真实执行状态。
 
-连接向导的环境检查与持久会话分开。检查结果带时间戳，不保存成「已连接」状态，也不修改任务或会话版本。后台固定调用 CLI，限制超时和输出大小，并共享同时发起的检查；网页不能传入程序路径或参数。真正的执行与语音能力仍标为未开放。
+连接向导的环境检查与持久会话分开。检查结果带时间戳，不保存成「已连接」状态，也不修改任务或会话版本。后台固定调用 CLI，限制超时和输出大小，并共享同时发起的检查；网页不能传入程序路径或参数。真正的执行与语音能力仍标为未开放。安装与登录由独立的显式点击操作完成；受控进程、工具目录和授权流程见 [ADR 0002](adr/0002-local-setup-actions.md)。
 
 ## 本地边界与成果隔离
 

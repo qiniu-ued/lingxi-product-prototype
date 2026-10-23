@@ -1,9 +1,15 @@
 import { isIP } from 'node:net';
+import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
-import { type CodexCheck, type Session, submitCommandSchema } from '@lingxi/protocol';
+import {
+  type CodexCheck,
+  codexSetupRequestSchema,
+  type Session,
+  submitCommandSchema,
+} from '@lingxi/protocol';
 import Fastify from 'fastify';
 import { z } from 'zod';
-import { checkCodex } from './codex-check.js';
+import { CodexSetup } from './codex-setup.js';
 import { SessionStore, StoreConflict } from './store.js';
 
 interface AppOptions {
@@ -12,11 +18,18 @@ interface AppOptions {
   webOrigin?: string;
   logger?: boolean;
   checkCodex?: () => Promise<CodexCheck>;
+  codexSetup?: CodexSetup;
 }
 
 export function buildApp(options: AppOptions) {
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 16 * 1024 });
   const store = new SessionStore(options.databasePath);
+  const setup =
+    options.codexSetup ??
+    new CodexSetup({
+      toolsRoot: join(dirname(options.databasePath), 'tools'),
+      ...(process.env.LINGXI_CODEX_BIN ? { executable: process.env.LINGXI_CODEX_BIN } : {}),
+    });
   const subscribers = new Set<(snapshot: Session | null) => void>();
 
   app.addHook('onRequest', async (request, reply) => {
@@ -42,8 +55,7 @@ export function buildApp(options: AppOptions) {
 
   app.get('/api/health', async () => ({ status: 'ok', schemaVersion: 1 }));
   app.get('/api/session', async () => store.read());
-  app.get('/api/setup', async (_request, reply) => {
-    reply.header('Cache-Control', 'no-store');
+  const environment = () => {
     return {
       checkedAt: new Date().toISOString(),
       host: {
@@ -54,17 +66,57 @@ export function buildApp(options: AppOptions) {
       },
       capabilities: { codexTasks: false, lingxiVoice: false },
     };
+  };
+  app.get('/api/setup', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return environment();
   });
   let pendingCheck: Promise<CodexCheck> | undefined;
+  const inspectCodex = () => {
+    pendingCheck ??= (options.checkCodex ?? (() => setup.check()))().finally(() => {
+      pendingCheck = undefined;
+    });
+    return pendingCheck;
+  };
+  app.post('/api/setup/check', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!z.strictObject({}).safeParse(request.body).success) {
+      return reply.code(400).send({ error: 'invalid_request' });
+    }
+    // Check both integration boundaries in the same inspection. No Lingxi detector exists yet.
+    const lingxi = {
+      checkedAt: new Date().toISOString(),
+      status: 'unavailable',
+      reason: 'adapter-not-connected',
+    };
+    return { environment: environment(), codex: await inspectCodex(), lingxi };
+  });
   app.post('/api/setup/codex/check', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!z.strictObject({}).safeParse(request.body).success) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
-    pendingCheck ??= (options.checkCodex ?? checkCodex)().finally(() => {
-      pendingCheck = undefined;
-    });
-    return pendingCheck;
+    return inspectCodex();
+  });
+  app.get('/api/setup/codex/action', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return setup.snapshot();
+  });
+  app.post('/api/setup/codex/action', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin) return reply.code(403).send({ error: 'forbidden_origin' });
+    const parsed = codexSetupRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
+    const result = setup.start(parsed.data);
+    return reply.code(result.conflict ? 409 : 202).send({ action: result.action });
+  });
+  app.post('/api/setup/codex/cancel', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin) return reply.code(403).send({ error: 'forbidden_origin' });
+    const parsed = z.strictObject({ id: z.uuid() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
+    if (!setup.cancel(parsed.data.id)) return reply.code(409).send({ error: 'action_conflict' });
+    return setup.snapshot();
   });
   app.post('/api/commands', async (request, reply) => {
     const parsed = submitCommandSchema.safeParse(request.body);
@@ -126,6 +178,7 @@ export function buildApp(options: AppOptions) {
     return reply.code(500).send({ error: 'internal_error' });
   });
   app.addHook('preClose', async () => {
+    await setup.close();
     for (const send of subscribers) send(null);
     subscribers.clear();
   });

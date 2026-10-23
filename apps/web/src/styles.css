@@ -548,3 +548,25 @@ footer {
     gap: 12px;
   }
 }
+.setup-overview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.setup-overview .panel {
+  padding: 22px 24px;
+}
+.setup-overview h2 {
+  font-size: 20px;
+}
+.setup-overview p:last-child {
+  margin-bottom: 0;
+  color: #7c7367;
+  font-size: 14px;
+}
+@media (max-width: 600px) {
+  .setup-overview {
+    grid-template-columns: 1fr;
+  }
+}

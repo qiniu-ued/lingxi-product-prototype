@@ -89,8 +89,20 @@
       display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
       gap: 16px; padding: 18px 20px;
     }
-    #lingxi-airplay-voice-prototype .lv-preview, #lingxi-airplay-voice-prototype .lv-conversation {
-      background: var(--lv-panel); border: 1px solid var(--lv-line); border-radius: 10px; min-width: 0;
+    #lingxi-airplay-voice-prototype .lv-preview {
+      display: flex; flex-direction: column; min-width: 0; min-height: 400px;
+      background: var(--lv-receiver); border-radius: 10px; overflow: hidden;
+    }
+    #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header {
+      color: var(--lv-receiver-fg); border: 0; padding: 13px 16px;
+    }
+    #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header .lv-small { color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-conversation {
+      display: flex; flex-direction: column; min-width: 0;
+      border-left: 1px solid var(--lv-line); padding-left: 18px;
+    }
+    #lingxi-airplay-voice-prototype .lv-conversation > .lv-panel-header {
+      padding: 11px 0; font-size: 14px;
     }
     #lingxi-airplay-voice-prototype .lv-panel-header {
       padding: 10px 14px; border-bottom: 1px solid var(--lv-line);
@@ -98,13 +110,13 @@
       font-size: 12px; font-weight: 500;
     }
     #lingxi-airplay-voice-prototype .lv-empty {
-      min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 32px 24px; text-align: center; gap: 12px;
+      flex: 1; min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 32px 24px; text-align: center; gap: 12px; color: var(--lv-receiver-fg);
     }
-    #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-receiver-muted); }
     #lingxi-airplay-voice-prototype .lv-empty h2 { font-size: 21px; }
-    #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-secondary); font-size: 13px; }
-    #lingxi-airplay-voice-prototype .lv-webpage { padding: 26px 20px 20px; }
+    #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-receiver-muted); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; margin: 0 14px 14px; padding: 26px 20px 20px; background: var(--lv-panel); border-radius: 6px; }
     #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 25px; letter-spacing: -.03em; margin: 5px 0 9px; }
     #lingxi-airplay-voice-prototype .lv-webpage-intro { color: var(--lv-secondary); font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-options {
@@ -129,21 +141,20 @@
       background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
-    #lingxi-airplay-voice-prototype .lv-messages { padding: 14px; display: grid; gap: 18px; }
+    #lingxi-airplay-voice-prototype .lv-messages { padding: 16px 0 20px; display: grid; gap: 18px; }
     #lingxi-airplay-voice-prototype .lv-speaker { font-size: 12px; color: var(--lv-secondary); margin-bottom: 6px; }
     #lingxi-airplay-voice-prototype .lv-message { font-size: 13px; overflow-wrap: anywhere; }
-    #lingxi-airplay-voice-prototype .lv-user-message { padding: 11px; border-radius: 8px; background: var(--lv-bg); }
-    #lingxi-airplay-voice-prototype .lv-agents { padding: 0 20px 16px; }
+    #lingxi-airplay-voice-prototype .lv-user-message { padding: 11px; border-radius: 8px; background: var(--lv-panel); }
+    #lingxi-airplay-voice-prototype .lv-agents { margin-top: auto; padding: 15px 0 0; border-top: 1px solid var(--lv-line); }
     #lingxi-airplay-voice-prototype .lv-agent-list {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)); gap: 9px; margin-top: 8px;
+      display: grid; grid-template-columns: 1fr; gap: 4px; margin-top: 8px;
     }
     #lingxi-airplay-voice-prototype .lv-agent {
       display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
-      padding: 10px 12px; background: var(--lv-panel); border-radius: 8px; font-size: 12px;
+      padding: 6px 0; font-size: 12px;
     }
-    #lingxi-airplay-voice-prototype .lv-agent-current { background: var(--lv-soft); }
-    #lingxi-airplay-voice-prototype .lv-agent-current .lv-agent-state { color: var(--lv-accent); }
-    #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-agent-current .lv-agent-state { color: var(--lv-accent); background: var(--lv-soft); }
+    #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); padding: 2px 7px; border-radius: 5px; }
     #lingxi-airplay-voice-prototype .lv-voice-hint {
       display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
       padding: 11px 17px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
@@ -170,6 +181,8 @@
     #lingxi-airplay-voice-prototype .lv-caption-empty { color: var(--lv-secondary); }
     @media (max-width: 800px) {
       #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; }
+      #lingxi-airplay-voice-prototype .lv-preview { min-height: 300px; }
+      #lingxi-airplay-voice-prototype .lv-conversation { border-left: 0; padding-left: 0; }
       #lingxi-airplay-voice-prototype .lv-empty { min-height: 220px; }
       #lingxi-airplay-voice-prototype .lv-captions { grid-template-columns: 1fr; gap: 12px; }
     }
@@ -187,8 +200,6 @@
       #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-vote-count,
       #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
       #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
-      #lingxi-airplay-voice-prototype .lv-agents { padding: 0 14px 14px; }
-      #lingxi-airplay-voice-prototype .lv-agent-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       #lingxi-airplay-voice-prototype .lv-controller-row { grid-template-columns: 1fr; gap: 15px; }
       #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; gap: 13px; }
       #lingxi-airplay-voice-prototype .lv-hardware { width: 85px; height: 53px; border-radius: 22px; }
@@ -246,11 +257,11 @@
         <aside class="lv-conversation" aria-label="已发送的语音转写与灵矽回复">
           <div class="lv-panel-header"><span>与灵矽的对话</span><span class="lv-small">本轮</span></div>
           <div class="lv-messages" data-messages></div>
-        </aside>
-      </div>
       <section class="lv-agents" data-agents hidden aria-label="本次实际调用的 Agent 的模拟状态">
         <div class="lv-small">本次调用的 Agent</div><div class="lv-agent-list" data-agent-list></div>
       </section>
+        </aside>
+      </div>
       <div class="lv-voice-hint"><i data-lucide="mic" aria-hidden="true"></i><span data-voice-hint>可以说：“做一个周末出游投票页。”</span></div>
     </section>
   </div>

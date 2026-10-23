@@ -1646,12 +1646,14 @@ html&gt;body{padding:0}&lt;/style&gt;
     }
     #lingxi-airplay-voice-prototype .lv-preview &gt; .lv-panel-header .lv-small { color: var(--lv-receiver-muted); }
     #lingxi-airplay-voice-prototype .lv-conversation {
-      display: flex; flex-direction: column; min-width: 0;
-      border-left: 1px solid var(--lv-line); padding-left: 18px;
+      display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+      background: var(--lv-bg); border: 1px solid var(--lv-line); border-radius: 12px;
     }
     #lingxi-airplay-voice-prototype .lv-conversation &gt; .lv-panel-header {
-      padding: 11px 0; font-size: 14px;
+      padding: 13px 14px; font-size: 14px; background: var(--lv-panel);
     }
+    #lingxi-airplay-voice-prototype .lv-chat-title { display: flex; align-items: center; gap: 8px; }
+    #lingxi-airplay-voice-prototype .lv-chat-title svg { width: 18px; height: 18px; color: var(--lv-accent); }
     #lingxi-airplay-voice-prototype .lv-panel-header {
       padding: 10px 14px; border-bottom: 1px solid var(--lv-line);
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
@@ -1689,11 +1691,30 @@ html&gt;body{padding:0}&lt;/style&gt;
       background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
-    #lingxi-airplay-voice-prototype .lv-messages { padding: 16px 0 20px; display: grid; gap: 18px; }
-    #lingxi-airplay-voice-prototype .lv-speaker { font-size: 12px; color: var(--lv-secondary); margin-bottom: 6px; }
-    #lingxi-airplay-voice-prototype .lv-message { font-size: 13px; overflow-wrap: anywhere; }
-    #lingxi-airplay-voice-prototype .lv-user-message { padding: 11px; border-radius: 8px; background: var(--lv-panel); }
-    #lingxi-airplay-voice-prototype .lv-agents { margin-top: auto; padding: 15px 0 0; border-top: 1px solid var(--lv-line); }
+    #lingxi-airplay-voice-prototype .lv-messages {
+      flex: 1; padding: 16px 12px; display: grid; align-content: start; gap: 18px;
+    }
+    #lingxi-airplay-voice-prototype .lv-chat-row { display: flex; align-items: flex-start; gap: 8px; }
+    #lingxi-airplay-voice-prototype .lv-chat-row-user { flex-direction: row-reverse; }
+    #lingxi-airplay-voice-prototype .lv-avatar {
+      flex: 0 0 24px; height: 24px; display: grid; place-items: center; border-radius: 8px;
+      font-size: 11px; background: var(--lv-primary); color: var(--lv-on-primary);
+    }
+    #lingxi-airplay-voice-prototype .lv-chat-row-user .lv-avatar {
+      border-radius: 50%; background: var(--lv-soft); color: var(--lv-accent);
+    }
+    #lingxi-airplay-voice-prototype .lv-message-content { min-width: 0; max-width: calc(100% - 32px); }
+    #lingxi-airplay-voice-prototype .lv-speaker { font-size: 11px; color: var(--lv-secondary); margin-bottom: 5px; }
+    #lingxi-airplay-voice-prototype .lv-chat-row-user .lv-speaker { text-align: right; }
+    #lingxi-airplay-voice-prototype .lv-message {
+      padding: 10px 12px; border: 1px solid var(--lv-line); border-radius: 4px 12px 12px 12px;
+      font-size: 13px; overflow-wrap: anywhere; background: var(--lv-panel);
+    }
+    #lingxi-airplay-voice-prototype .lv-user-message {
+      border-color: var(--lv-primary); border-radius: 12px 4px 12px 12px;
+      background: var(--lv-primary); color: var(--lv-on-primary);
+    }
+    #lingxi-airplay-voice-prototype .lv-agents { margin: auto 14px 14px; padding: 12px 0 0; border-top: 1px solid var(--lv-line); }
     #lingxi-airplay-voice-prototype .lv-agent-list {
       display: grid; grid-template-columns: 1fr; gap: 4px; margin-top: 8px;
     }
@@ -1730,7 +1751,6 @@ html&gt;body{padding:0}&lt;/style&gt;
     @media (max-width: 800px) {
       #lingxi-airplay-voice-prototype .lv-workspace { grid-template-columns: 1fr; }
       #lingxi-airplay-voice-prototype .lv-preview { min-height: 300px; }
-      #lingxi-airplay-voice-prototype .lv-conversation { border-left: 0; padding-left: 0; }
       #lingxi-airplay-voice-prototype .lv-empty { min-height: 220px; }
       #lingxi-airplay-voice-prototype .lv-captions { grid-template-columns: 1fr; gap: 12px; }
     }
@@ -1803,7 +1823,7 @@ html&gt;body{padding:0}&lt;/style&gt;
           &lt;/div&gt;
         &lt;/section&gt;
         &lt;aside class=&quot;lv-conversation&quot; aria-label=&quot;已发送的语音转写与灵矽回复&quot;&gt;
-          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span&gt;与灵矽的对话&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;本轮&lt;/span&gt;&lt;/div&gt;
+          &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span class=&quot;lv-chat-title&quot;&gt;&lt;i data-lucide=&quot;message-circle&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;与灵矽对话&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;语音对话&lt;/span&gt;&lt;/div&gt;
           &lt;div class=&quot;lv-messages&quot; data-messages&gt;&lt;/div&gt;
       &lt;section class=&quot;lv-agents&quot; data-agents hidden aria-label=&quot;本次实际调用的 Agent 的模拟状态&quot;&gt;
         &lt;div class=&quot;lv-small&quot;&gt;本次调用的 Agent&lt;/div&gt;&lt;div class=&quot;lv-agent-list&quot; data-agent-list&gt;&lt;/div&gt;
@@ -1855,9 +1875,13 @@ html&gt;body{padding:0}&lt;/style&gt;
         return node;
       };
       function addMessage(speaker, content, isUser) {
-        const message = make(&#x27;div&#x27;);
-        message.append(make(&#x27;div&#x27;, &#x27;lv-speaker&#x27;, speaker));
-        message.append(make(&#x27;p&#x27;, &#x27;lv-message&#x27; + (isUser ? &#x27; lv-user-message&#x27; : &#x27;&#x27;), content));
+        const message = make(&#x27;div&#x27;, &#x27;lv-chat-row&#x27; + (isUser ? &#x27; lv-chat-row-user&#x27; : &#x27;&#x27;));
+        const avatar = make(&#x27;div&#x27;, &#x27;lv-avatar&#x27;, isUser ? &#x27;你&#x27; : &#x27;灵&#x27;);
+        avatar.setAttribute(&#x27;aria-hidden&#x27;, &#x27;true&#x27;);
+        const body = make(&#x27;div&#x27;, &#x27;lv-message-content&#x27;);
+        body.append(make(&#x27;div&#x27;, &#x27;lv-speaker&#x27;, speaker));
+        body.append(make(&#x27;p&#x27;, &#x27;lv-message&#x27; + (isUser ? &#x27; lv-user-message&#x27; : &#x27;&#x27;), content));
+        message.append(avatar, body);
         find(&#x27;messages&#x27;).append(message);
       }
       function renderConversation() {

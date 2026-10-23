@@ -1,4 +1,4 @@
-<div id="lingxi-airplay-voice-prototype" aria-label="灵矽纯语音连接 AirPlay、创作页面与体验作品的流程原型">
+<div id="lingxi-airplay-voice-prototype" aria-label="灵矽主动唤醒后，通过语音连接屏幕、创作与体验作品的流程原型">
   <style>
     #lingxi-airplay-voice-prototype {
       --lv-bg: light-dark(#f3f0e9, #24221e);
@@ -264,7 +264,7 @@
   </style>
 
   <div class="lv-demo-controls" role="group" aria-label="仅用于评审的演示控制，不属于产品操作">
-    <div><div class="lv-demo-title">演示控制 · 不属于产品界面</div><div class="lv-small">语音、AirPlay 与 Agent 状态均为模拟</div></div>
+    <div><div class="lv-demo-title">演示控制 · 不属于产品界面</div><div class="lv-small">语音、AirPlay 与 Agent 均为模拟；每次指令均先主动唤醒</div></div>
     <div class="lv-step-controls">
       <button type="button" class="lv-demo-button cursor-interaction" data-demo-prev disabled>上一句</button>
       <button type="button" class="lv-demo-button lv-play cursor-interaction" data-demo-play>自动演示</button>
@@ -310,21 +310,21 @@
           </div>
         </section>
         <aside class="lv-conversation" aria-label="已发送的语音转写与灵矽回复">
-          <div class="lv-panel-header"><span class="lv-chat-title"><i data-lucide="message-circle" aria-hidden="true"></i>与灵矽对话</span><span class="lv-small">语音对话</span></div>
+          <div class="lv-panel-header"><span class="lv-chat-title"><i data-lucide="message-circle" aria-hidden="true"></i>与灵矽对话</span><span class="lv-small">发言人提交</span></div>
           <div class="lv-messages" data-messages role="log" aria-label="对话记录" tabindex="0"></div>
       <section class="lv-agents" data-agents hidden aria-label="本次实际调用的 Agent 的模拟状态">
         <div class="lv-small">本次调用的 Agent</div><div class="lv-agent-list" data-agent-list></div>
       </section>
         </aside>
       </div>
-      <div class="lv-voice-hint"><i data-lucide="mic" aria-hidden="true"></i><span data-voice-hint>可以说：“做一个周末出游投票页。”</span></div>
+      <div class="lv-voice-hint"><i data-lucide="mic-off" aria-hidden="true"></i><span data-voice-hint>再次主动唤醒后可说：“做一个周末出游投票页。”</span></div>
     </section>
   </div>
 
   <div class="lv-controller-row">
-    <div class="lv-hardware-wrap"><div class="lv-hardware" aria-label="无屏灵矽控制端的外观示意"><span class="lv-hardware-brand">灵矽</span><span class="lv-hardware-light" aria-hidden="true"></span></div><span class="lv-small">无屏控制端</span></div>
+    <div class="lv-hardware-wrap"><div class="lv-hardware" aria-label="无屏灵矽控制端的外观示意"><span class="lv-hardware-brand">灵矽</span><span class="lv-hardware-light" aria-hidden="true"></span></div><span class="lv-small">无屏控制端</span><span class="lv-small">麦克风已关闭</span></div>
     <div class="lv-captions" aria-live="polite" aria-atomic="true">
-      <div><div class="lv-caption-label">用户 · 模拟语音</div><p class="lv-caption-text" data-user-caption>“灵矽，连接屏幕。”</p></div>
+      <div><div class="lv-caption-label">总发言人 · 唤醒后提交（模拟）</div><p class="lv-caption-text" data-user-caption>“灵矽，连接屏幕。”</p></div>
       <div><div class="lv-caption-label">灵矽 · 控制端声音字幕</div><p class="lv-caption-text" data-ai-caption>正在查找可用的 AirPlay 屏幕。</p></div>
     </div>
   </div>
@@ -334,20 +334,20 @@
       const root = document.getElementById('lingxi-airplay-voice-prototype');
       const find = name => root.querySelector('[data-' + name + ']');
       const states = [
-        {title:'发起连接', view:'receiver', user:'灵矽，连接屏幕。', reply:'正在查找可用的 AirPlay 屏幕。'},
+        {title:'主动唤醒，发起连接', view:'receiver', user:'灵矽，连接屏幕。', reply:'正在查找可用的 AirPlay 屏幕。'},
         {title:'用语音选择屏幕', view:'receiver', user:'', reply:'找到“会议室电视”和“客厅电视”。你想连接哪一台？'},
         {title:'首次配对示例', view:'pairing', user:'连接会议室电视。', reply:'请读出电视上显示的四位验证码。'},
-        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', reply:'已连接会议室电视。你想做一个什么样的页面？', status:'等待你的需求', preview:'还没有作品', empty:'说出你想做的页面', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'可以说：“做一个周末出游投票页。”', agents:[]},
-        {title:'说出创作需求', view:'app', user:'做一个周末出游投票页，放三个选项，每个配个小图，可以投票。', reply:'我会做好投票页面和配图，并检查投票交互。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'制作一个带有三个选项与配图的投票页。', hint:'可以说：“再加一个要求……”', agents:[['需求分析','分析中']]},
-        {title:'Agent 正在执行', view:'app', user:'', reply:'需求已明确，页面开发和绘图正在进行。', status:'正在创建页面', preview:'正在创建', empty:'正在制作页面与配图', detail:'完成后，这里会显示可以体验的页面。', hint:'可以说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
-        {title:'预览已出现，继续检查', view:'app', user:'', reply:'页面预览已生成，正在检查投票交互。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, hint:'正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'作品完成', view:'app', user:'', reply:'页面已完成，投票交互已检查。你可以说“给海边投一票”来体验。', status:'作品已就绪', statusTone:'success', preview:'当前版本 · 检查完成', page:true, hint:'可以说：“给海边投一票。”', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
-        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 检查完成', page:true, voted:true, hint:'可以说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
-        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, voted:true, hint:'正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
-        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, voted:true, renamed:true, hint:'可以说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
-        {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。你可以说“重新连接会议室电视”。'},
-        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以继续说出修改需求。', agents:[]}
+        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', reply:'已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。', status:'等待你的需求', preview:'还没有作品', empty:'说出你想做的页面', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'再次主动唤醒后可说：“做一个周末出游投票页。”', agents:[]},
+        {title:'发言人唤醒并提交需求', view:'app', user:'做一个周末出游投票页，放三个选项，每个配个小图，可以投票。', reply:'需求已收到，已结束收音。我会做好投票页面和配图，并检查投票交互。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'制作一个带有三个选项与配图的投票页。', hint:'再次主动唤醒后可说：“再加一个要求……”', agents:[['需求分析','分析中']]},
+        {title:'Agent 正在执行', view:'app', user:'', reply:'需求已明确，页面开发和绘图正在进行。', status:'正在创建页面', preview:'正在创建', empty:'正在制作页面与配图', detail:'完成后，这里会显示可以体验的页面。', hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
+        {title:'预览已出现，继续检查', view:'app', user:'', reply:'页面预览已生成，正在检查投票交互。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, hint:'未收音 · 正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'作品完成', view:'app', user:'', reply:'页面已完成，投票交互已检查。再次主动唤醒后，可以说“给海边投一票”来体验。', status:'作品已就绪', statusTone:'success', preview:'当前版本 · 检查完成', page:true, hint:'再次主动唤醒后可说：“给海边投一票。”', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 检查完成', page:true, voted:true, hint:'再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
+        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, voted:true, hint:'未收音 · 正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
+        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。'},
+        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'待唤醒 · 有新的修改需求时，请再次主动唤醒。', agents:[]}
       ];
       const agentMarks = {
         "需求分析": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\"><path d=\"M16 5 27 16 16 27 5 16Z\" fill=\"currentColor\" fill-opacity=\".1\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><circle cx=\"16\" cy=\"16\" r=\"3\" fill=\"currentColor\"/><g fill=\"currentColor\" opacity=\".55\"><circle cx=\"6\" cy=\"6\" r=\"1.7\"/><circle cx=\"26\" cy=\"6\" r=\"1.7\"/><circle cx=\"26\" cy=\"26\" r=\"1.7\"/><circle cx=\"6\" cy=\"26\" r=\"1.7\"/></g></svg>",
@@ -370,7 +370,7 @@
       };
       function addMessage(speaker, content, isUser) {
         const message = make('div', 'lv-chat-row' + (isUser ? ' lv-chat-row-user' : ''));
-        const avatar = make('div', 'lv-avatar', isUser ? '你' : '灵');
+        const avatar = make('div', 'lv-avatar', isUser ? '发' : '灵');
         avatar.setAttribute('aria-hidden', 'true');
         const body = make('div', 'lv-message-content');
         body.append(make('div', 'lv-speaker', speaker));
@@ -387,7 +387,7 @@
         }
         for (let index = conversationStep + 1; index <= current; index++) {
           const state = states[index];
-          if (state.user) addMessage('你 · 语音转写 · 已发送', index === 3 ? '验证码已提交' : state.user, true);
+          if (state.user) addMessage('总发言人 · 唤醒后提交', index === 3 ? '验证码已提交' : state.user, true);
           addMessage('灵矽', state.reply, false);
         }
         conversationStep = current;
@@ -404,7 +404,7 @@
         find('passcode').hidden = state.view !== 'pairing';
         find('receiver-title').textContent = state.view === 'pairing' ? 'AirPlay 验证码' : state.view === 'disconnected' ? '当前没有接收画面' : '尚未接收到画面';
         find('receiver-detail').textContent = state.view === 'pairing' ? '配对画面示意 · 示例验证码' : state.view === 'disconnected' ? '等待新的 AirPlay 连接。' : '使用支持 AirPlay 的设备连接此屏幕。';
-        find('user-caption').textContent = state.user ? '“' + state.user + '”' : '本段没有新的语音指令';
+        find('user-caption').textContent = state.user ? '“' + state.user + '”' : '未收音 · 大家可以继续讨论';
         find('user-caption').classList.toggle('lv-caption-empty', !state.user);
         find('ai-caption').textContent = state.reply;
         if (connected) {

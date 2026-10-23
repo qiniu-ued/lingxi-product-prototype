@@ -1692,7 +1692,8 @@ html&gt;body{padding:0}&lt;/style&gt;
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
     #lingxi-airplay-voice-prototype .lv-messages {
-      flex: 1; padding: 16px 12px; display: grid; align-content: start; gap: 18px;
+      flex: 1; min-height: 0; max-height: 360px; overflow-y: auto; overscroll-behavior: contain;
+      padding: 16px 12px; display: grid; align-content: start; gap: 18px;
     }
     #lingxi-airplay-voice-prototype .lv-chat-row { display: flex; align-items: flex-start; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-chat-row-user { flex-direction: row-reverse; }
@@ -1824,7 +1825,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         &lt;/section&gt;
         &lt;aside class=&quot;lv-conversation&quot; aria-label=&quot;已发送的语音转写与灵矽回复&quot;&gt;
           &lt;div class=&quot;lv-panel-header&quot;&gt;&lt;span class=&quot;lv-chat-title&quot;&gt;&lt;i data-lucide=&quot;message-circle&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;与灵矽对话&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;语音对话&lt;/span&gt;&lt;/div&gt;
-          &lt;div class=&quot;lv-messages&quot; data-messages&gt;&lt;/div&gt;
+          &lt;div class=&quot;lv-messages&quot; data-messages role=&quot;log&quot; aria-label=&quot;对话记录&quot; tabindex=&quot;0&quot;&gt;&lt;/div&gt;
       &lt;section class=&quot;lv-agents&quot; data-agents hidden aria-label=&quot;本次实际调用的 Agent 的模拟状态&quot;&gt;
         &lt;div class=&quot;lv-small&quot;&gt;本次调用的 Agent&lt;/div&gt;&lt;div class=&quot;lv-agent-list&quot; data-agent-list&gt;&lt;/div&gt;
       &lt;/section&gt;
@@ -1863,6 +1864,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以继续说出修改需求。&#x27;, agents:[]}
       ];
       let current = 0;
+      let conversationStep = -1;
       let running = false;
       let timer = null;
       const previous = find(&#x27;demo-prev&#x27;);
@@ -1885,13 +1887,19 @@ html&gt;body{padding:0}&lt;/style&gt;
         find(&#x27;messages&#x27;).append(message);
       }
       function renderConversation() {
-        find(&#x27;messages&#x27;).replaceChildren();
-        let start = current;
-        while (start &gt; 3 &amp;&amp; !states[start].user) start--;
-        const request = states[start].user;
-        if (request) addMessage(&#x27;你 · 语音转写 · 已发送&#x27;, current === 3 ? &#x27;验证码已提交&#x27; : request, true);
-        const replies = states.slice(Math.max(start, 3), current + 1).filter(state =&gt; state.view === &#x27;app&#x27;).map(state =&gt; state.reply).slice(-2);
-        replies.forEach(reply =&gt; addMessage(&#x27;灵矽&#x27;, reply, false));
+        if (current === conversationStep) return;
+        const messages = find(&#x27;messages&#x27;);
+        if (current &lt; conversationStep) {
+          messages.replaceChildren();
+          conversationStep = -1;
+        }
+        for (let index = conversationStep + 1; index &lt;= current; index++) {
+          const state = states[index];
+          if (state.user) addMessage(&#x27;你 · 语音转写 · 已发送&#x27;, index === 3 ? &#x27;验证码已提交&#x27; : state.user, true);
+          addMessage(&#x27;灵矽&#x27;, state.reply, false);
+        }
+        conversationStep = current;
+        messages.scrollTop = messages.scrollHeight;
       }
       function render() {
         const state = states[current];
@@ -1929,8 +1937,8 @@ html&gt;body{padding:0}&lt;/style&gt;
             agent.append(make(&#x27;span&#x27;, &#x27;lv-agent-state&#x27;, (status === &#x27;已完成&#x27; ? &#x27;✓ &#x27; : &#x27;&#x27;) + status));
             find(&#x27;agent-list&#x27;).append(agent);
           });
-          renderConversation();
         }
+        renderConversation();
         previous.disabled = current === 0;
         next.disabled = current === states.length - 1;
         play.textContent = running ? &#x27;暂停演示&#x27; : current === states.length - 1 ? &#x27;重新演示&#x27; : &#x27;自动演示&#x27;;

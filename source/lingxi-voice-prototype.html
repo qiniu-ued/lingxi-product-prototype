@@ -144,7 +144,8 @@
     }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
     #lingxi-airplay-voice-prototype .lv-messages {
-      flex: 1; padding: 16px 12px; display: grid; align-content: start; gap: 18px;
+      flex: 1; min-height: 0; max-height: 360px; overflow-y: auto; overscroll-behavior: contain;
+      padding: 16px 12px; display: grid; align-content: start; gap: 18px;
     }
     #lingxi-airplay-voice-prototype .lv-chat-row { display: flex; align-items: flex-start; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-chat-row-user { flex-direction: row-reverse; }
@@ -276,7 +277,7 @@
         </section>
         <aside class="lv-conversation" aria-label="已发送的语音转写与灵矽回复">
           <div class="lv-panel-header"><span class="lv-chat-title"><i data-lucide="message-circle" aria-hidden="true"></i>与灵矽对话</span><span class="lv-small">语音对话</span></div>
-          <div class="lv-messages" data-messages></div>
+          <div class="lv-messages" data-messages role="log" aria-label="对话记录" tabindex="0"></div>
       <section class="lv-agents" data-agents hidden aria-label="本次实际调用的 Agent 的模拟状态">
         <div class="lv-small">本次调用的 Agent</div><div class="lv-agent-list" data-agent-list></div>
       </section>
@@ -315,6 +316,7 @@
         {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以继续说出修改需求。', agents:[]}
       ];
       let current = 0;
+      let conversationStep = -1;
       let running = false;
       let timer = null;
       const previous = find('demo-prev');
@@ -337,13 +339,19 @@
         find('messages').append(message);
       }
       function renderConversation() {
-        find('messages').replaceChildren();
-        let start = current;
-        while (start > 3 && !states[start].user) start--;
-        const request = states[start].user;
-        if (request) addMessage('你 · 语音转写 · 已发送', current === 3 ? '验证码已提交' : request, true);
-        const replies = states.slice(Math.max(start, 3), current + 1).filter(state => state.view === 'app').map(state => state.reply).slice(-2);
-        replies.forEach(reply => addMessage('灵矽', reply, false));
+        if (current === conversationStep) return;
+        const messages = find('messages');
+        if (current < conversationStep) {
+          messages.replaceChildren();
+          conversationStep = -1;
+        }
+        for (let index = conversationStep + 1; index <= current; index++) {
+          const state = states[index];
+          if (state.user) addMessage('你 · 语音转写 · 已发送', index === 3 ? '验证码已提交' : state.user, true);
+          addMessage('灵矽', state.reply, false);
+        }
+        conversationStep = current;
+        messages.scrollTop = messages.scrollHeight;
       }
       function render() {
         const state = states[current];
@@ -381,8 +389,8 @@
             agent.append(make('span', 'lv-agent-state', (status === '已完成' ? '✓ ' : '') + status));
             find('agent-list').append(agent);
           });
-          renderConversation();
         }
+        renderConversation();
         previous.disabled = current === 0;
         next.disabled = current === states.length - 1;
         play.textContent = running ? '暂停演示' : current === states.length - 1 ? '重新演示' : '自动演示';

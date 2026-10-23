@@ -2,3 +2,15 @@
 .env
 .env.*
 node_modules/
+.local/
+apps/*/dist/
+packages/*/dist/
+coverage/
+playwright-report/
+test-results/
+artifacts/
+*.tsbuildinfo
+*.db
+*.db-shm
+*.db-wal
+!.env.example

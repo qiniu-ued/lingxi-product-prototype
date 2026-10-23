@@ -1,0 +1,30 @@
+codecov:
+  require_ci_to_pass: true
+  notify:
+    wait_for_ci: true
+
+coverage:
+  precision: 2
+  round: down
+  status:
+    project:
+      default:
+        target: 85%
+        threshold: 0%
+    patch:
+      default:
+        target: 85%
+        threshold: 0%
+
+comment:
+  layout: "diff,flags,files"
+  behavior: default
+  require_changes: true
+  require_base: false
+
+flags:
+  unit:
+    paths:
+      - packages/protocol/src/
+      - apps/server/src/
+    carryforward: false

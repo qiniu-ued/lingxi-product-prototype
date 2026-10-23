@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import packager from '@electron/packager';
+import { packager } from '@electron/packager';
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -32,6 +32,13 @@ try {
   // npm is used only by the explicit managed Codex install action, never as a shell bridge.
   if (!process.env.npm_execpath) throw new Error('Run packaging through npm run desktop:pack');
   await cp(dirname(dirname(process.env.npm_execpath)), join(runtime, 'npm'), { recursive: true });
+  const bundledNode = join(runtime, 'bin', 'node');
+  const npmVersion = execFileSync(
+    bundledNode,
+    [join(runtime, 'npm', 'bin', 'npm-cli.js'), '--version'],
+    { encoding: 'utf8' },
+  ).trim();
+  if (!npmVersion.startsWith('11.')) throw new Error('Desktop bundle requires npm 11');
   const input = join(scratch, 'app');
   await mkdir(input);
   await cp(join(root, 'apps/desktop/dist'), input, { recursive: true });

@@ -81,10 +81,9 @@
       text-align: center; flex: 1; min-height: 0; padding: 34px 0 8px; gap: 16px;
     }
     #lingxi-airplay-voice-prototype .lv-receiver-symbol {
-      flex: 0 0 auto; display: grid; place-items: center; width: 104px; height: 104px; border-radius: 28px;
-      background: color-mix(in srgb, var(--lv-receiver-fg) 7%, transparent); color: var(--lv-receiver-fg);
+      flex: 0 0 auto; width: 116px; height: 84px; color: var(--lv-receiver-muted);
     }
-    #lingxi-airplay-voice-prototype .lv-receiver-symbol svg { --icon-size: 64px; width: 64px; height: 64px; stroke-width: 1.2; }
+    #lingxi-airplay-voice-prototype .lv-receiver-symbol svg { display: block; width: 116px; height: 84px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main h2 { font-size: 25px; }
     #lingxi-airplay-voice-prototype .lv-receiver-main p { color: var(--lv-receiver-muted); font-size: 13px; max-width: 360px; }
     #lingxi-airplay-voice-prototype .lv-passcode { display: flex; justify-content: center; gap: 10px; }
@@ -158,26 +157,15 @@
       position: relative; overflow: hidden; height: 120px; border-radius: 12px;
       background: var(--lv-art); margin-bottom: 12px;
     }
-    #lingxi-airplay-voice-prototype .lv-art span { position: absolute; display: block; }
-    #lingxi-airplay-voice-prototype .lv-art-sun { width: 23%; aspect-ratio: 1; border-radius: 50%; background: var(--lv-sun); top: 20%; left: 55%; }
-    #lingxi-airplay-voice-prototype .lv-art-water { width: 130%; height: 55%; bottom: -1%; left: -15%; background: var(--lv-water); border-radius: 45% 45% 0 0; transform: rotate(-7deg); }
-    #lingxi-airplay-voice-prototype .lv-art-shore { width: 90%; height: 26%; bottom: -9%; right: -30%; background: var(--lv-sand); border-radius: 100% 0 0 0; transform: rotate(-14deg); }
-    #lingxi-airplay-voice-prototype .lv-art-hill { width: 110%; height: 80%; left: -30%; bottom: -10%; background: var(--lv-hill-back); clip-path: polygon(0 100%, 65% 0, 100% 100%); }
-    #lingxi-airplay-voice-prototype .lv-art-hill-front { width: 100%; height: 75%; right: -35%; bottom: -10%; background: var(--lv-hill); clip-path: polygon(0 100%, 35% 0, 100% 100%); }
-    #lingxi-airplay-voice-prototype .lv-art-building { left: 13%; bottom: 0; width: 36%; height: 60%; background: var(--lv-city); border-radius: 28px 28px 0 0; }
-    #lingxi-airplay-voice-prototype .lv-art-building-back { right: 12%; bottom: 0; width: 35%; height: 78%; background: var(--lv-sand); }
-    #lingxi-airplay-voice-prototype .lv-art-window { width: 10%; height: 17%; left: 26%; bottom: 25%; background: var(--lv-art); border-radius: 10px 10px 0 0; }
+    #lingxi-airplay-voice-prototype .lv-options .lv-art { height: auto; aspect-ratio: 16 / 9; max-height: 120px; }
+    #lingxi-airplay-voice-prototype .lv-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
     #lingxi-airplay-voice-prototype .lv-option h3 { font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-option-summary { margin-top: 5px; color: var(--lv-secondary); font-size: 12px; }
-    #lingxi-airplay-voice-prototype .lv-option-budget { margin: 6px 0 9px; font-size: 12px; }
+    #lingxi-airplay-voice-prototype button:focus-visible { outline: 2px solid var(--lv-accent); outline-offset: 3px; }
+    #lingxi-airplay-voice-prototype .lv-guide-sources { border-top: 1px solid var(--lv-line); padding-top: 12px; margin-top: 18px; color: var(--lv-secondary); font-size: 11px; }
+    #lingxi-airplay-voice-prototype .lv-source-notes { display: flex; flex-wrap: wrap; gap: 5px 14px; margin: 5px 0; }
+    #lingxi-airplay-voice-prototype .lv-photo-credit { margin-top: 8px; }
     #lingxi-airplay-voice-prototype .lv-vote-count { font-size: 12px; color: var(--lv-secondary); margin: 3px 0 8px; }
-    #lingxi-airplay-voice-prototype .lv-web-button {
-      font: inherit; font-size: 12px; width: 100%; padding: 7px 4px; min-height: 36px;
-      color: var(--lv-fg); background: var(--lv-panel); border: 1px solid var(--lv-line); border-radius: 6px; opacity: 1;
-    }
-    #lingxi-airplay-voice-prototype .lv-chosen .lv-web-button {
-      background: var(--lv-primary); color: var(--lv-on-primary); border-color: var(--lv-primary);
-    }
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
     #lingxi-airplay-voice-prototype .lv-guide { margin-top: 22px; }
     #lingxi-airplay-voice-prototype .lv-guide-heading { display: flex; align-items: center; gap: 16px; }
@@ -304,9 +292,9 @@
       #lingxi-airplay-voice-prototype .lv-guide-heading h3 { font-size: 17px; }
       #lingxi-airplay-voice-prototype .lv-options { grid-template-columns: 1fr; }
       #lingxi-airplay-voice-prototype .lv-option { display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 12px; }
-      #lingxi-airplay-voice-prototype .lv-art { grid-column: 1; grid-row: 1 / 4; height: 76px; margin: 0; }
-      #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-vote-count,
-      #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
+      #lingxi-airplay-voice-prototype .lv-options .lv-art { grid-column: 1; grid-row: 1 / 4; height: 76px; margin: 0; }
+      #lingxi-airplay-voice-prototype .lv-option h3, #lingxi-airplay-voice-prototype .lv-option-summary,
+      #lingxi-airplay-voice-prototype .lv-vote-count { grid-column: 2; }
       #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
     }
     @media (max-height: 850px) {
@@ -343,13 +331,13 @@
       <button type="button" class="lv-demo-button cursor-interaction" data-demo-next>下一步</button>
     </div>
   </div>
-  <div class="lv-step-label"><span class="lv-step-name" data-step-name>待唤醒，大家继续讨论</span><span><span data-step-number>1 / 35</span> · <span data-screen-origin>外部屏幕：接收端占位示意</span></span></div>
+  <div class="lv-step-label"><span class="lv-step-name" data-step-name>待唤醒，大家继续讨论</span><span><span data-step-number>1 / 39</span> · <span data-screen-origin>外部屏幕：接收端占位示意</span></span></div>
 
   <div class="lv-screen" aria-label="外部屏幕画面">
     <section class="lv-receiver" data-receiver>
       <div class="lv-receiver-top"><span>会议室电视</span><span class="lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay</span></div>
       <div class="lv-receiver-main">
-        <div class="lv-receiver-symbol" aria-hidden="true"><i data-lucide="airplay"></i></div>
+        <div class="lv-receiver-symbol" aria-hidden="true"><svg viewBox="0 0 116 84" xmlns="http://www.w3.org/2000/svg" fill="none" focusable="false"><rect x="19" y="7" width="78" height="47" rx="6" fill="currentColor" fill-opacity=".025" stroke="currentColor" stroke-opacity=".65" stroke-width="1.5"/><path d="M27 15h62" stroke="currentColor" stroke-opacity=".12" stroke-width="1.5" stroke-linecap="round"/><path d="M42 31q16-16 32 0" stroke="currentColor" stroke-opacity=".3" stroke-width="1.5" stroke-linecap="round"/><path d="M49 37q9-9 18 0" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round"/><circle cx="58" cy="43" r="1.7" fill="currentColor" fill-opacity=".8"/></svg></div>
         <h2 data-receiver-title>尚未接收到画面</h2>
         <div class="lv-passcode" data-passcode hidden aria-label="示例验证码 4628"><span>4</span><span>6</span><span>2</span><span>8</span></div>
         <p data-receiver-detail>使用支持 AirPlay 的设备连接此屏幕。</p>
@@ -369,23 +357,24 @@
             <h2 data-empty-title>聊聊你的想法吧。</h2>
             <p data-empty-description>灵矽会安排 Agent 完成开发，并在这里展示结果。</p>
           </div>
-          <div class="lv-webpage" data-webpage hidden aria-label="投票页面的显示画面，操作通过模拟语音触发">
-            <div class="lv-small">我们的周末计划</div>
-            <h2 data-web-title>先看攻略，再一起决定</h2>
-            <p class="lv-webpage-intro" data-web-intro>比较三个场景的行程、节奏和预算，讨论后再投票。</p>
-            <section class="lv-guide" data-guide hidden aria-label="场景详细攻略">
-              <div class="lv-guide-heading"><div class="lv-guide-art" data-guide-art aria-hidden="true"></div><div><div class="lv-small" data-guide-index></div><h3 data-guide-title></h3><p data-guide-lead></p></div></div>
-              <div class="lv-guide-facts"><div><span class="lv-small">建议时长</span><strong data-guide-duration></strong></div><div><span class="lv-small">人均预算 · 示例</span><strong data-guide-budget></strong></div></div>
-              <div class="lv-guide-body"><div><h3>行程安排</h3><ol class="lv-itinerary" data-guide-itinerary></ol></div><dl class="lv-guide-practical"><div><dt>交通与集合</dt><dd data-guide-transport></dd></div><div><dt>适合的偏好</dt><dd data-guide-fit></dd></div><div><dt>出发前准备</dt><dd data-guide-preparation></dd></div></dl></div>
-              <p class="lv-guide-note">示例攻略 · 具体地点、日期、交通和费用待大家确认。</p>
+          <div class="lv-webpage" data-webpage hidden aria-label="项目预览，通过模拟语音展示方案、投票和选定后的攻略">
+            <div class="lv-small" data-web-eyebrow>我们的周末计划</div>
+            <h2 data-web-title>周末，一起去哪里？</h2>
+            <p class="lv-webpage-intro" data-web-intro>先聊聊三个方案，选定后再让灵矽生成攻略。</p>
+            <section class="lv-guide" data-guide hidden aria-label="已选景点的详细攻略">
+              <div class="lv-guide-heading"><div class="lv-guide-art" data-guide-art aria-hidden="true"></div><div><div class="lv-small" data-guide-selection></div><h3 data-guide-title></h3><p data-guide-lead></p></div></div>
+              <div class="lv-guide-facts"><div><span class="lv-small">建议时长</span><strong data-guide-duration></strong></div><div><span class="lv-small">门票与费用</span><strong data-guide-budget></strong></div></div>
+              <div class="lv-guide-body"><div><h3>半日路线 · 建议安排</h3><ol class="lv-itinerary" data-guide-itinerary></ol></div><dl class="lv-guide-practical"><div><dt>景点地址</dt><dd data-guide-address></dd></div><div><dt>开放时间</dt><dd data-guide-hours></dd></div><div><dt>入园与预约</dt><dd data-guide-booking></dd></div><div><dt>交通与集合</dt><dd data-guide-transport></dd></div></dl></div>
+              <p class="lv-guide-note">以上为建议行程，不含往返交通与排队时间；餐饮和交通费用另计。</p>
+              <div class="lv-guide-sources"><div>官方信息核验于 2026-10-23 · 出发前请复核公告</div><div class="lv-source-notes" data-guide-sources></div><div class="lv-photo-credit" data-guide-credit></div></div>
             </section>
             <div data-options-view>
               <div class="lv-options">
-              <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-hill"></span><span class="lv-art-hill-front"></span></div><h3>公园吹风</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
-              <article class="lv-option" data-sea-option><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-water"></span><span class="lv-art-shore"></span></div><h3 data-sea-name>海边散步</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div><button type="button" class="lv-web-button" data-sea-button disabled aria-label="作品中的海边投票按钮，通过语音操作">投一票</button></article>
-              <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-building-back"></span><span class="lv-art-building"></span><span class="lv-art-window"></span></div><h3>一起看展</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option"><div class="lv-art"><img src="https://www.shanghai.gov.cn/cmsres/4a/4ac0bdaeb6d2467cba8bd4c30bc7579c/1dd0315bf853d040e377f371fd657ccb.png" alt="共青森林公园的资料照片" referrerpolicy="no-referrer"></div><h3>共青森林公园</h3><div class="lv-vote-count">0 票</div></article>
+              <article class="lv-option" data-sea-option><div class="lv-art"><img src="https://ghzyj.sh.gov.cn/cmsres/be/bed47499fa27402a8c6c4035a9d326ef/e4da3b7fbbce2345d7772b0674a318d5.jpg" alt="金山城市沙滩的资料照片" referrerpolicy="no-referrer"></div><h3 data-sea-name>金山城市沙滩</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div></article>
+              <article class="lv-option"><div class="lv-art"><img src="https://english.shanghai.gov.cn/cmsres/9a/9a35055166ad43e9939ec221bd32ef1a/cddda1aa4113f55961b630845ae1fff1.jpg" alt="上海博物馆东馆的资料照片" referrerpolicy="no-referrer"></div><h3>上海博物馆东馆</h3><div class="lv-vote-count">0 票</div></article>
               </div>
-              <p class="lv-guide-note" data-comparison-note>示例方案 · 预算可调整，具体地点与日期待确认。</p>
+              <p class="lv-guide-note lv-small" data-options-credit></p>
               <div class="lv-vote-feedback" data-vote-feedback>还未投票</div>
             </div>
           </div>
@@ -421,30 +410,33 @@
     (() => {
       const root = document.getElementById('lingxi-airplay-voice-prototype');
       const find = name => root.querySelector('[data-' + name + ']');
-      const guides = [
-        {name:'公园吹风', subtitle:'轻松聊聊，给彼此留点空白', lead:'散步、野餐和自由交流，活动节奏由大家决定。', duration:'半天 · 13:30–17:00', budget:'¥30–80 / 人', summary:'散步与野餐，自由聊天，节奏松弛。', itinerary:[['13:30–14:30','集合后沿绿道慢走，寻找适合休息的位置。'],['14:30–16:00','分享自带零食，安排轻量小游戏或自由聊天。'],['16:00–17:00','分组拍照、继续散步，收拾场地后返程。']], transport:'优先公共交通；一起确认集合入口和末段步行路线。', fit:'想放松聊天、控制预算、自由参与活动的人。', preparation:'提前确认天气和场地野餐规则；带好饮水、坐垫及垃圾袋。'},
-        {name:'海边散步', subtitle:'边走边聊，换个开阔的环境', lead:'沿海岸散步、拍照，也留一段时间坐下来聊天。', duration:'半天 · 13:30–17:00', budget:'¥60–150 / 人', summary:'沿岸散步与拍照，享受开阔景色。', itinerary:[['13:30–14:30','集合抵达海边，确认步行路线与返程集合点。'],['14:30–16:00','沿开放步道慢走，途中拍照、休息。'],['16:00–17:00','找合适的位置吃点东西，交流感受后返程。']], transport:'按出发地比较公共交通与合乘，统一返程时间。', fit:'喜欢户外景色、拍照、边走边讨论的人。', preparation:'确认天气和海边开放情况，准备防晒与外套；看日落时按当地日落时间调整行程。'},
-        {name:'一起看展', subtitle:'带着不同兴趣，找到共同话题', lead:'先各自探索，再分享喜欢的作品，让讨论自然展开。', duration:'半天 · 13:30–17:00', budget:'¥80–180 / 人', summary:'室内看展与分享，交流新的观点。', itinerary:[['13:30–14:30','集合入场，了解展览主题并浏览主要展区。'],['14:30–16:00','自由或结伴观看，每人挑一件想分享的作品。'],['16:00–17:00','在合适的休息区交流，整理大家的推荐后返程。']], transport:'确定展馆后补充公共交通路线，约定统一入口集合。', fit:'喜欢文化艺术、室内活动、交流新鲜观点的人。', preparation:'提前确认开放时间、预约和拍照要求；预算包含交通、可能的门票及简单餐饮。'}
+      const destinations = [
+        {"name":"共青森林公园","summary":"沿盈湖散步，在草坪放松。适合轻松聊天、慢慢拍照。","photo":{"credit":"上海市政府景区介绍","date":"2026-06-15"}},
+        {"name":"金山城市沙滩","summary":"沿海岸散步，感受海风。适合想看海、换个环境的人。","photo":{"credit":"市规划院公开资料","date":"2026-10-09"}},
+        {"name":"上海博物馆东馆","summary":"一起看青铜与陶瓷。适合室内看展、分享发现。","photo":{"credit":"上海博物馆／上海市政府英文门户","date":"2025-08-28"}}
       ];
+      const guide = {"subtitle":"把周末交给海风","lead":"秋季在滨海步道散步、沙滩拍照，不安排游泳。","duration":"约 3 小时起 · 13:30–16:30","budget":"非泳期门票待当日核实；交通、餐饮另计","address":"上海市金山区沪杭公路 7555 号。景区咨询：021-57936507。","hours":"9 月 11 日至 11 月 30 日为 8:30–20:30；临时调整以景区公告为准。","booking":"秋季为非泳期，不安排游泳；非泳期票价与预约要求，出发前通过景区官方渠道核实。","itinerary":[["13:30–14:00 · 入园与集合","确认当天开放区域、返程集合点及末段接驳。"],["14:00–15:00 · 滨海步道","沿约 1500 米滨海步道慢走、拍照，按体力与天气选择路程。"],["15:00–16:30 · 沙滩休息","岸上玩沙、自由交流；如想看日落，再根据当日天气、日落时间和返程车次决定停留时长。"]],"transport":"从上海南站或莘庄站乘金山铁路至金山卫站，再安排末段接驳。官方所列直达车约 40 分钟、10 元／人仅指铁路段，需另留候车与接驳时间。","sources":["上海市政府 · 2026-07-28 开放与交通信息","上海市政府英文门户 · 2024-02-27 景区介绍"]};
       const scenario = [
         {title:'开始查找投屏设备', view:'receiver', user:'灵矽，连接屏幕。', reply:'正在查找可用的 AirPlay 屏幕。'},
         {title:'用语音选择屏幕', view:'receiver', user:'', reply:'找到“会议室电视”和“客厅电视”。你想连接哪一台？'},
         {title:'首次配对示例', view:'pairing', user:'连接会议室电视。', reply:'请读出电视上显示的四位验证码。'},
-        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', redactUser:true, reply:'已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。', status:'等待你的需求', preview:'', empty:'聊聊你的想法吧。', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'再次主动唤醒后可说：“先做三个场景的攻略，看完再投票。”', agents:[]},
-        {title:'Agent 开始工作：分析需求', view:'app', user:'做一个周末出游投票页，先给公园、海边和看展分别做详细攻略，大家看完再投票。', reply:'需求已收到，已结束收音。我会先做好三个场景的攻略和配图，再准备投票。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的需求', detail:'先准备三份详细攻略，帮助大家比较后再投票。', hint:'再次主动唤醒后可说：“再加一个要求……”', agents:[['需求分析','分析中']]},
-        {title:'Agent 正在执行', view:'app', user:'', reply:'正在整理三个场景的行程、交通、预算和注意事项，页面开发与绘图也在进行。', status:'正在创建攻略页面', preview:'正在创建', empty:'正在制作攻略与配图', detail:'完成后，先展示三个场景的详细攻略。', hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
-        {title:'攻略预览已出现，继续检查', view:'app', user:'', reply:'攻略预览已生成，正在检查页面和投票流程。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, guide:0, hint:'未收音 · 正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'先看公园攻略', view:'app', user:'', reply:'三个场景的攻略已整理好。先看公园：适合放松聊天，行程留有自由活动的时间。', status:'攻略已就绪', statusTone:'success', preview:'场景攻略 · 1 / 3', page:true, guide:0, duration:8500, hint:'先一起看攻略，讨论后再开启投票。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
-        {title:'再看海边攻略', view:'app', user:'', reply:'海边方案以沿岸散步、拍照和休息为主，需要一起确认交通、天气和返程安排。', status:'正在展示攻略', preview:'场景攻略 · 2 / 3', page:true, guide:1, duration:8500, hint:'大家可以继续讨论，麦克风保持关闭。', agents:[]},
-        {title:'再看看展攻略', view:'app', user:'', reply:'看展方案先自由探索，再交流各自喜欢的作品。确定展馆后，再补齐预约和交通信息。', status:'正在展示攻略', preview:'场景攻略 · 3 / 3', page:true, guide:2, duration:8500, hint:'看完三个场景后，再比较各自的行程和预算。', agents:[]},
-        {title:'对比三个方案，讨论后再投票', view:'app', user:'', reply:'三份攻略都已展示。大家先比较，确定可以投票后，由总发言人再次唤醒我说“开始投票”。', status:'等待大家讨论', preview:'三个场景 · 攻略对比', page:true, comparison:true, hint:'再次主动唤醒后可说：“这三个方案我们看过了，开始投票。”', agents:[]},
-        {title:'发言人确认，开启投票', view:'app', user:'这三个方案我们看过了，开始投票。', reply:'已开启投票。请根据刚才的攻略选择想去的场景。', status:'投票进行中', preview:'当前版本 · 投票已开启', page:true, votingOpen:true, hint:'再次主动唤醒后可说：“给海边投一票。”', agents:[]},
-        {title:'通过语音操作作品', view:'app', user:'给海边投一票。', reply:'已为“海边散步”投出一票。', status:'正在体验作品', preview:'当前版本 · 投票已开启', page:true, votingOpen:true, voted:true, hint:'再次主动唤醒后可说：“把海边散步改成海边日落，保留我的投票。”', agents:[]},
-        {title:'继续用语音修改作品', view:'app', user:'把“海边散步”改成“海边日落”，保留我的投票。', reply:'我会更新选项名称，并保留当前投票。', status:'正在修改页面', preview:'上一版 · 修改中', page:true, votingOpen:true, voted:true, hint:'未收音 · 正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
-        {title:'新版本检查', view:'app', user:'', reply:'选项名称已更新，正在检查投票状态是否保留。', status:'正在检查修改', preview:'新版本 · 检查中', page:true, votingOpen:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['页面开发','已完成'],['质量检查','检查中']]},
-        {title:'修改完成', view:'app', user:'', reply:'已改为“海边日落”，你的投票已保留。', status:'作品已更新', statusTone:'success', preview:'当前版本 · 检查完成', page:true, votingOpen:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
-        {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。'},
-        {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, votingOpen:true, voted:true, renamed:true, hint:'待唤醒 · 有新的修改需求时，请再次主动唤醒。', agents:[]}
+        {title:'AirPlay 连接成功', view:'app', user:'验证码是四六二八。', redactUser:true, reply:'已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。', status:'等待你的需求', preview:'', empty:'聊聊你的想法吧。', detail:'灵矽会安排 Agent 完成开发，并在这里展示结果。', hint:'再次主动唤醒后可说：“做三个上海周末出游方案，每个放一张图和两句简介。”', agents:[]},
+        {title:'Agent 开始工作：制作出游方案', view:'app', user:'做一个上海周末出游投票页，选共青森林公园、金山城市沙滩和上海博物馆东馆。每个方案放一张图和两句简介，先让大家讨论。', reply:'需求已收到，已结束收音。我会先制作三个简洁方案，选定后再生成详细攻略。', status:'正在分析需求', preview:'正在创建', empty:'正在理解你的想法', detail:'先准备三个简洁的出游方案。', hint:'未收音 · Agent 开始工作，大家可以继续讨论。', agents:[['需求分析','分析中']]},
+        {title:'Agent 正在制作方案', view:'app', user:'', reply:'正在整理三个景点的简介和资料照片，页面开发也在进行。', status:'正在创建方案页面', preview:'正在创建', empty:'正在制作方案与配图', detail:'每个方案展示一张图和两句简介。', hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['绘图','绘制中'],['页面开发','开发中']]},
+        {title:'方案预览已出现，继续检查', view:'app', user:'', reply:'三个方案已生成，正在检查展示和投票流程。', status:'正在检查交互', preview:'预览版本 · 检查中', page:true, hint:'未收音 · 正在检查，完成后会告诉你。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'三个出游方案已就绪', view:'app', user:'', reply:'三个上海出游方案已准备好，大家可以看图聊聊想去哪里。', status:'方案已就绪', statusTone:'success', preview:'三个方案 · 待讨论', page:true, duration:8500, hint:'先一起讨论，确定后再主动唤醒灵矽开启投票。', agents:[['需求分析','已完成'],['绘图','已完成'],['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'大家讨论，灵矽保持待唤醒', view:'app', user:'', reply:'大家可以继续讨论。需要开始投票时，由总发言人再次唤醒我。', status:'等待大家讨论', preview:'三个方案 · 讨论中', page:true, duration:8500, hint:'再次主动唤醒后可说：“这三个方案我们讨论过了，开始投票。”', agents:[]},
+        {title:'发言人确认，开启投票', view:'app', user:'这三个方案我们讨论过了，开始投票。', reply:'已开启投票，唤醒后告诉我想把这一票投给哪个方案。', status:'投票进行中', preview:'当前版本 · 投票已开启', page:true, votingOpen:true, hint:'再次主动唤醒后可说：“给金山城市沙滩投一票。”', agents:[]},
+        {title:'通过语音投票', view:'app', user:'给金山城市沙滩投一票。', reply:'已为“金山城市沙滩”投出一票。', status:'投票进行中', preview:'当前版本 · 已记录投票', page:true, votingOpen:true, voted:true, hint:'选定后再次主动唤醒可说：“就选金山城市沙滩，生成详细攻略。”', agents:[]},
+        {title:'Agent 新任务：生成选定景点攻略', view:'app', user:'就选金山城市沙滩，生成详细攻略。', reply:'已结束收音，开始为金山城市沙滩生成详细攻略，保留刚才的投票记录。', status:'正在分析攻略需求', preview:'已选金山 · 攻略生成中', page:true, votingOpen:true, voted:true, hint:'未收音 · Agent 正在生成攻略，大家可以继续讨论。', agents:[['需求分析','分析中']]},
+        {title:'Agent 正在整理金山攻略', view:'app', user:'', reply:'正在核对开放与交通信息，并整理半日行程和费用说明。', status:'正在生成详细攻略', preview:'已选金山 · 攻略生成中', page:true, votingOpen:true, voted:true, hint:'再次主动唤醒后可说：“现在做到哪一步？”', agents:[['需求分析','已完成'],['页面开发','开发中']]},
+        {title:'攻略已生成，继续检查', view:'app', user:'', reply:'金山城市沙滩攻略已出现在项目预览，正在检查行程与信息说明。', status:'正在检查攻略', preview:'攻略预览 · 检查中', page:true, guide:true, votingOpen:true, voted:true, hint:'未收音 · 正在检查攻略，麦克风保持关闭。', agents:[['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'金山城市沙滩攻略已就绪', view:'app', user:'', reply:'详细攻略已准备好，直接显示在项目预览里。非泳期票价与预约要求，出发前还需通过景区官方渠道确认。', status:'攻略已就绪', statusTone:'success', preview:'金山攻略 · 已完成', page:true, guide:true, votingOpen:true, voted:true, duration:8500, hint:'再次主动唤醒可问交通或费用，也可以继续修改攻略。', agents:[['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'继续用语音修改攻略', view:'app', user:'给金山城市沙滩的攻略名称加上“日落散步”，保留我的投票。', reply:'我会更新攻略名称，并保留当前投票。', status:'正在修改攻略', preview:'上一版攻略 · 修改中', page:true, guide:true, votingOpen:true, voted:true, hint:'未收音 · 正在修改，完成后会更新预览。', agents:[['页面开发','修改中']]},
+        {title:'新版本检查', view:'app', user:'', reply:'攻略名称已更新，正在检查投票记录是否保留。', status:'正在检查修改', preview:'新版本攻略 · 检查中', page:true, guide:true, votingOpen:true, voted:true, renamed:true, hint:'未收音 · 正在检查修改。', agents:[['页面开发','已完成'],['质量检查','检查中']]},
+        {title:'修改完成', view:'app', user:'', reply:'已改为“金山城市沙滩 · 日落散步”，你的投票已保留；日落安排需看当天条件。', status:'攻略已更新', statusTone:'success', preview:'当前攻略 · 检查完成', page:true, guide:true, votingOpen:true, voted:true, renamed:true, hint:'再次主动唤醒后可说：“继续修改……”', agents:[['页面开发','已完成'],['质量检查','已完成']]},
+        {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，攻略和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。'},
+        {title:'语音重连，恢复攻略', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的攻略和投票记录。', status:'会话已恢复', statusTone:'success', preview:'当前攻略 · 检查完成', page:true, guide:true, votingOpen:true, voted:true, renamed:true, hint:'待唤醒 · 有新的修改需求时，请再次主动唤醒。', agents:[]}
       ];
       const states = [{title:'待唤醒，大家继续讨论', view:'receiver', user:'', reply:'', voicePhase:'idle', agents:[]}];
       scenario.forEach(state => {
@@ -470,6 +462,7 @@
 };
       let current = 0;
       let conversationStep = -1;
+      let renderedStep = -1;
       let running = false;
       let timer = null;
       const previous = find('demo-prev');
@@ -483,8 +476,9 @@
       };
       const options = Array.from(root.querySelectorAll('.lv-option'));
       options.forEach((option, index) => {
-        option.querySelector('h3').after(make('p', 'lv-option-summary', guides[index].summary), make('p', 'lv-option-budget', '半天 · ' + guides[index].budget + '（示例）'));
+        option.querySelector('h3').after(make('p', 'lv-option-summary', destinations[index].summary));
       });
+      find('options-credit').textContent = '图片：上海市政府、市规划院、上海博物馆公开资料 · 非实时景况';
       function addMessage(speaker, content, isUser) {
         const message = make('div', 'lv-chat-row' + (isUser ? ' lv-chat-row-user' : ''));
         const avatar = make('div', 'lv-avatar', isUser ? '发' : '灵');
@@ -516,6 +510,12 @@
       }
       function render() {
         const state = states[current];
+        if (renderedStep !== current) {
+          find('webpage').scrollTop = 0;
+          renderedStep = current;
+        }
+        const showingGuide = Boolean(state.guide);
+        const seaName = state.renamed ? '金山城市沙滩 · 日落散步' : '金山城市沙滩';
         const connected = state.view === 'app';
         const recording = state.voicePhase === 'recording';
         const voiceState = voiceStates[state.voicePhase];
@@ -551,24 +551,27 @@
           const statusTone = state.statusTone || 'neutral';
           find('task-state').dataset.taskState = statusTone;
           find('task-symbol').textContent = statusTone === 'success' ? '✓' : statusTone === 'error' ? '×' : '•';
-          find('preview-status').textContent = state.preview + (Number.isInteger(state.guide) ? ' · 滚动查看' : '');
+          find('preview-status').textContent = state.preview;
           find('preview-status').hidden = !state.preview;
           find('empty').hidden = Boolean(state.page);
           find('webpage').hidden = !state.page;
           find('empty-title').textContent = state.empty || '';
           find('empty-description').textContent = state.detail || '';
           find('voice-hint').textContent = state.hint;
-          const showingGuide = Number.isInteger(state.guide);
           find('guide').hidden = !showingGuide;
           find('options-view').hidden = showingGuide;
-          find('web-title').textContent = state.votingOpen ? '周末，一起去哪里？' : '先看攻略，再一起决定';
-          find('web-intro').textContent = state.votingOpen ? '根据刚才的攻略，选一个想去的地方，把这一票投给它。' : '比较三个场景的行程、节奏和预算，讨论后再投票。';
+          find('web-eyebrow').hidden = !showingGuide;
+          find('web-intro').hidden = !showingGuide;
+          find('web-title').textContent = showingGuide ? seaName : '周末，一起去哪里？';
+          find('web-intro').textContent = showingGuide ? '已选方案的半日攻略，随时唤醒灵矽继续修改。' : state.votingOpen ? '唤醒灵矽，说出你想投票的方案。' : '先聊聊三个方案，选定后再让灵矽生成攻略。';
           if (showingGuide) {
-            const guide = guides[state.guide];
-            find('guide-index').textContent = '场景攻略 · ' + (state.guide + 1) + ' / ' + guides.length;
-            find('guide-title').textContent = guide.name + ' · ' + guide.subtitle;
-            ['lead', 'duration', 'budget', 'transport', 'fit', 'preparation'].forEach(key => { find('guide-' + key).textContent = guide[key]; });
-            find('guide-art').replaceChildren(options[state.guide].querySelector('.lv-art').cloneNode(true));
+            find('guide-selection').textContent = '已选方案 · 已记录 ' + (state.voted ? '1' : '0') + ' 票';
+            find('guide-title').textContent = state.renamed ? '日落散步 · 半日攻略' : guide.subtitle;
+            ['lead', 'duration', 'budget', 'address', 'hours', 'booking', 'transport'].forEach(key => { find('guide-' + key).textContent = guide[key]; });
+            find('guide-art').replaceChildren(options[1].querySelector('.lv-art').cloneNode(true));
+            find('guide-sources').textContent = guide.sources.join('；');
+            const photo = destinations[1].photo;
+            find('guide-credit').textContent = '图片：' + photo.credit + ' · 发布于 ' + photo.date + '；非实时景况。';
             find('guide-itinerary').replaceChildren();
             guide.itinerary.forEach(([time, plan]) => {
               const item = make('li');
@@ -578,13 +581,10 @@
           }
           options.forEach(option => {
             option.querySelector('.lv-vote-count').hidden = !state.votingOpen;
-            option.querySelector('.lv-web-button').hidden = !state.votingOpen;
           });
           find('vote-feedback').hidden = !state.votingOpen;
-          const seaName = state.renamed ? '海边日落' : '海边散步';
           find('sea-name').textContent = seaName;
           find('sea-count').textContent = state.voted ? '1' : '0';
-          find('sea-button').textContent = state.voted ? '已投票' : '投一票';
           find('sea-option').classList.toggle('lv-chosen', Boolean(state.voted));
           find('vote-feedback').textContent = state.voted ? '你的选择：' + seaName : '还未投票';
           find('agents').hidden = !state.agents.length;

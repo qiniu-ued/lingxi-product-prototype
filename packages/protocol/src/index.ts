@@ -1,0 +1,94 @@
+import { z } from 'zod';
+
+export const selectionSchema = z.strictObject({
+  artifactId: z.string().uuid(),
+  artifactRevision: z.number().int().nonnegative(),
+  elementId: z.string().min(1).max(256),
+  label: z.string().min(1).max(256),
+});
+
+export const submitCommandSchema = z
+  .strictObject({
+    commandId: z.string().uuid(),
+    source: z.enum(['keyboard', 'voice', 'pointer']),
+    text: z.string().trim().min(1).max(4000),
+    expectedRevision: z.number().int().nonnegative(),
+    selection: selectionSchema.optional(),
+  })
+  .refine((value) => value.source !== 'pointer' || value.selection !== undefined, {
+    message: 'Pointer commands require a versioned selection',
+    path: ['selection'],
+  });
+
+export const commandSchema = z.strictObject({
+  id: z.string().uuid(),
+  source: z.enum(['keyboard', 'voice', 'pointer']),
+  text: z.string(),
+  status: z.literal('draft'),
+  createdAt: z.string().datetime(),
+  selection: selectionSchema.optional(),
+});
+
+export const artifactSchema = z.strictObject({
+  id: z.string().uuid(),
+  revision: z.number().int().nonnegative(),
+  title: z.string(),
+});
+
+export const sessionSchema = z.strictObject({
+  schemaVersion: z.literal(1),
+  id: z.string().uuid(),
+  revision: z.number().int().nonnegative(),
+  commands: z.array(commandSchema),
+  artifact: artifactSchema.nullable(),
+  integrations: z.strictObject({
+    codex: z.literal('not-configured'),
+    lingxi: z.literal('not-configured'),
+  }),
+});
+
+export const errorSchema = z.strictObject({
+  error: z.enum([
+    'invalid_request',
+    'revision_conflict',
+    'command_id_conflict',
+    'selection_stale',
+    'forbidden_origin',
+    'forbidden_host',
+    'internal_error',
+  ]),
+});
+
+export type Selection = z.infer<typeof selectionSchema>;
+export type SubmitCommand = z.infer<typeof submitCommandSchema>;
+export type Session = z.infer<typeof sessionSchema>;
+export type ErrorCode = z.infer<typeof errorSchema>['error'];
+
+// Connection state is independent from durable session and task state.
+export type AgentEvent =
+  | { type: 'task.started'; taskId: string }
+  | { type: 'task.progress'; taskId: string; message: string }
+  | { type: 'task.completed'; taskId: string }
+  | { type: 'task.failed'; taskId: string; message: string }
+  | { type: 'task.interrupted'; taskId: string };
+
+export interface AgentAdapter {
+  start(input: {
+    text: string;
+    projectPath: string;
+    selection?: Selection;
+  }): AsyncIterable<AgentEvent>;
+  interrupt(taskId: string): Promise<void>;
+}
+
+export type VoiceEvent =
+  | { type: 'capture.started' }
+  | { type: 'transcript.partial'; text: string }
+  | { type: 'transcript.final'; text: string }
+  | { type: 'capture.stopped' }
+  | { type: 'voice.failed'; message: string };
+
+export interface VoiceAdapter {
+  capture(signal: AbortSignal): AsyncIterable<VoiceEvent>;
+  speak(text: string, signal: AbortSignal): Promise<void>;
+}

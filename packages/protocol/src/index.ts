@@ -64,6 +64,29 @@ export type SubmitCommand = z.infer<typeof submitCommandSchema>;
 export type Session = z.infer<typeof sessionSchema>;
 export type ErrorCode = z.infer<typeof errorSchema>['error'];
 
+export const CODEX_SETUP_VERSION = '0.164.0';
+
+export const setupStatusSchema = z.strictObject({
+  checkedAt: z.string().datetime(),
+  host: z.strictObject({
+    platform: z.string(),
+    arch: z.string(),
+    nodeVersion: z.string(),
+    nodeSupported: z.boolean(),
+  }),
+  capabilities: z.strictObject({ codexTasks: z.literal(false), lingxiVoice: z.literal(false) }),
+});
+
+export const codexCheckSchema = z.strictObject({
+  checkedAt: z.string().datetime(),
+  status: z.enum(['ready', 'not-installed', 'signed-out', 'failed', 'timed-out']),
+  cliVersion: z.string().nullable(),
+  authentication: z.enum(['chatgpt', 'api-key', 'provider']).nullable(),
+});
+
+export type SetupStatus = z.infer<typeof setupStatusSchema>;
+export type CodexCheck = z.infer<typeof codexCheckSchema>;
+
 // Connection state is independent from durable session and task state.
 export type AgentEvent =
   | { type: 'task.started'; taskId: string }

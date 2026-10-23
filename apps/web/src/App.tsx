@@ -119,6 +119,11 @@ export function App() {
             {status}
           </span>
           {!display && (
+            <a className="setup-link" href="/setup">
+              连接向导
+            </a>
+          )}
+          {!display && (
             <a className="button secondary" href="/display" target="_blank" rel="noreferrer">
               打开大屏 ↗
             </a>
@@ -133,6 +138,11 @@ export function App() {
             ? '大家看到同一份进展，修改建议会从电脑端同步到这里。'
             : '先把这一轮想做的事写下来，再和大家一起看着它成形。'}
         </p>
+        {!display && (
+          <p className="setup-intro">
+            第一次使用？<a href="/setup">从 Mac 连接向导开始 →</a>
+          </p>
+        )}
       </section>
       <main className="workspace">
         <section className="preview panel" aria-labelledby="preview-title">

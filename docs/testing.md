@@ -22,6 +22,8 @@ Linux 缺浏览器依赖时用 `npx playwright install --with-deps chromium`。�
 
 单元测试使用临时数据库；浏览器每次运行使用独立临时数据库及固定开发端口，不复用用户的开发服务器。离线测试使用独立浏览器上下文继续写入，恢复后验证可见结果，不靠固定等待推进剧情。
 
+连接向导的进程测试使用 `tests/fixtures/codex-cli.mjs` 协议替身，验证实际子进程、只读消息、分片通知、登录类型、异常、超时回收与隐私，不调用模型服务。浏览器测试拦截诊断结果，验证失败重试、能力边界和大屏入口，不将替身结果算作真实 Codex 登录成功。生产冒烟检查包含 `/setup` 页面和环境 API。真实 Mac 的 CLI、提供方认证与音频测试按 [连接指南](mac-setup.md)另行验收。
+
 `npm run check` 包含覆盖率和真实进程检查。覆盖率门槛为 statements/lines/functions 85%、branches 75%，由 `vitest.config.ts` 强制执行；启动入口 `apps/server/src/index.ts` 由编译后真实进程验证，不计入单元覆盖率。报告位于 `coverage/`。
 
 CI 在 Ubuntu 24.04、macOS 15 Apple Silicon 和 Intel 执行 `npm ci` 与 `npm run check`，覆盖 SQLite 原生依赖；Ubuntu 另跑浏览器测试，失败上传报告和 trace。通过后两个 Mac runner 分别构建并验证运行包。原型 HTML 不参与自动格式化。通过 GitHub 分支保护要求 CI 通过仍需管理员单独配置，workflow 本身不会禁止管理员合并失败 PR。

@@ -1,7 +1,9 @@
 import { isIP } from 'node:net';
 import fastifyStatic from '@fastify/static';
-import { type Session, submitCommandSchema } from '@lingxi/protocol';
+import { type CodexCheck, type Session, submitCommandSchema } from '@lingxi/protocol';
 import Fastify from 'fastify';
+import { z } from 'zod';
+import { checkCodex } from './codex-check.js';
 import { SessionStore, StoreConflict } from './store.js';
 
 interface AppOptions {
@@ -9,6 +11,7 @@ interface AppOptions {
   webRoot?: string;
   webOrigin?: string;
   logger?: boolean;
+  checkCodex?: () => Promise<CodexCheck>;
 }
 
 export function buildApp(options: AppOptions) {
@@ -39,6 +42,30 @@ export function buildApp(options: AppOptions) {
 
   app.get('/api/health', async () => ({ status: 'ok', schemaVersion: 1 }));
   app.get('/api/session', async () => store.read());
+  app.get('/api/setup', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return {
+      checkedAt: new Date().toISOString(),
+      host: {
+        platform: process.platform,
+        arch: process.arch,
+        nodeVersion: process.versions.node,
+        nodeSupported: process.versions.node.split('.')[0] === '24',
+      },
+      capabilities: { codexTasks: false, lingxiVoice: false },
+    };
+  });
+  let pendingCheck: Promise<CodexCheck> | undefined;
+  app.post('/api/setup/codex/check', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!z.strictObject({}).safeParse(request.body).success) {
+      return reply.code(400).send({ error: 'invalid_request' });
+    }
+    pendingCheck ??= (options.checkCodex ?? checkCodex)().finally(() => {
+      pendingCheck = undefined;
+    });
+    return pendingCheck;
+  });
   app.post('/api/commands', async (request, reply) => {
     const parsed = submitCommandSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_request' });
@@ -83,6 +110,7 @@ export function buildApp(options: AppOptions) {
   if (options.webRoot) {
     app.register(fastifyStatic, { root: options.webRoot });
     app.get('/display', (_request, reply) => reply.sendFile('index.html'));
+    app.get('/setup', (_request, reply) => reply.sendFile('index.html'));
   }
   app.setErrorHandler((error, request, reply) => {
     if (

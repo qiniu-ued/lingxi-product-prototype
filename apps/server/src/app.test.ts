@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { codexCheckSchema, setupStatusSchema } from '@lingxi/protocol';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from './app.js';
 
 const apps: ReturnType<typeof buildApp>[] = [];
@@ -27,7 +28,7 @@ describe('local command API', () => {
     writeFileSync(join(directory, 'index.html'), '<!doctype html><title>灵矽工作台</title>');
     const app = buildApp({ databasePath: ':memory:', webRoot: directory });
     try {
-      for (const url of ['/', '/display']) {
+      for (const url of ['/', '/display', '/setup']) {
         const response = await app.inject(url);
         expect(response.statusCode).toBe(200);
         expect(response.headers['content-type']).toContain('text/html');
@@ -137,5 +138,74 @@ describe('local command API', () => {
       status: 'ok',
       schemaVersion: 1,
     });
+  });
+  it('reports the service host and unfinished capabilities without probing Codex on page load', async () => {
+    const checkCodex = vi.fn();
+    const app = buildApp({ databasePath: ':memory:', checkCodex });
+    apps.push(app);
+    const response = await app.inject('/api/setup');
+    const setup = setupStatusSchema.parse(response.json());
+    expect(setup.host).toMatchObject({ platform: process.platform, arch: process.arch });
+    expect(setup.capabilities).toEqual({ codexTasks: false, lingxiVoice: false });
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(checkCodex).not.toHaveBeenCalled();
+  });
+  it('keeps diagnostics separate from saved session state and rejects executable input', async () => {
+    const check = {
+      status: 'ready',
+      cliVersion: '0.164.0',
+      authentication: 'chatgpt',
+      checkedAt: new Date().toISOString(),
+    };
+    const checkCodex = vi.fn(async () => codexCheckSchema.parse(check));
+    const app = buildApp({ databasePath: ':memory:', checkCodex });
+    apps.push(app);
+    const before = (await app.inject('/api/session')).json();
+    for (const request of [
+      { payload: { executable: 'arbitrary-command' } },
+      { payload: {}, headers: { origin: 'https://attacker.example' } },
+    ]) {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/setup/codex/check',
+        ...request,
+      });
+      expect([400, 403]).toContain(response.statusCode);
+    }
+    expect(checkCodex).not.toHaveBeenCalled();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/setup/codex/check',
+      payload: {},
+    });
+    expect(response.json()).toEqual(check);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect((await app.inject('/api/session')).json()).toEqual(before);
+  });
+  it('shares a running diagnostic between simultaneous requests', async () => {
+    let release: (() => void) | undefined;
+    const checkCodex = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return codexCheckSchema.parse({
+        status: 'not-installed',
+        cliVersion: null,
+        authentication: null,
+        checkedAt: new Date().toISOString(),
+      });
+    });
+    const app = buildApp({ databasePath: ':memory:', checkCodex });
+    apps.push(app);
+    const requests = [1, 2].map(() =>
+      app
+        .inject({ method: 'POST', url: '/api/setup/codex/check', payload: {} })
+        .then((response) => response.json()),
+    );
+    await vi.waitFor(() => expect(checkCodex).toHaveBeenCalledTimes(1));
+    release?.();
+    const results = await Promise.all(requests);
+    expect(results[0]).toEqual(results[1]);
+    expect(checkCodex).toHaveBeenCalledTimes(1);
   });
 });

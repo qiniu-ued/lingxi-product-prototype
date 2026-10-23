@@ -81,7 +81,7 @@ export async function smokeProduction(root) {
     const databasePath = join(temporary, 'session.db');
     running = await start(root, databasePath);
     assert.equal((await (await request(running.address, '/api/health')).json()).status, 'ok');
-    for (const path of ['/', '/display']) {
+    for (const path of ['/', '/display', '/setup']) {
       const response = await request(running.address, path);
       assert.match(response.headers.get('content-type') ?? '', /text\/html/);
       const html = await response.text();
@@ -90,6 +90,9 @@ export async function smokeProduction(root) {
       const asset = await request(running.address, script[1]);
       assert.match(asset.headers.get('content-type') ?? '', /javascript/);
     }
+    const setup = await (await request(running.address, '/api/setup')).json();
+    assert.equal(setup.host.platform, process.platform);
+    assert.equal(setup.capabilities.codexTasks, false);
     const initial = await (await request(running.address, '/api/session')).json();
     const command = {
       commandId: randomUUID(),

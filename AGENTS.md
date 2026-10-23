@@ -13,6 +13,7 @@
 - `apps/server/`: Fastify, SQLite, SSE and future local-process/provider adapters. Keep loopback binding and Host/Origin validation.
 - `packages/protocol/`: shared Zod schemas, types and adapter contracts. Validate HTTP input and external-provider events at boundaries.
 - `scripts/`: production smoke checks and architecture-specific runtime packaging.
+- `/setup` checks the service host and Codex environment. Keep diagnostics read-only: no thread creation, turns, interactive login, credential-file reads or arbitrary executable input from HTTP. Diagnostic readiness must not enable task/voice integrations.
 - `docs/development.md`, `docs/deployment.md`, `docs/testing.md`: authoritative run, delivery and verification instructions; update them when commands or behavior change.
 
 ## Development

@@ -13,6 +13,7 @@
     "@fastify/static": "^10.1.7",
     "@lingxi/protocol": "*",
     "better-sqlite3": "^13.0.3",
-    "fastify": "^5.12.7"
+    "fastify": "^5.12.7",
+    "zod": "^4.6.7"
   }
 }

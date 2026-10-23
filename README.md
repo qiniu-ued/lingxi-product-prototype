@@ -17,6 +17,7 @@
 - [当前产品设计](docs/product-design.md)
 - [技术架构与 ADR](docs/adr/0001-local-web-architecture.md)
 - [开发、运行与工程结构](docs/development.md)
+- [Mac 首次运行与连接向导](docs/mac-setup.md)
 - [部署、运行包、更新与回退](docs/deployment.md)
 - [测试策略](docs/testing.md) 与 [实施清单](docs/roadmap.md)
 
@@ -28,3 +29,5 @@ npm run dev
 ```
 
 操作台：<http://127.0.0.1:5173/>，大屏：<http://127.0.0.1:5173/display>。
+
+首次使用可打开 <http://127.0.0.1:5173/setup>，检查 Codex 环境并准备灵矽账号与音频客户端。真实任务执行与语音控制仍待接入。

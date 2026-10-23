@@ -12,12 +12,11 @@
 
 需要 Git、Node.js **24.x**、npm **11.x**。检查 `node --version` 与 `npm --version`。SQLite 有原生依赖；如果安装需要本机编译工具，macOS 可先执行 `xcode-select --install`。
 
-首次拉取（基础工程尚在 PR 时需要切到对应分支；合并后使用默认分支）：
+首次拉取（未合并的新功能按对应 PR 切换分支；已合并功能使用默认分支）：
 
 ```sh
 git clone https://github.com/qiniu-ued/lingxi-product-prototype.git
 cd lingxi-product-prototype
-git switch foundation/local-workbench
 npm ci
 ```
 
@@ -31,6 +30,8 @@ LINGXI_DB_PATH="$HOME/Library/Application Support/Lingxi/lingxi.db" npm start
 ```
 
 打开 <http://127.0.0.1:4310/> 和 <http://127.0.0.1:4310/display>。保持终端进程运行，Ctrl+C 停止；当前没有登录自启或后台服务安装器。
+
+首次配置从 <http://127.0.0.1:4310/setup> 开始。只有 Codex 桌面应用、尚未注册灵矽的完整准备步骤见 [Mac 连接指南](mac-setup.md)。
 
 ## 下载 Mac 运行包
 
@@ -68,6 +69,8 @@ Intel 替换为 `darwin-x64`；版本号以实际文件为准。若 Node 版本�
 | 日志                             | 输出到启动服务的终端；当前没有录音或供应商密钥写入功能               |
 
 例如 `PORT=4320 ./start.sh` 后打开 `http://127.0.0.1:4320/`。服务只监听 `127.0.0.1`；当前不接受局域网其他设备加入。同一个数据库只启动一份工作台服务，多开浏览器窗口即可。
+
+Codex 环境检查默认通过服务的 PATH 查找 `codex`。自定义位置可设置 `LINGXI_CODEX_BIN` 为可执行文件绝对路径；页面不能修改此值，也不接收任意程序或参数。
 
 ## 大屏使用
 

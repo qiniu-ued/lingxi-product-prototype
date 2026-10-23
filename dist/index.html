@@ -1556,6 +1556,11 @@ html&gt;body{padding:0}&lt;/style&gt;
       --lv-line: light-dark(#dfe4ec, #363d4a);
       --lv-soft: light-dark(#eeecfa, #322e47);
       --lv-accent: light-dark(#5542a2, #c5baff);
+      --lv-status-neutral-bg: light-dark(#e9ecf1, #2a303b);
+      --lv-success: light-dark(#23734a, #7bdd9c);
+      --lv-success-bg: light-dark(#e7f5ed, #193b2b);
+      --lv-error: light-dark(#b5363a, #ff9fa5);
+      --lv-error-bg: light-dark(#fceced, #48252a);
       --lv-primary: light-dark(#302740, #ece7f6);
       --lv-on-primary: light-dark(#ffffff, #271f36);
       --lv-receiver: light-dark(#19212c, #101722);
@@ -1630,9 +1635,11 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-brand-name { font-size: 17px; font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-status {
       display: flex; align-items: center; gap: 7px; border-radius: 20px;
-      padding: 6px 11px; background: var(--lv-soft); color: var(--lv-accent); font-size: 12px;
+      padding: 6px 11px; background: var(--lv-status-neutral-bg); color: var(--lv-secondary); font-size: 12px;
     }
-    #lingxi-airplay-voice-prototype .lv-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    #lingxi-airplay-voice-prototype .lv-status[data-task-state=&quot;success&quot;] { background: var(--lv-success-bg); color: var(--lv-success); }
+    #lingxi-airplay-voice-prototype .lv-status[data-task-state=&quot;error&quot;] { background: var(--lv-error-bg); color: var(--lv-error); }
+    #lingxi-airplay-voice-prototype .lv-status-symbol { width: 14px; text-align: center; font-size: 14px; font-weight: 600; }
     #lingxi-airplay-voice-prototype .lv-workspace {
       display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
       gap: 16px; padding: 18px 20px;
@@ -1801,7 +1808,7 @@ html&gt;body{padding:0}&lt;/style&gt;
     &lt;section data-app hidden aria-label=&quot;灵矽投屏工作台，只呈现作品、对话和状态&quot;&gt;
       &lt;header class=&quot;lv-app-header&quot;&gt;
         &lt;div class=&quot;lv-brand&quot;&gt;&lt;div class=&quot;lv-brand-mark&quot; aria-hidden=&quot;true&quot;&gt;灵&lt;/div&gt;&lt;div&gt;&lt;div class=&quot;lv-brand-name&quot;&gt;灵矽&lt;/div&gt;&lt;div class=&quot;lv-small lv-airplay-label&quot;&gt;&lt;i data-lucide=&quot;airplay&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;AirPlay · 会议室电视 · 已连接&lt;/div&gt;&lt;/div&gt;&lt;/div&gt;
-        &lt;div class=&quot;lv-status&quot;&gt;&lt;span class=&quot;lv-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;&lt;span data-task-status&gt;等待你的需求&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;lv-status&quot; data-task-state=&quot;neutral&quot; role=&quot;status&quot;&gt;&lt;span class=&quot;lv-status-symbol&quot; data-task-symbol aria-hidden=&quot;true&quot;&gt;•&lt;/span&gt;&lt;span data-task-status&gt;等待你的需求&lt;/span&gt;&lt;/div&gt;
       &lt;/header&gt;
       &lt;div class=&quot;lv-workspace&quot;&gt;
         &lt;section class=&quot;lv-preview&quot; aria-label=&quot;作品显示区&quot;&gt;
@@ -1855,13 +1862,13 @@ html&gt;body{padding:0}&lt;/style&gt;
         {title:&#x27;说出创作需求&#x27;, view:&#x27;app&#x27;, user:&#x27;做一个周末出游投票页，放三个选项，每个配个小图，可以投票。&#x27;, reply:&#x27;我会做好投票页面和配图，并检查投票交互。&#x27;, status:&#x27;正在分析需求&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在理解你的需求&#x27;, detail:&#x27;制作一个带有三个选项与配图的投票页。&#x27;, hint:&#x27;可以说：“再加一个要求……”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;分析中&#x27;]]},
         {title:&#x27;Agent 正在执行&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;需求已明确，页面开发和绘图正在进行。&#x27;, status:&#x27;正在创建页面&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在制作页面与配图&#x27;, detail:&#x27;完成后，这里会显示可以体验的页面。&#x27;, hint:&#x27;可以说：“现在做到哪一步？”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;绘制中&#x27;],[&#x27;页面开发&#x27;,&#x27;开发中&#x27;]]},
         {title:&#x27;预览已出现，继续检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面预览已生成，正在检查投票交互。&#x27;, status:&#x27;正在检查交互&#x27;, preview:&#x27;预览版本 · 检查中&#x27;, page:true, hint:&#x27;正在检查，完成后会告诉你。&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
-        {title:&#x27;作品完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面已完成，投票交互已检查。你可以说“给海边投一票”来体验。&#x27;, status:&#x27;作品已就绪&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, hint:&#x27;可以说：“给海边投一票。”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
+        {title:&#x27;作品完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面已完成，投票交互已检查。你可以说“给海边投一票”来体验。&#x27;, status:&#x27;作品已就绪&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, hint:&#x27;可以说：“给海边投一票。”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
         {title:&#x27;通过语音操作作品&#x27;, view:&#x27;app&#x27;, user:&#x27;给海边投一票。&#x27;, reply:&#x27;已为“海边散步”投出一票。&#x27;, status:&#x27;正在体验作品&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, hint:&#x27;可以说：“把海边散步改成海边日落，保留我的投票。”&#x27;, agents:[]},
         {title:&#x27;继续用语音修改作品&#x27;, view:&#x27;app&#x27;, user:&#x27;把“海边散步”改成“海边日落”，保留我的投票。&#x27;, reply:&#x27;我会更新选项名称，并保留当前投票。&#x27;, status:&#x27;正在修改页面&#x27;, preview:&#x27;上一版 · 修改中&#x27;, page:true, voted:true, hint:&#x27;正在修改，完成后会更新预览。&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;修改中&#x27;]]},
         {title:&#x27;新版本检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;选项名称已更新，正在检查投票状态是否保留。&#x27;, status:&#x27;正在检查修改&#x27;, preview:&#x27;新版本 · 检查中&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以说：“现在做到哪一步？”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
-        {title:&#x27;修改完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;已改为“海边日落”，你的投票已保留。&#x27;, status:&#x27;作品已更新&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以说：“继续修改……”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
+        {title:&#x27;修改完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;已改为“海边日落”，你的投票已保留。&#x27;, status:&#x27;作品已更新&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以说：“继续修改……”&#x27;, agents:[[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
         {title:&#x27;屏幕连接中断&#x27;, view:&#x27;disconnected&#x27;, user:&#x27;&#x27;, reply:&#x27;屏幕连接断开了，作品和当前投票已保留。你可以说“重新连接会议室电视”。&#x27;},
-        {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以继续说出修改需求。&#x27;, agents:[]}
+        {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;可以继续说出修改需求。&#x27;, agents:[]}
       ];
       let current = 0;
       let conversationStep = -1;
@@ -1917,6 +1924,9 @@ html&gt;body{padding:0}&lt;/style&gt;
         find(&#x27;ai-caption&#x27;).textContent = state.reply;
         if (connected) {
           find(&#x27;task-status&#x27;).textContent = state.status;
+          const statusTone = state.statusTone || &#x27;neutral&#x27;;
+          find(&#x27;task-state&#x27;).dataset.taskState = statusTone;
+          find(&#x27;task-symbol&#x27;).textContent = statusTone === &#x27;success&#x27; ? &#x27;✓&#x27; : statusTone === &#x27;error&#x27; ? &#x27;×&#x27; : &#x27;•&#x27;;
           find(&#x27;preview-status&#x27;).textContent = state.preview;
           find(&#x27;empty&#x27;).hidden = Boolean(state.page);
           find(&#x27;webpage&#x27;).hidden = !state.page;

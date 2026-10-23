@@ -102,6 +102,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - run: npm run test:desktop
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
@@ -130,7 +131,7 @@ jobs:
           node-version: "24"
           cache: npm
       - run: npm ci
-      - run: npm run release:pack
+      - run: npm run desktop:pack
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: runtime-${{ matrix.os }}-${{ github.sha }}

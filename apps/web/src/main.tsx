@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import { SetupPage } from './SetupPage.js';
 import './styles.css';
+import './desktop.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('Missing application root');

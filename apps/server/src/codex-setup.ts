@@ -48,7 +48,7 @@ export class CodexSetup {
     this.action = { ...this.action, ...patch, updatedAt: new Date().toISOString() };
     this.history.set(this.action.id, this.action);
   }
-  private async executable() {
+  async executable() {
     if (this.options.executable) return this.options.executable;
     try {
       const pointer = pointerSchema.parse(

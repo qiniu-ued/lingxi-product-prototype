@@ -74,7 +74,7 @@ export const setupStatusSchema = z.strictObject({
     nodeVersion: z.string(),
     nodeSupported: z.boolean(),
   }),
-  capabilities: z.strictObject({ codexTasks: z.literal(false), lingxiVoice: z.literal(false) }),
+  capabilities: z.strictObject({ codexTasks: z.boolean(), lingxiVoice: z.literal(false) }),
 });
 
 export const codexCheckSchema = z.strictObject({
@@ -177,3 +177,5 @@ export interface VoiceAdapter {
   capture(signal: AbortSignal): AsyncIterable<VoiceEvent>;
   speak(text: string, signal: AbortSignal): Promise<void>;
 }
+
+export * from './workbench.js';

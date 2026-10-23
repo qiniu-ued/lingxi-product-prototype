@@ -17,7 +17,7 @@ const finished = (action: CodexSetupAction) =>
 const codexMessages: Record<CodexCheck['status'], { title: string; detail: string }> = {
   ready: {
     title: 'Codex 环境检查通过',
-    detail: 'CLI、App Server 与认证配置可用，可以继续配置灵矽。当前版本仍未开放执行任务。',
+    detail: 'CLI、App Server 与认证配置可用，可以继续配置灵矽。桌面版可回到工作台执行任务。',
   },
   'not-installed': {
     title: '未找到 Codex CLI',
@@ -101,6 +101,14 @@ async function readCheck(signal?: AbortSignal) {
 
 export function SetupPage() {
   const [step, setStep] = useState(0);
+  const [desktopInfo, setDesktopInfo] = useState<{
+    platform: string;
+    arch: string;
+    systemVersion: string;
+  } | null>(null);
+  useEffect(() => {
+    void window.lingxiDesktop?.info().then(setDesktopInfo);
+  }, []);
   const [runtime, setRuntime] = useState<SetupStatus | null>(null);
   const [lingxi, setLingxi] = useState<SetupInspection['lingxi'] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -192,6 +200,11 @@ export function SetupPage() {
   }, [action]);
 
   useEffect(() => {
+    if (action?.authUrl && window.lingxiDesktop && openedUrl.current !== action.authUrl) {
+      openedUrl.current = action.authUrl;
+      window.open(action.authUrl, '_blank');
+      return;
+    }
     if (
       action?.authUrl &&
       popup.current &&
@@ -310,11 +323,21 @@ export function SetupPage() {
             <strong>环境检查已完成</strong> ·{' '}
             {runtime.host.platform === 'darwin' ? 'macOS' : runtime.host.platform} ·{' '}
             {runtime.host.arch} · Node.js {runtime.host.nodeVersion}
+            {desktopInfo && (
+              <span>
+                {' '}
+                · 系统 {desktopInfo.systemVersion}（{desktopInfo.arch}）
+              </span>
+            )}
             {!runtime.host.nodeSupported && <p>请使用 Node.js 24.x 重新启动服务。</p>}
             {runtime.host.platform !== 'darwin' && (
               <p>检测来自服务所在电脑；连接 Mac 时，请在 Mac 上运行本地服务。</p>
             )}
-            <p>当前可保存建议和同步大屏。自动修改代码与灵矽语音控制尚未开放。</p>
+            <p>
+              {runtime.capabilities.codexTasks
+                ? '桌面版已提供 Codex 任务与共享预览。灵矽语音控制待接入。'
+                : '当前浏览器入口可保存建议和同步大屏。执行 Codex 任务请使用桌面版；灵矽语音待接入。'}
+            </p>
           </div>
           <section className="setup-overview" aria-label="环境检查结果">
             <div className="panel">

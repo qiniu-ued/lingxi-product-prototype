@@ -1,66 +1,51 @@
 # 系统架构
 
-## 运行与调用
+## 桌面运行
 
 ```mermaid
 flowchart LR
-  computer[电脑操作台] -->|HTTP| service[Mac 本地 Node 服务]
-  service -->|SSE| computer
-  service -->|SSE| display[大屏网页]
+  operator[React 操作台] -->|HTTP / SSE| service[Node 24 本机服务]
   service <--> db[(SQLite)]
-  service -.后续 stdio.-> codex[本机 Codex App Server]
-  service -.后续适配器.-> voice[灵矽客户端和云端]
-  display -->|macOS AirPlay| tv[电视]
+  service <-->|stdio JSON-RPC| codex[Codex App Server]
+  service <-->|私有 IPC| desktop[Electron 主进程]
+  codex -->|带令牌 MCP| service
+  desktop --> preview[大屏唯一 WebContentsView]
+  preview -->|截图| operator
+  preview -->|macOS 手动 AirPlay| tv[电视]
 ```
 
-浏览器负责界面；Node 服务负责系统能力。完整产品不是单独部署一个静态网页。`codex app-server` 将由本机服务启动，通过 JSON-RPC 创建会话、提交任务、接收事件、补充和中断。第一版使用工作台管理的独立会话及明确项目目录。
+Electron 启动和停止独立 Node 24 子进程，随机回环端口，内置 Node/npm。操作台与大屏都是可信 React UI；作品使用无 preload 的独立持久浏览器 session。Codex 与操作台点选均定位同一个作品页面，而非另开浏览器复制状态。完整决定、约束及数据兼容见 [ADR 0003](adr/0003-desktop-canonical-preview.md)。
 
-AirPlay 首版由用户在 macOS 手动连接，网页仅放到扩展屏幕，不实现投屏协议。虚线适配器尚未实现；当前 API 只管理建议。
+第一版发布静态 `preview/index.html`，冻结允许的 public 资产后切换版本；不启动任意项目 dev server。相同内容不刷新页面，更新保留项目来源和 localStorage。生成页面不能访问本地服务或外部网络，不支持 CDN/API。页面 uuid、项目 id、revision、导航 epoch 和元素 ref 共同约束动作；只提供 snapshot/click/type/scroll，没有任意 JS、RPC 或 shell 转发。
 
-## 当前协议（版本 1）
+Codex 每轮使用 App Server 的线程/任务接口，`workspace-write` 和 `on-request`，显示实际消息、命令/文件/工具进度、询问和批准。会话不等同 Codex 桌面应用已有会话。重复 task requestId 从数据库回执判断，不重放；异常重启标记未完成任务为 interrupted，等待用户核对已有文件修改。停止不会回退文件。
 
-| 接口                           | 行为                                                     |
-| ------------------------------ | -------------------------------------------------------- |
-| `GET /api/health`              | 存活与协议版本                                           |
-| `GET /api/session`             | 完整当前会话                                             |
-| `POST /api/commands`           | 保存建议，首次 201、重试 200                             |
-| `GET /api/events`              | `session.snapshot` SSE，初始和更新时发完整快照           |
-| `GET /api/setup`               | 后端所在电脑环境与当前能力边界，不启动 Codex             |
-| `POST /api/setup/check`        | 一次汇总环境、Codex 与灵矽检测结果（后者当前为无法检测） |
-| `GET /api/setup/codex/action`  | 当前安装或授权操作状态                                   |
-| `POST /api/setup/codex/action` | 固定 install / login 动作，requestId 去重，202 / 409     |
-| `POST /api/setup/codex/cancel` | 按操作 ID 停止并回收进程                                 |
-| `POST /api/setup/codex/check`  | 空 JSON 请求触发只读 CLI、App Server 和认证配置检查      |
+## 接口
 
-```json
-{
-  "commandId": "68173935-2661-4003-9bac-6127452b9db4",
-  "source": "keyboard",
-  "text": "把首页标题改成周末计划",
-  "expectedRevision": 0
-}
-```
+| 接口                                                          | 行为                                                   |
+| ------------------------------------------------------------- | ------------------------------------------------------ |
+| `GET /api/health`                                             | 存活与 schemaVersion                                   |
+| `GET /api/workbench`                                          | 桌面能力、项目、最近任务、预览绑定                     |
+| `GET /api/workbench/events`                                   | `workbench.snapshot` SSE，连接即完整快照               |
+| `POST /api/workbench/start`                                   | requestId、文字、可选版本化点选；需要桌面与项目        |
+| `POST /api/workbench/decision`                                | 匹配 task/approval ID 的批准、拒绝或回答               |
+| `POST /api/workbench/interrupt`                               | 中断当前任务并有界回收子进程                           |
+| `POST /api/workbench/action`                                  | 固定原生项目选择/窗口/发布动作，不接收任意路径或命令   |
+| `POST /mcp/preview`                                           | 独立 Bearer 认证的有限 MCP；令牌每次启动生成，不给网页 |
+| `GET /api/session`、`POST /api/commands`                      | 原浏览器基础模式建议保存、去重与版本冲突               |
+| `GET /api/events`                                             | 基础模式 `session.snapshot` SSE                        |
+| `GET /api/setup`、`POST /api/setup/check`                     | 环境与两项集成的只读检查；灵矽当前无法检测             |
+| `GET/POST /api/setup/codex/action`                            | 查询或显式 install/latest、官方 login 动作             |
+| `POST /api/setup/codex/cancel`、`POST /api/setup/codex/check` | 有界取消与独立只读 Codex 检查                          |
 
-来源支持 `keyboard / voice / pointer`；现有界面只提交键盘建议。点选还要求 `selection` 含成果 ID、成果版本、元素 ID 和标签。目前没有真实成果，无法验证的目标会被拒绝。
+所有写动作严格 Zod 校验。桌面任务/配置动作要求允许的本地 Origin；所有路由校验 Host/Origin，不开放 CORS。MCP 不向页面提供令牌，不能代用任意工具名或脚本。私有 IPC 只响应固定方法；preload 限于可信主框架，生成页面无 IPC 入口。
 
-## 重试、冲突与恢复
+## 状态、兼容和基础模式
 
-逻辑提交持有 UUID，网络重试沿用 ID。相同 ID 和内容不会重复创建记录，相同 ID 内容改变返回 `409 command_id_conflict`。重复判断先于版本检查，保证成功请求的旧版本重试仍能返回结果。
+SQLite WAL，`session` 表保留原版本化建议。新增 `workbench_state` 与 `workbench_requests`，schemaVersion 仍为 1，迁移仅加表，不改旧行。状态和任务回执事务写入；跨重启去重。SSE 初始/重连发完整快照，15 秒心跳；客户端忽略旧快照。关闭服务终止流和它拥有的进程，不删除数据。
 
-新提交需匹配当前 `expectedRevision`。SQLite 立即事务内完成检查、添加和增版。落后提交返回 `409 revision_conflict`，客户端保留输入、刷新状态，供用户核对重试。选中目标必须匹配成果版本，否则 `409 selection_stale`。
+纯浏览器 `npm run dev` / `npm start` 保持基础模式：保存建议与双端同步，没有桌面 bridge，不开放 Codex 任务或作品 MCP。建议仍使用 expectedRevision 和 commandId 重试去重，过期/无效的成果目标被拒绝。数据路径和部署方法见 [部署文档](deployment.md)。
 
-SSE 使用会话版本作为事件 ID，每 15 秒注释心跳。任何重连都会收到完整最新快照，不依赖补齐旧增量。浏览器忽略旧版本快照，断线保留最后画面。
+连接向导的诊断与执行分离：短时检查版本、握手、account/read，不创建线程或执行 turn；显式点击才安装或授权。不将诊断结果保存为真实语音/投屏连接状态。配置操作详见 [ADR 0002](adr/0002-local-setup-actions.md)。
 
-数据库默认 `.local/lingxi.db`，WAL 模式。重开数据库恢复会话 ID、建议和版本。当前没有运行中的 Agent 任务；未来恢复需核对真实执行状态。
-
-连接向导的环境检查与持久会话分开。检查结果带时间戳，不保存成「已连接」状态，也不修改任务或会话版本。后台固定调用 CLI，限制超时和输出大小，并共享同时发起的检查；网页不能传入程序路径或参数。真正的执行与语音能力仍标为未开放。安装与登录由独立的显式点击操作完成；受控进程、工具目录和授权流程见 [ADR 0002](adr/0002-local-setup-actions.md)。
-
-## 本地边界与成果隔离
-
-- 服务和开发网页只绑定 `127.0.0.1`，开发时通过 Vite `/api` 代理，生产时由 Node 提供构建页面。
-- 校验 Host 和 Origin，不开放通配 CORS；输入严格验证并限制长度，错误响应不泄漏堆栈。
-- 当前没有任意 shell、项目文件读取或远程加入接口。后续增加能力时明确项目目录、配对和权限边界。
-- 真实成果使用隔离 iframe/独立来源，生成脚本不注入工作台。预览进程和版本由服务管理。
-- 选择器只在受支持的预览中运行，验证消息结构、窗口来源与成果版本。源码映射和截图都需绑定版本，不能仅传旧坐标。
-
-`source/`、根 `dist/` 继续作为设计原型维护，不由 Agent 项目成果覆盖。
+灵矽、本地唤醒、TTS 和系统投屏自动化尚未实现；无普通会议音频上传。设计原型 `source/`、根 `dist/` 与用户项目文件隔离。

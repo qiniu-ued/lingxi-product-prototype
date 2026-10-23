@@ -26,7 +26,7 @@ Linux 缺浏览器依赖时用 `npx playwright install --with-deps chromium`。�
 
 `npm run check` 包含覆盖率和真实进程检查。覆盖率门槛为 statements/lines/functions 85%、branches 75%，由 `vitest.config.ts` 强制执行；启动入口 `apps/server/src/index.ts` 由编译后真实进程验证，不计入单元覆盖率。报告位于 `coverage/`。
 
-CI 在 Ubuntu 24.04、macOS 15 Apple Silicon 和 Intel 执行 `npm ci` 与 `npm run check`，覆盖 SQLite 原生依赖；Ubuntu 另跑浏览器测试，失败上传报告和 trace。通过后两个 Mac runner 分别构建并验证运行包。原型 HTML 不参与自动格式化。通过 GitHub 分支保护要求 CI 通过仍需管理员单独配置，workflow 本身不会禁止管理员合并失败 PR。
+CI 在 Ubuntu 24.04、macOS 15 Apple Silicon 和 Intel 执行 `npm ci` 与 `npm run check`，覆盖 SQLite 原生依赖；Ubuntu 另跑浏览器测试，失败上传报告和 trace。通过后两个 Mac runner 分别构建并验证运行包和桌面 ZIP。Linux 浏览器 job 还运行 Electron 集成检查（测试环境使用 headless/no-sandbox；应用代码不关闭生产 sandbox）。原型 HTML 不参与自动格式化。通过 GitHub 分支保护要求 CI 通过仍需管理员单独配置，workflow 本身不会禁止管理员合并失败 PR。
 
 按改动选择额外检查：
 
@@ -61,6 +61,10 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 Codecov 上传失败会保留失败日志，并在 Actions 中显示 warning 和任务摘要，不阻断 Mac 运行包交付。报告缺失、单元覆盖率未达标等工程问题仍会导致 CI 失败。启用服务后应检查实际上传结果，不能把整体 CI 绿色等同于 Codecov 已接通。
 
-后续补充：Codex 消息分片、进程退出、审批、补充要求、中断和恢复；灵矽部分转写不执行、最终提交去重及两类停止；预览失败、端口占用、目标过期和消息来源。
+桌面与任务新增检查：`npm run test:desktop` 运行真实 Electron、独立 Node 服务和 `tests/fixtures/codex-task.mjs` App Server 协议替身。验证唯一作品页面、MCP 点击与请求重试不重复、输入、发布 localStorage 延续、退出关闭服务、重启恢复。服务端另测 task 请求去重、线程恢复、审批/问题、中断、超时、MCP 鉴权和 SSE。替身不调用真实模型，不作为真实 Codex 或灵矽验收证据。
+
+Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 ZIP，再从实际 ZIP 解压启动集成检查；兼容终端 tar 也会解压验证。原生页面与生命周期由这套进程检查覆盖，未混入协议/服务单元覆盖率；没有降低原覆盖率门槛。
+
+后续补充：执行中追加要求、灵矽部分转写不执行、最终提交去重和两类停止；本地关键词与回声；真实 macOS 权限及系统投屏自动化。
 
 真机验收单独记录麦克风距离、回声、多人发言、AirPlay 重连与大屏可读性。CI 不需要供应商密钥、麦克风和电视，也不把这些算作已验证。

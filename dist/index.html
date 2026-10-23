@@ -1568,7 +1568,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       --lv-receiver-muted: light-dark(#b2bfce, #a9b7c9);
       --lv-device: light-dark(#3b3d46, #343640);
       --lv-device-text: light-dark(#c4c7cf, #c4c7cf);
-      --lv-led: light-dark(#c4b5ff, #c4b5ff);
+      --lv-led: light-dark(#f4c396, #f4c396);
       --lv-art: light-dark(#e6d3b7, #5f6359);
       --lv-water: light-dark(#7faaa7, #447775);
       --lv-sun: light-dark(#f5bf70, #deaa63);
@@ -1763,7 +1763,6 @@ html&gt;body{padding:0}&lt;/style&gt;
       display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
       padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
     }
-    #lingxi-airplay-voice-prototype .lv-voice-hint svg { width: 15px; height: 15px; }
     #lingxi-airplay-voice-prototype .lv-controller-row {
       display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 22px;
       align-items: center; margin-top: 18px;
@@ -1777,8 +1776,25 @@ html&gt;body{padding:0}&lt;/style&gt;
     #lingxi-airplay-voice-prototype .lv-hardware-brand { font-size: 12px; letter-spacing: .14em; }
     #lingxi-airplay-voice-prototype .lv-hardware-light {
       position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
-      width: 25px; height: 3px; border-radius: 3px; background: var(--lv-led);
+      width: 25px; height: 3px; border-radius: 3px; background: var(--lv-device-text); opacity: .35;
     }
+    #lingxi-airplay-voice-prototype[data-voice-phase=&quot;recording&quot;] .lv-hardware-light { background: var(--lv-led); opacity: 1; }
+    #lingxi-airplay-voice-prototype .lv-controller-content { min-width: 0; }
+    #lingxi-airplay-voice-prototype .lv-capture {
+      padding: 14px 16px; margin-bottom: 14px; border-radius: 14px;
+      background: var(--lv-panel); border: 1px solid var(--lv-line);
+    }
+    #lingxi-airplay-voice-prototype .lv-capture-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+    #lingxi-airplay-voice-prototype .lv-capture-icon { display: inline-flex; color: var(--lv-secondary); }
+    #lingxi-airplay-voice-prototype .lv-capture-icon svg { width: 18px; height: 18px; }
+    #lingxi-airplay-voice-prototype .lv-capture-detail { margin-top: 5px; color: var(--lv-secondary); font-size: 12px; }
+    #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;recording&quot;] { background: var(--lv-soft); border-color: var(--lv-accent); }
+    #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;recording&quot;] .lv-capture-icon,
+    #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;recording&quot;] strong { color: var(--lv-accent); }
+    #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;submitted&quot;] .lv-capture-icon,
+    #lingxi-airplay-voice-prototype .lv-capture[data-voice-phase=&quot;submitted&quot;] strong { color: var(--lv-success); }
+    #lingxi-airplay-voice-prototype .lv-draft { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--lv-line); }
+    #lingxi-airplay-voice-prototype .lv-draft p { margin-top: 4px; overflow-wrap: anywhere; }
     #lingxi-airplay-voice-prototype .lv-captions { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 22px; }
     #lingxi-airplay-voice-prototype .lv-caption-label { font-size: 12px; color: var(--lv-secondary); margin-bottom: 5px; }
     #lingxi-airplay-voice-prototype .lv-caption-text { font-size: 14px; overflow-wrap: anywhere; }
@@ -1804,7 +1820,7 @@ html&gt;body{padding:0}&lt;/style&gt;
       #lingxi-airplay-voice-prototype .lv-web-button { grid-column: 2; }
       #lingxi-airplay-voice-prototype .lv-vote-count { margin: 0 0 5px; }
       #lingxi-airplay-voice-prototype .lv-controller-row { grid-template-columns: 1fr; gap: 15px; }
-      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; gap: 13px; }
+      #lingxi-airplay-voice-prototype .lv-hardware-wrap { flex-direction: row; flex-wrap: wrap; gap: 13px; }
       #lingxi-airplay-voice-prototype .lv-hardware { width: 85px; height: 53px; border-radius: 22px; }
       #lingxi-airplay-voice-prototype .lv-hardware-light { bottom: 8px; }
     }
@@ -1812,14 +1828,14 @@ html&gt;body{padding:0}&lt;/style&gt;
   &lt;/style&gt;
 
   &lt;div class=&quot;lv-demo-controls&quot; role=&quot;group&quot; aria-label=&quot;仅用于评审的演示控制，不属于产品操作&quot;&gt;
-    &lt;div&gt;&lt;div class=&quot;lv-demo-title&quot;&gt;演示控制 · 不属于产品界面&lt;/div&gt;&lt;div class=&quot;lv-small&quot;&gt;语音、AirPlay 与 Agent 均为模拟；每次指令均先主动唤醒&lt;/div&gt;&lt;/div&gt;
+    &lt;div&gt;&lt;div class=&quot;lv-demo-title&quot;&gt;演示控制 · 不属于产品界面&lt;/div&gt;&lt;div class=&quot;lv-small&quot;&gt;唤醒、语音、AirPlay 与 Agent 均为模拟，不调用真实麦克风&lt;/div&gt;&lt;/div&gt;
     &lt;div class=&quot;lv-step-controls&quot;&gt;
-      &lt;button type=&quot;button&quot; class=&quot;lv-demo-button cursor-interaction&quot; data-demo-prev disabled&gt;上一句&lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;lv-demo-button cursor-interaction&quot; data-demo-prev disabled&gt;上一步&lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;lv-demo-button lv-play cursor-interaction&quot; data-demo-play&gt;自动演示&lt;/button&gt;
-      &lt;button type=&quot;button&quot; class=&quot;lv-demo-button cursor-interaction&quot; data-demo-next&gt;下一句&lt;/button&gt;
+      &lt;button type=&quot;button&quot; class=&quot;lv-demo-button cursor-interaction&quot; data-demo-next&gt;下一步&lt;/button&gt;
     &lt;/div&gt;
   &lt;/div&gt;
-  &lt;div class=&quot;lv-step-label&quot;&gt;&lt;span class=&quot;lv-step-name&quot; data-step-name&gt;发起连接&lt;/span&gt;&lt;span&gt;&lt;span data-step-number&gt;1 / 14&lt;/span&gt; · &lt;span data-screen-origin&gt;外部屏幕：接收端占位示意&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+  &lt;div class=&quot;lv-step-label&quot;&gt;&lt;span class=&quot;lv-step-name&quot; data-step-name&gt;待唤醒，大家继续讨论&lt;/span&gt;&lt;span&gt;&lt;span data-step-number&gt;1 / 29&lt;/span&gt; · &lt;span data-screen-origin&gt;外部屏幕：接收端占位示意&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
 
   &lt;div class=&quot;lv-screen&quot; aria-label=&quot;外部屏幕画面&quot;&gt;
     &lt;section class=&quot;lv-receiver&quot; data-receiver&gt;
@@ -1865,15 +1881,22 @@ html&gt;body{padding:0}&lt;/style&gt;
       &lt;/section&gt;
         &lt;/aside&gt;
       &lt;/div&gt;
-      &lt;div class=&quot;lv-voice-hint&quot;&gt;&lt;i data-lucide=&quot;mic-off&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;&lt;span data-voice-hint&gt;再次主动唤醒后可说：“做一个周末出游投票页。”&lt;/span&gt;&lt;/div&gt;
+      &lt;div class=&quot;lv-voice-hint&quot;&gt;&lt;span data-voice-hint&gt;再次主动唤醒后可说：“做一个周末出游投票页。”&lt;/span&gt;&lt;/div&gt;
     &lt;/section&gt;
   &lt;/div&gt;
 
   &lt;div class=&quot;lv-controller-row&quot;&gt;
-    &lt;div class=&quot;lv-hardware-wrap&quot;&gt;&lt;div class=&quot;lv-hardware&quot; aria-label=&quot;无屏灵矽控制端的外观示意&quot;&gt;&lt;span class=&quot;lv-hardware-brand&quot;&gt;灵矽&lt;/span&gt;&lt;span class=&quot;lv-hardware-light&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;span class=&quot;lv-small&quot;&gt;无屏控制端&lt;/span&gt;&lt;span class=&quot;lv-small&quot;&gt;麦克风已关闭&lt;/span&gt;&lt;/div&gt;
-    &lt;div class=&quot;lv-captions&quot; aria-live=&quot;polite&quot; aria-atomic=&quot;true&quot;&gt;
-      &lt;div&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;总发言人 · 唤醒后提交（模拟）&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-user-caption&gt;“灵矽，连接屏幕。”&lt;/p&gt;&lt;/div&gt;
-      &lt;div&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;灵矽 · 控制端声音字幕&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-ai-caption&gt;正在查找可用的 AirPlay 屏幕。&lt;/p&gt;&lt;/div&gt;
+    &lt;div class=&quot;lv-hardware-wrap&quot;&gt;&lt;div class=&quot;lv-hardware&quot; aria-label=&quot;无屏灵矽控制端的外观示意&quot;&gt;&lt;span class=&quot;lv-hardware-brand&quot;&gt;灵矽&lt;/span&gt;&lt;span class=&quot;lv-hardware-light&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;&lt;/div&gt;&lt;span class=&quot;lv-small&quot;&gt;无屏控制端&lt;/span&gt;&lt;span class=&quot;lv-small&quot; data-hardware-mic&gt;麦克风已关闭&lt;/span&gt;&lt;/div&gt;
+    &lt;div class=&quot;lv-controller-content&quot;&gt;
+      &lt;section class=&quot;lv-capture&quot; data-capture data-voice-phase=&quot;idle&quot; aria-label=&quot;当前语音会话状态&quot; aria-live=&quot;polite&quot; aria-atomic=&quot;true&quot;&gt;
+        &lt;div class=&quot;lv-capture-heading&quot;&gt;&lt;span class=&quot;lv-capture-icon&quot; data-mic-off&gt;&lt;i data-lucide=&quot;mic-off&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;&lt;/span&gt;&lt;span class=&quot;lv-capture-icon&quot; data-mic-on hidden&gt;&lt;i data-lucide=&quot;mic&quot; aria-hidden=&quot;true&quot;&gt;&lt;/i&gt;&lt;/span&gt;&lt;strong data-voice-state&gt;待唤醒&lt;/strong&gt;&lt;span class=&quot;lv-small&quot; data-mic-state&gt;麦克风已关闭&lt;/span&gt;&lt;/div&gt;
+        &lt;p class=&quot;lv-capture-detail&quot; data-capture-detail&gt;大家可以自由讨论，由总发言人整理后主动唤醒灵矽。&lt;/p&gt;
+        &lt;div class=&quot;lv-draft&quot; data-live-transcript hidden&gt;&lt;div class=&quot;lv-small&quot;&gt;语音转写中 · 尚未提交&lt;/div&gt;&lt;p data-draft&gt;&lt;/p&gt;&lt;/div&gt;
+      &lt;/section&gt;
+      &lt;div class=&quot;lv-captions&quot; data-captions aria-live=&quot;polite&quot; aria-atomic=&quot;true&quot;&gt;
+        &lt;div&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;总发言人 · 已提交（模拟）&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-user-caption&gt;&lt;/p&gt;&lt;/div&gt;
+        &lt;div data-reply-caption&gt;&lt;div class=&quot;lv-caption-label&quot;&gt;灵矽 · 控制端声音字幕&lt;/div&gt;&lt;p class=&quot;lv-caption-text&quot; data-ai-caption&gt;&lt;/p&gt;&lt;/div&gt;
+      &lt;/div&gt;
     &lt;/div&gt;
   &lt;/div&gt;
 
@@ -1881,12 +1904,12 @@ html&gt;body{padding:0}&lt;/style&gt;
     (() =&gt; {
       const root = document.getElementById(&#x27;lingxi-airplay-voice-prototype&#x27;);
       const find = name =&gt; root.querySelector(&#x27;[data-&#x27; + name + &#x27;]&#x27;);
-      const states = [
-        {title:&#x27;主动唤醒，发起连接&#x27;, view:&#x27;receiver&#x27;, user:&#x27;灵矽，连接屏幕。&#x27;, reply:&#x27;正在查找可用的 AirPlay 屏幕。&#x27;},
+      const scenario = [
+        {title:&#x27;开始查找投屏设备&#x27;, view:&#x27;receiver&#x27;, user:&#x27;灵矽，连接屏幕。&#x27;, reply:&#x27;正在查找可用的 AirPlay 屏幕。&#x27;},
         {title:&#x27;用语音选择屏幕&#x27;, view:&#x27;receiver&#x27;, user:&#x27;&#x27;, reply:&#x27;找到“会议室电视”和“客厅电视”。你想连接哪一台？&#x27;},
         {title:&#x27;首次配对示例&#x27;, view:&#x27;pairing&#x27;, user:&#x27;连接会议室电视。&#x27;, reply:&#x27;请读出电视上显示的四位验证码。&#x27;},
-        {title:&#x27;AirPlay 连接成功&#x27;, view:&#x27;app&#x27;, user:&#x27;验证码是四六二八。&#x27;, reply:&#x27;已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。&#x27;, status:&#x27;等待你的需求&#x27;, preview:&#x27;还没有作品&#x27;, empty:&#x27;说出你想做的页面&#x27;, detail:&#x27;灵矽会安排 Agent 完成开发，并在这里展示结果。&#x27;, hint:&#x27;再次主动唤醒后可说：“做一个周末出游投票页。”&#x27;, agents:[]},
-        {title:&#x27;发言人唤醒并提交需求&#x27;, view:&#x27;app&#x27;, user:&#x27;做一个周末出游投票页，放三个选项，每个配个小图，可以投票。&#x27;, reply:&#x27;需求已收到，已结束收音。我会做好投票页面和配图，并检查投票交互。&#x27;, status:&#x27;正在分析需求&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在理解你的需求&#x27;, detail:&#x27;制作一个带有三个选项与配图的投票页。&#x27;, hint:&#x27;再次主动唤醒后可说：“再加一个要求……”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;分析中&#x27;]]},
+        {title:&#x27;AirPlay 连接成功&#x27;, view:&#x27;app&#x27;, user:&#x27;验证码是四六二八。&#x27;, redactUser:true, reply:&#x27;已连接会议室电视。请先讨论，由总发言人整理需求后再次唤醒我。&#x27;, status:&#x27;等待你的需求&#x27;, preview:&#x27;还没有作品&#x27;, empty:&#x27;说出你想做的页面&#x27;, detail:&#x27;灵矽会安排 Agent 完成开发，并在这里展示结果。&#x27;, hint:&#x27;再次主动唤醒后可说：“做一个周末出游投票页。”&#x27;, agents:[]},
+        {title:&#x27;Agent 开始工作：分析需求&#x27;, view:&#x27;app&#x27;, user:&#x27;做一个周末出游投票页，放三个选项，每个配个小图，可以投票。&#x27;, reply:&#x27;需求已收到，已结束收音。我会做好投票页面和配图，并检查投票交互。&#x27;, status:&#x27;正在分析需求&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在理解你的需求&#x27;, detail:&#x27;制作一个带有三个选项与配图的投票页。&#x27;, hint:&#x27;再次主动唤醒后可说：“再加一个要求……”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;分析中&#x27;]]},
         {title:&#x27;Agent 正在执行&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;需求已明确，页面开发和绘图正在进行。&#x27;, status:&#x27;正在创建页面&#x27;, preview:&#x27;正在创建&#x27;, empty:&#x27;正在制作页面与配图&#x27;, detail:&#x27;完成后，这里会显示可以体验的页面。&#x27;, hint:&#x27;再次主动唤醒后可说：“现在做到哪一步？”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;绘制中&#x27;],[&#x27;页面开发&#x27;,&#x27;开发中&#x27;]]},
         {title:&#x27;预览已出现，继续检查&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面预览已生成，正在检查投票交互。&#x27;, status:&#x27;正在检查交互&#x27;, preview:&#x27;预览版本 · 检查中&#x27;, page:true, hint:&#x27;未收音 · 正在检查，完成后会告诉你。&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;检查中&#x27;]]},
         {title:&#x27;作品完成&#x27;, view:&#x27;app&#x27;, user:&#x27;&#x27;, reply:&#x27;页面已完成，投票交互已检查。再次主动唤醒后，可以说“给海边投一票”来体验。&#x27;, status:&#x27;作品已就绪&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, hint:&#x27;再次主动唤醒后可说：“给海边投一票。”&#x27;, agents:[[&#x27;需求分析&#x27;,&#x27;已完成&#x27;],[&#x27;绘图&#x27;,&#x27;已完成&#x27;],[&#x27;页面开发&#x27;,&#x27;已完成&#x27;],[&#x27;质量检查&#x27;,&#x27;已完成&#x27;]]},
@@ -1897,6 +1920,22 @@ html&gt;body{padding:0}&lt;/style&gt;
         {title:&#x27;屏幕连接中断&#x27;, view:&#x27;disconnected&#x27;, user:&#x27;&#x27;, reply:&#x27;屏幕连接断开了，作品和当前投票已保留。再次主动唤醒后，可以说“重新连接会议室电视”。&#x27;},
         {title:&#x27;语音重连，恢复作品&#x27;, view:&#x27;app&#x27;, user:&#x27;重新连接会议室电视。&#x27;, reply:&#x27;已重新连接，恢复到刚才的页面。&#x27;, status:&#x27;会话已恢复&#x27;, statusTone:&#x27;success&#x27;, preview:&#x27;当前版本 · 检查完成&#x27;, page:true, voted:true, renamed:true, hint:&#x27;待唤醒 · 有新的修改需求时，请再次主动唤醒。&#x27;, agents:[]}
       ];
+      const states = [{title:&#x27;待唤醒，大家继续讨论&#x27;, view:&#x27;receiver&#x27;, user:&#x27;&#x27;, reply:&#x27;&#x27;, voicePhase:&#x27;idle&#x27;, agents:[]}];
+      scenario.forEach(state =&gt; {
+        if (state.user) {
+          const previousState = states[states.length - 1];
+          states.push({...previousState, title:&#x27;总发言人主动唤醒，开始收音&#x27;, voicePhase:&#x27;recording&#x27;, draft:state.user, user:&#x27;&#x27;, reply:&#x27;&#x27;, agents:[], status:&#x27;收音中 · 尚未提交&#x27;, statusTone:&#x27;neutral&#x27;, hint:&#x27;正在接收本次指令，提交后才开始处理。&#x27;});
+          states.push({...previousState, title:&#x27;语音已提交，关闭麦克风&#x27;, voicePhase:&#x27;submitted&#x27;, user:state.user, redactUser:state.redactUser, reply:&#x27;&#x27;, agents:[], status:&#x27;指令已提交&#x27;, statusTone:&#x27;neutral&#x27;, hint:&#x27;本次收音已结束，等待开始处理。&#x27;});
+        }
+        const agentWorking = (state.agents || []).some(([, status]) =&gt; status !== &#x27;已完成&#x27;);
+        states.push({...state, user:&#x27;&#x27;, voicePhase:agentWorking ? &#x27;working&#x27; : &#x27;idle&#x27;});
+      });
+      const voiceStates = {
+        idle: {label:&#x27;待唤醒&#x27;, detail:&#x27;大家可以自由讨论，由总发言人整理后主动唤醒灵矽。&#x27;},
+        recording: {label:&#x27;收音中&#x27;, detail:&#x27;已主动唤醒，仅接收本次指令；尚未提交，也未启动本次任务。&#x27;},
+        submitted: {label:&#x27;已提交&#x27;, detail:&#x27;收音已结束，麦克风已关闭；准备开始处理本次指令。&#x27;},
+        working: {label:&#x27;Agent 正在工作&#x27;, detail:&#x27;麦克风保持关闭，Agent 继续执行，大家可以继续讨论。&#x27;}
+      };
       const agentMarks = {
         &quot;需求分析&quot;: &quot;&lt;svg xmlns=\&quot;http://www.w3.org/2000/svg\&quot; viewBox=\&quot;0 0 32 32\&quot; fill=\&quot;none\&quot; aria-hidden=\&quot;true\&quot;&gt;&lt;path d=\&quot;M16 5 27 16 16 27 5 16Z\&quot; fill=\&quot;currentColor\&quot; fill-opacity=\&quot;.1\&quot; stroke=\&quot;currentColor\&quot; stroke-width=\&quot;1.4\&quot; stroke-linejoin=\&quot;round\&quot;/&gt;&lt;circle cx=\&quot;16\&quot; cy=\&quot;16\&quot; r=\&quot;3\&quot; fill=\&quot;currentColor\&quot;/&gt;&lt;g fill=\&quot;currentColor\&quot; opacity=\&quot;.55\&quot;&gt;&lt;circle cx=\&quot;6\&quot; cy=\&quot;6\&quot; r=\&quot;1.7\&quot;/&gt;&lt;circle cx=\&quot;26\&quot; cy=\&quot;6\&quot; r=\&quot;1.7\&quot;/&gt;&lt;circle cx=\&quot;26\&quot; cy=\&quot;26\&quot; r=\&quot;1.7\&quot;/&gt;&lt;circle cx=\&quot;6\&quot; cy=\&quot;26\&quot; r=\&quot;1.7\&quot;/&gt;&lt;/g&gt;&lt;/svg&gt;&quot;,
         &quot;绘图&quot;: &quot;&lt;svg xmlns=\&quot;http://www.w3.org/2000/svg\&quot; viewBox=\&quot;0 0 32 32\&quot; fill=\&quot;none\&quot; aria-hidden=\&quot;true\&quot;&gt;&lt;g fill=\&quot;currentColor\&quot; fill-opacity=\&quot;.12\&quot; stroke=\&quot;currentColor\&quot; stroke-opacity=\&quot;.8\&quot; stroke-width=\&quot;1.2\&quot;&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot;/&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot; transform=\&quot;rotate(60 16 16)\&quot;/&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot; transform=\&quot;rotate(120 16 16)\&quot;/&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot; transform=\&quot;rotate(180 16 16)\&quot;/&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot; transform=\&quot;rotate(240 16 16)\&quot;/&gt;&lt;ellipse cx=\&quot;16\&quot; cy=\&quot;10.5\&quot; rx=\&quot;4.8\&quot; ry=\&quot;7\&quot; transform=\&quot;rotate(300 16 16)\&quot;/&gt;&lt;/g&gt;&lt;circle cx=\&quot;16\&quot; cy=\&quot;16\&quot; r=\&quot;2\&quot; fill=\&quot;currentColor\&quot;/&gt;&lt;/svg&gt;&quot;,
@@ -1935,8 +1974,8 @@ html&gt;body{padding:0}&lt;/style&gt;
         }
         for (let index = conversationStep + 1; index &lt;= current; index++) {
           const state = states[index];
-          if (state.user) addMessage(&#x27;总发言人 · 唤醒后提交&#x27;, index === 3 ? &#x27;验证码已提交&#x27; : state.user, true);
-          addMessage(&#x27;灵矽&#x27;, state.reply, false);
+          if (state.user) addMessage(&#x27;总发言人 · 唤醒后提交&#x27;, state.redactUser ? &#x27;验证码已提交&#x27; : state.user, true);
+          if (state.reply) addMessage(&#x27;灵矽&#x27;, state.reply, false);
         }
         conversationStep = current;
         messages.scrollTop = messages.scrollHeight;
@@ -1944,6 +1983,21 @@ html&gt;body{padding:0}&lt;/style&gt;
       function render() {
         const state = states[current];
         const connected = state.view === &#x27;app&#x27;;
+        const recording = state.voicePhase === &#x27;recording&#x27;;
+        const voiceState = voiceStates[state.voicePhase];
+        const micState = recording ? &#x27;麦克风已开启&#x27; : &#x27;麦克风已关闭&#x27;;
+        root.dataset.voicePhase = state.voicePhase;
+        find(&#x27;capture&#x27;).dataset.voicePhase = state.voicePhase;
+        find(&#x27;voice-state&#x27;).textContent = voiceState.label;
+        find(&#x27;mic-state&#x27;).textContent = micState;
+        find(&#x27;hardware-mic&#x27;).textContent = micState;
+        find(&#x27;capture-detail&#x27;).textContent = voiceState.detail;
+        find(&#x27;mic-on&#x27;).hidden = !recording;
+        find(&#x27;mic-off&#x27;).hidden = recording;
+        find(&#x27;live-transcript&#x27;).hidden = !recording;
+        find(&#x27;draft&#x27;).textContent = recording ? state.draft : &#x27;&#x27;;
+        find(&#x27;captions&#x27;).hidden = !state.user &amp;&amp; !state.reply;
+        find(&#x27;reply-caption&#x27;).hidden = !state.reply;
         find(&#x27;step-name&#x27;).textContent = state.title;
         find(&#x27;step-number&#x27;).textContent = (current + 1) + &#x27; / &#x27; + states.length;
         find(&#x27;screen-origin&#x27;).textContent = connected ? &#x27;外部屏幕：灵矽投屏画面&#x27; : &#x27;外部屏幕：接收端占位示意&#x27;;
@@ -1952,7 +2006,7 @@ html&gt;body{padding:0}&lt;/style&gt;
         find(&#x27;passcode&#x27;).hidden = state.view !== &#x27;pairing&#x27;;
         find(&#x27;receiver-title&#x27;).textContent = state.view === &#x27;pairing&#x27; ? &#x27;AirPlay 验证码&#x27; : state.view === &#x27;disconnected&#x27; ? &#x27;当前没有接收画面&#x27; : &#x27;尚未接收到画面&#x27;;
         find(&#x27;receiver-detail&#x27;).textContent = state.view === &#x27;pairing&#x27; ? &#x27;配对画面示意 · 示例验证码&#x27; : state.view === &#x27;disconnected&#x27; ? &#x27;等待新的 AirPlay 连接。&#x27; : &#x27;使用支持 AirPlay 的设备连接此屏幕。&#x27;;
-        find(&#x27;user-caption&#x27;).textContent = state.user ? &#x27;“&#x27; + state.user + &#x27;”&#x27; : &#x27;未收音 · 大家可以继续讨论&#x27;;
+        find(&#x27;user-caption&#x27;).textContent = state.user ? (state.redactUser ? &#x27;验证码已提交&#x27; : &#x27;“&#x27; + state.user + &#x27;”&#x27;) : &#x27;未收音 · 大家可以继续讨论&#x27;;
         find(&#x27;user-caption&#x27;).classList.toggle(&#x27;lv-caption-empty&#x27;, !state.user);
         find(&#x27;ai-caption&#x27;).textContent = state.reply;
         if (connected) {
@@ -2004,7 +2058,7 @@ html&gt;body{padding:0}&lt;/style&gt;
           if (current === states.length - 1) stop();
           render();
           if (running) schedule();
-        }, 4500);
+        }, states[current].voicePhase === &#x27;recording&#x27; || states[current].voicePhase === &#x27;submitted&#x27; ? 3000 : 4500);
       }
       previous.addEventListener(&#x27;click&#x27;, () =&gt; { stop(); current = Math.max(0, current - 1); render(); });
       next.addEventListener(&#x27;click&#x27;, () =&gt; { stop(); current = Math.min(states.length - 1, current + 1); render(); });

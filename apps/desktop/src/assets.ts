@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { cp, mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Project } from '@lingxi/protocol';
 
@@ -28,8 +28,8 @@ export async function freezePreview(project: Project, dataRoot: string) {
   if (!inside(await realpath(project.path), source)) throw new Error('preview_outside_project');
   const output = join(dataRoot, 'artifacts', project.id, randomUUID());
   const digest = createHash('sha256');
-  let bytes = 0,
-    count = 0;
+  let bytes = 0;
+  const files: string[] = [];
   const visit = async (directory: string) => {
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
       a.name.localeCompare(b.name),
@@ -42,20 +42,33 @@ export async function freezePreview(project: Project, dataRoot: string) {
         continue;
       }
       if (!entry.isFile() || !types[extname(entry.name).toLowerCase()]) continue;
-      const actual = await realpath(path);
-      if (!inside(source, actual)) throw new Error('asset_outside_preview');
-      const info = await stat(actual);
-      bytes += info.size;
-      count++;
-      if (bytes > 30_000_000 || count > 500) throw new Error('preview_too_large');
-      const target = join(output, relative(source, path));
-      digest.update(relative(source, path));
-      digest.update(await readFile(actual));
-      await mkdir(resolve(target, '..'), { recursive: true });
-      await cp(actual, target, { dereference: false });
+      files.push(path);
+      if (files.length > 500) throw new Error('preview_too_large');
     }
   };
   await visit(source);
+  if (!files.includes(join(source, 'index.html'))) throw new Error('preview_entry_missing');
+  // Reject over-limit input before creating hundreds of copies on slower disks.
+  const actualFiles: string[] = [];
+  for (const file of files) {
+    const actual = await realpath(file);
+    if (!inside(source, actual)) throw new Error('asset_outside_preview');
+    bytes += (await stat(actual)).size;
+    if (bytes > 30_000_000) throw new Error('preview_too_large');
+    actualFiles.push(actual);
+  }
+  bytes = 0;
+  for (const actual of actualFiles) {
+    const content = await readFile(actual);
+    bytes += content.length;
+    if (bytes > 30_000_000) throw new Error('preview_too_large');
+    const name = relative(source, actual),
+      target = join(output, name);
+    digest.update(name);
+    digest.update(content);
+    await mkdir(resolve(target, '..'), { recursive: true });
+    await writeFile(target, content);
+  }
   await stat(join(output, 'index.html'));
   return { root: await realpath(output), digest: digest.digest('hex') };
 }

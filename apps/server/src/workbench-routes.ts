@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import {
   desktopActionSchema,
   previewActionSchema,
+  previewBindingSchema,
   previewSnapshotSchema,
   startTaskSchema,
   taskDecisionSchema,
@@ -10,6 +11,26 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { DesktopBridge } from './desktop-bridge.js';
 import type { Workbench } from './workbench.js';
+
+// MCP requires an object at the schema root. Per-action requirements are checked
+// again by previewActionSchema, before anything reaches the native page.
+const previewToolSchema = z.strictObject({
+  action: z.enum(['snapshot', 'click', 'type', 'scroll']),
+  binding: previewBindingSchema
+    .optional()
+    .describe('Required for click, type and scroll; copy the binding from the latest snapshot.'),
+  requestId: z.uuid().optional().describe('Required for actions; reuse on transport retries.'),
+  ref: z
+    .string()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe(
+      'Required for click and type; element ref from the current snapshot or user selection.',
+    ),
+  text: z.string().max(4000).optional().describe('Required for type.'),
+  deltaY: z.number().min(-2000).max(2000).optional().describe('Required for scroll.'),
+});
 
 export function workbenchRoutes(
   app: FastifyInstance,
@@ -131,7 +152,7 @@ export function workbenchRoutes(
             name: 'preview',
             description:
               'Read or operate the exact visible product page. First snapshot to obtain binding and element refs. Re-snapshot after navigation or a stale reference. Actions never execute a shell or arbitrary JavaScript.',
-            inputSchema: z.toJSONSchema(previewActionSchema),
+            inputSchema: z.toJSONSchema(previewToolSchema),
           },
         ],
       };

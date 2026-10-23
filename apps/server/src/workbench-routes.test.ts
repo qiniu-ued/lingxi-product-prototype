@@ -104,6 +104,7 @@ it('authenticates MCP independently and exposes only fixed preview actions', asy
   expect((await rpc('initialize', undefined, 'wrong')).statusCode).toBe(401);
   expect((await rpc('initialize')).json().result.capabilities.tools).toEqual({});
   expect((await rpc('tools/list')).json().result.tools[0].name).toBe('preview');
+  expect((await rpc('tools/list')).json().result.tools[0].inputSchema.type).toBe('object');
   expect((await rpc('ping')).json().result).toEqual({});
   expect((await rpc('unknown')).json().error.code).toBe(-32601);
   const snapshot = (

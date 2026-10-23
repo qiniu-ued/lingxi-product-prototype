@@ -7,6 +7,7 @@ import {
   realpath,
   rm,
   symlink,
+  truncate,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -66,4 +67,10 @@ it('requires an entry point and bounds the asset count', async () => {
     ),
   );
   await expect(freezePreview(project, join(root, 'data'))).rejects.toThrow('preview_too_large');
-});
+  await rm(join(project.path, 'preview'), { recursive: true });
+  await mkdir(join(project.path, 'preview'));
+  const entry = join(project.path, 'preview/index.html');
+  await writeFile(entry, '');
+  await truncate(entry, 30_000_001);
+  await expect(freezePreview(project, join(root, 'data'))).rejects.toThrow('preview_too_large');
+}, 15000);

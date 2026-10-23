@@ -1,27 +1,38 @@
 <div id="lingxi-airplay-voice-prototype" aria-label="灵矽纯语音连接 AirPlay、创作页面与体验作品的流程原型">
   <style>
     #lingxi-airplay-voice-prototype {
-      --lv-bg: light-dark(#f4f5f8, #14171d);
-      --lv-panel: light-dark(#ffffff, #1e222b);
-      --lv-fg: light-dark(#252934, #f0f1f6);
-      --lv-secondary: light-dark(#626b7a, #aeb8c7);
-      --lv-line: light-dark(#dfe4ec, #363d4a);
-      --lv-soft: light-dark(#eeecfa, #322e47);
-      --lv-accent: light-dark(#5542a2, #c5baff);
+      --lv-bg: light-dark(#f3f0e9, #24221e);
+      --lv-panel: light-dark(#fffdf8, #302d27);
+      --lv-fg: light-dark(#36332d, #f2eade);
+      --lv-secondary: light-dark(#70695f, #bbb0a2);
+      --lv-line: light-dark(#e3ded3, #474138);
+      --lv-soft: light-dark(#f5e1d6, #57392d);
+      --lv-accent: light-dark(#aa5943, #efad93);
       --lv-status-neutral-bg: light-dark(#e9ecf1, #2a303b);
       --lv-success: light-dark(#23734a, #7bdd9c);
       --lv-success-bg: light-dark(#e7f5ed, #193b2b);
       --lv-error: light-dark(#b5363a, #ff9fa5);
       --lv-error-bg: light-dark(#fceced, #48252a);
-      --lv-primary: light-dark(#302740, #ece7f6);
-      --lv-on-primary: light-dark(#ffffff, #271f36);
+      --lv-primary: light-dark(#aa5943, #efad93);
+      --lv-on-primary: light-dark(#fffdf8, #2d211b);
       --lv-receiver: light-dark(#19212c, #101722);
       --lv-receiver-fg: light-dark(#f0f3fa, #f0f3fa);
       --lv-receiver-muted: light-dark(#b2bfce, #a9b7c9);
       --lv-device: light-dark(#3b3d46, #343640);
       --lv-device-text: light-dark(#c4c7cf, #c4c7cf);
       --lv-led: light-dark(#c4b5ff, #c4b5ff);
-      --lv-art: light-dark(#f1ede6, #34312d);
+      --lv-art: light-dark(#e6d3b7, #5f6359);
+      --lv-water: light-dark(#7faaa7, #447775);
+      --lv-sun: light-dark(#f5bf70, #deaa63);
+      --lv-hill: light-dark(#728b72, #47664c);
+      --lv-hill-back: light-dark(#a7b79b, #667c60);
+      --lv-sand: light-dark(#ead0aa, #ac8f68);
+      --lv-city: light-dark(#c88a66, #a37255);
+      --lv-shadow: light-dark(#5d45300a, #00000018);
+      --lv-agent-analysis: light-dark(#9878cf, #c1a4ed);
+      --lv-agent-drawing: light-dark(#d67e9d, #efa1bb);
+      --lv-agent-development: light-dark(#5c9cc5, #8ec6e8);
+      --lv-agent-quality: light-dark(#cb944a, #e6bb7f);
       color: var(--lv-fg); font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
       font-size: 14px; line-height: 1.6; width: 100%; background: transparent;
     }
@@ -50,12 +61,12 @@
     }
     #lingxi-airplay-voice-prototype .lv-step-name { color: var(--lv-fg); font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-screen {
-      border: 1px solid var(--lv-line); border-radius: 14px; background: var(--lv-bg);
+      border: 1px solid var(--lv-line); border-radius: 22px; background: var(--lv-bg);
       min-width: 0;
     }
     #lingxi-airplay-voice-prototype .lv-receiver {
       padding: 28px 30px 38px; min-height: 430px; background: var(--lv-receiver);
-      color: var(--lv-receiver-fg); border-radius: 13px;
+      color: var(--lv-receiver-fg); border-radius: 21px;
     }
     #lingxi-airplay-voice-prototype .lv-receiver-top {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
@@ -77,14 +88,15 @@
     }
     #lingxi-airplay-voice-prototype .lv-app-header {
       display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-      gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--lv-line);
+      gap: 12px; padding: 22px 24px;
     }
     #lingxi-airplay-voice-prototype .lv-brand { display: flex; align-items: center; gap: 11px; }
     #lingxi-airplay-voice-prototype .lv-brand-mark {
       width: 36px; height: 36px; display: grid; place-items: center; border-radius: 11px;
       background: var(--lv-primary); color: var(--lv-on-primary); font-weight: 500; font-size: 18px;
     }
-    #lingxi-airplay-voice-prototype .lv-brand-name { font-size: 17px; font-weight: 500; }
+    #lingxi-airplay-voice-prototype .lv-brand-mark svg { width: 21px; height: 21px; }
+    #lingxi-airplay-voice-prototype .lv-brand-name { font-size: 18px; font-weight: 500; }
     #lingxi-airplay-voice-prototype .lv-status {
       display: flex; align-items: center; gap: 7px; border-radius: 20px;
       padding: 6px 11px; background: var(--lv-status-neutral-bg); color: var(--lv-secondary); font-size: 12px;
@@ -94,22 +106,22 @@
     #lingxi-airplay-voice-prototype .lv-status-symbol { width: 14px; text-align: center; font-size: 14px; font-weight: 600; }
     #lingxi-airplay-voice-prototype .lv-workspace {
       display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(250px, 1fr);
-      gap: 16px; padding: 18px 20px;
+      gap: 24px; padding: 0 24px 22px;
     }
     #lingxi-airplay-voice-prototype .lv-preview {
       display: flex; flex-direction: column; min-width: 0; min-height: 400px;
-      background: var(--lv-receiver); border-radius: 10px; overflow: hidden;
+      background: var(--lv-panel); border-radius: 22px; overflow: hidden; box-shadow: 0 8px 30px var(--lv-shadow);
     }
     #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header {
-      color: var(--lv-receiver-fg); border: 0; padding: 13px 16px;
+      color: var(--lv-secondary); border: 0; padding: 18px 22px 0;
     }
-    #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header .lv-small { color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-preview > .lv-panel-header .lv-small { color: var(--lv-secondary); }
     #lingxi-airplay-voice-prototype .lv-conversation {
       display: flex; flex-direction: column; min-width: 0; overflow: hidden;
-      background: var(--lv-bg); border: 1px solid var(--lv-line); border-radius: 12px;
+      background: transparent; border: 0; border-radius: 0;
     }
     #lingxi-airplay-voice-prototype .lv-conversation > .lv-panel-header {
-      padding: 13px 14px; font-size: 14px; background: var(--lv-panel);
+      padding: 10px 0; border: 0; font-size: 15px; background: transparent;
     }
     #lingxi-airplay-voice-prototype .lv-chat-title { display: flex; align-items: center; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-chat-title svg { width: 18px; height: 18px; color: var(--lv-accent); }
@@ -120,26 +132,34 @@
     }
     #lingxi-airplay-voice-prototype .lv-empty {
       flex: 1; min-height: 325px; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      padding: 32px 24px; text-align: center; gap: 12px; color: var(--lv-receiver-fg);
+      padding: 32px 24px; text-align: center; gap: 12px; color: var(--lv-fg);
     }
-    #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-receiver-muted); }
+    #lingxi-airplay-voice-prototype .lv-empty > svg { width: 28px; height: 28px; color: var(--lv-accent); }
     #lingxi-airplay-voice-prototype .lv-empty h2 { font-size: 21px; }
-    #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-receiver-muted); font-size: 13px; }
-    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; margin: 0 14px 14px; padding: 26px 20px 20px; background: var(--lv-panel); border-radius: 6px; }
-    #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 25px; letter-spacing: -.03em; margin: 5px 0 9px; }
+    #lingxi-airplay-voice-prototype .lv-empty p { max-width: 310px; color: var(--lv-secondary); font-size: 13px; }
+    #lingxi-airplay-voice-prototype .lv-webpage { flex: 1; margin: 0; padding: 22px; background: transparent; }
+    #lingxi-airplay-voice-prototype .lv-webpage h2 { font-size: 28px; letter-spacing: -.03em; margin: 5px 0 9px; }
     #lingxi-airplay-voice-prototype .lv-webpage-intro { color: var(--lv-secondary); font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-options {
-      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 20px;
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 24px;
     }
     #lingxi-airplay-voice-prototype .lv-option {
-      min-width: 0; padding: 10px; border: 1px solid var(--lv-line); border-radius: 10px;
+      min-width: 0; padding: 0; border: 0; border-radius: 12px;
     }
-    #lingxi-airplay-voice-prototype .lv-option.lv-chosen { background: var(--lv-soft); }
+    #lingxi-airplay-voice-prototype .lv-option.lv-chosen .lv-art { box-shadow: 0 0 0 2px var(--lv-accent); }
     #lingxi-airplay-voice-prototype .lv-art {
-      display: grid; place-items: center; height: 65px; border-radius: 7px;
-      background: var(--lv-art); color: var(--lv-secondary); margin-bottom: 11px;
+      position: relative; overflow: hidden; height: 120px; border-radius: 12px;
+      background: var(--lv-art); margin-bottom: 12px;
     }
-    #lingxi-airplay-voice-prototype .lv-art svg { width: 28px; height: 28px; stroke-width: 1.5; }
+    #lingxi-airplay-voice-prototype .lv-art span { position: absolute; display: block; }
+    #lingxi-airplay-voice-prototype .lv-art-sun { width: 23%; aspect-ratio: 1; border-radius: 50%; background: var(--lv-sun); top: 20%; left: 55%; }
+    #lingxi-airplay-voice-prototype .lv-art-water { width: 130%; height: 55%; bottom: -1%; left: -15%; background: var(--lv-water); border-radius: 45% 45% 0 0; transform: rotate(-7deg); }
+    #lingxi-airplay-voice-prototype .lv-art-shore { width: 90%; height: 26%; bottom: -9%; right: -30%; background: var(--lv-sand); border-radius: 100% 0 0 0; transform: rotate(-14deg); }
+    #lingxi-airplay-voice-prototype .lv-art-hill { width: 110%; height: 80%; left: -30%; bottom: -10%; background: var(--lv-hill-back); clip-path: polygon(0 100%, 65% 0, 100% 100%); }
+    #lingxi-airplay-voice-prototype .lv-art-hill-front { width: 100%; height: 75%; right: -35%; bottom: -10%; background: var(--lv-hill); clip-path: polygon(0 100%, 35% 0, 100% 100%); }
+    #lingxi-airplay-voice-prototype .lv-art-building { left: 13%; bottom: 0; width: 36%; height: 60%; background: var(--lv-city); border-radius: 28px 28px 0 0; }
+    #lingxi-airplay-voice-prototype .lv-art-building-back { right: 12%; bottom: 0; width: 35%; height: 78%; background: var(--lv-sand); }
+    #lingxi-airplay-voice-prototype .lv-art-window { width: 10%; height: 17%; left: 26%; bottom: 25%; background: var(--lv-art); border-radius: 10px 10px 0 0; }
     #lingxi-airplay-voice-prototype .lv-option h3 { font-size: 13px; }
     #lingxi-airplay-voice-prototype .lv-vote-count { font-size: 12px; color: var(--lv-secondary); margin: 3px 0 8px; }
     #lingxi-airplay-voice-prototype .lv-web-button {
@@ -152,7 +172,7 @@
     #lingxi-airplay-voice-prototype .lv-vote-feedback { font-size: 12px; color: var(--lv-secondary); margin-top: 17px; min-height: 20px; }
     #lingxi-airplay-voice-prototype .lv-messages {
       flex: 1; min-height: 0; max-height: 360px; overflow-y: auto; overscroll-behavior: contain;
-      padding: 16px 12px; display: grid; align-content: start; gap: 18px;
+      padding: 14px 0; display: grid; align-content: start; gap: 18px;
     }
     #lingxi-airplay-voice-prototype .lv-chat-row { display: flex; align-items: flex-start; gap: 8px; }
     #lingxi-airplay-voice-prototype .lv-chat-row-user { flex-direction: row-reverse; }
@@ -167,14 +187,14 @@
     #lingxi-airplay-voice-prototype .lv-speaker { font-size: 11px; color: var(--lv-secondary); margin-bottom: 5px; }
     #lingxi-airplay-voice-prototype .lv-chat-row-user .lv-speaker { text-align: right; }
     #lingxi-airplay-voice-prototype .lv-message {
-      padding: 10px 12px; border: 1px solid var(--lv-line); border-radius: 4px 12px 12px 12px;
+      padding: 11px 13px; border: 0; border-radius: 4px 15px 15px 15px;
       font-size: 13px; overflow-wrap: anywhere; background: var(--lv-panel);
     }
     #lingxi-airplay-voice-prototype .lv-user-message {
-      border-color: var(--lv-primary); border-radius: 12px 4px 12px 12px;
-      background: var(--lv-primary); color: var(--lv-on-primary);
+      border-radius: 15px 4px 15px 15px;
+      background: var(--lv-soft); color: var(--lv-fg);
     }
-    #lingxi-airplay-voice-prototype .lv-agents { margin: auto 14px 14px; padding: 12px 0 0; border-top: 1px solid var(--lv-line); }
+    #lingxi-airplay-voice-prototype .lv-agents { margin: auto 0 0; padding: 12px 0 0; border-top: 1px solid var(--lv-line); }
     #lingxi-airplay-voice-prototype .lv-agent-list {
       display: grid; grid-template-columns: 1fr; gap: 4px; margin-top: 8px;
     }
@@ -182,11 +202,18 @@
       display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
       padding: 6px 0; font-size: 12px;
     }
+    #lingxi-airplay-voice-prototype .lv-agent-identity { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    #lingxi-airplay-voice-prototype .lv-agent-icon { display: flex; flex: 0 0 28px; width: 28px; height: 28px; }
+    #lingxi-airplay-voice-prototype .lv-agent-icon svg { width: 100%; height: 100%; }
+    #lingxi-airplay-voice-prototype .lv-agent-icon[data-role="需求分析"] { color: var(--lv-agent-analysis); }
+    #lingxi-airplay-voice-prototype .lv-agent-icon[data-role="绘图"] { color: var(--lv-agent-drawing); }
+    #lingxi-airplay-voice-prototype .lv-agent-icon[data-role="页面开发"] { color: var(--lv-agent-development); }
+    #lingxi-airplay-voice-prototype .lv-agent-icon[data-role="质量检查"] { color: var(--lv-agent-quality); }
     #lingxi-airplay-voice-prototype .lv-agent-current .lv-agent-state { color: var(--lv-accent); background: var(--lv-soft); }
     #lingxi-airplay-voice-prototype .lv-agent-state { color: var(--lv-secondary); padding: 2px 7px; border-radius: 5px; }
     #lingxi-airplay-voice-prototype .lv-voice-hint {
       display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap;
-      padding: 11px 17px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
+      padding: 15px 20px; border-top: 1px solid var(--lv-line); font-size: 12px; color: var(--lv-secondary);
     }
     #lingxi-airplay-voice-prototype .lv-voice-hint svg { width: 15px; height: 15px; }
     #lingxi-airplay-voice-prototype .lv-controller-row {
@@ -259,7 +286,7 @@
 
     <section data-app hidden aria-label="灵矽投屏工作台，只呈现作品、对话和状态">
       <header class="lv-app-header">
-        <div class="lv-brand"><div class="lv-brand-mark" aria-hidden="true">灵</div><div><div class="lv-brand-name">灵矽</div><div class="lv-small lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay · 会议室电视 · 已连接</div></div></div>
+        <div class="lv-brand"><div class="lv-brand-mark" aria-hidden="true"><i data-lucide="sparkles"></i></div><div><div class="lv-brand-name">灵矽</div><div class="lv-small lv-airplay-label"><i data-lucide="airplay" aria-hidden="true"></i>AirPlay · 会议室电视 · 已连接</div></div></div>
         <div class="lv-status" data-task-state="neutral" role="status"><span class="lv-status-symbol" data-task-symbol aria-hidden="true">•</span><span data-task-status>等待你的需求</span></div>
       </header>
       <div class="lv-workspace">
@@ -275,9 +302,9 @@
             <h2>周末，一起去哪里？</h2>
             <p class="lv-webpage-intro">选一个想去的地方，把这一票投给它。</p>
             <div class="lv-options">
-              <article class="lv-option"><div class="lv-art"><i data-lucide="trees" aria-hidden="true"></i></div><h3>公园吹风</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
-              <article class="lv-option" data-sea-option><div class="lv-art"><i data-lucide="waves" aria-hidden="true"></i></div><h3 data-sea-name>海边散步</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div><button type="button" class="lv-web-button" data-sea-button disabled aria-label="作品中的海边投票按钮，通过语音操作">投一票</button></article>
-              <article class="lv-option"><div class="lv-art"><i data-lucide="landmark" aria-hidden="true"></i></div><h3>一起看展</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-hill"></span><span class="lv-art-hill-front"></span></div><h3>公园吹风</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option" data-sea-option><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-water"></span><span class="lv-art-shore"></span></div><h3 data-sea-name>海边散步</h3><div class="lv-vote-count"><span data-sea-count>0</span> 票</div><button type="button" class="lv-web-button" data-sea-button disabled aria-label="作品中的海边投票按钮，通过语音操作">投一票</button></article>
+              <article class="lv-option"><div class="lv-art" aria-hidden="true"><span class="lv-art-sun"></span><span class="lv-art-building-back"></span><span class="lv-art-building"></span><span class="lv-art-window"></span></div><h3>一起看展</h3><div class="lv-vote-count">0 票</div><button type="button" class="lv-web-button" disabled aria-label="作品中的投票按钮，通过语音操作">投一票</button></article>
             </div>
             <div class="lv-vote-feedback" data-vote-feedback>还未投票</div>
           </div>
@@ -322,6 +349,12 @@
         {title:'屏幕连接中断', view:'disconnected', user:'', reply:'屏幕连接断开了，作品和当前投票已保留。你可以说“重新连接会议室电视”。'},
         {title:'语音重连，恢复作品', view:'app', user:'重新连接会议室电视。', reply:'已重新连接，恢复到刚才的页面。', status:'会话已恢复', statusTone:'success', preview:'当前版本 · 检查完成', page:true, voted:true, renamed:true, hint:'可以继续说出修改需求。', agents:[]}
       ];
+      const agentMarks = {
+        "需求分析": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\"><path d=\"M16 5 27 16 16 27 5 16Z\" fill=\"currentColor\" fill-opacity=\".1\" stroke=\"currentColor\" stroke-width=\"1.4\" stroke-linejoin=\"round\"/><circle cx=\"16\" cy=\"16\" r=\"3\" fill=\"currentColor\"/><g fill=\"currentColor\" opacity=\".55\"><circle cx=\"6\" cy=\"6\" r=\"1.7\"/><circle cx=\"26\" cy=\"6\" r=\"1.7\"/><circle cx=\"26\" cy=\"26\" r=\"1.7\"/><circle cx=\"6\" cy=\"26\" r=\"1.7\"/></g></svg>",
+        "绘图": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\"><g fill=\"currentColor\" fill-opacity=\".12\" stroke=\"currentColor\" stroke-opacity=\".8\" stroke-width=\"1.2\"><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\"/><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\" transform=\"rotate(60 16 16)\"/><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\" transform=\"rotate(120 16 16)\"/><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\" transform=\"rotate(180 16 16)\"/><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\" transform=\"rotate(240 16 16)\"/><ellipse cx=\"16\" cy=\"10.5\" rx=\"4.8\" ry=\"7\" transform=\"rotate(300 16 16)\"/></g><circle cx=\"16\" cy=\"16\" r=\"2\" fill=\"currentColor\"/></svg>",
+        "页面开发": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\"><path d=\"M5 5H21V21H5Z\" fill=\"currentColor\" fill-opacity=\".08\"/><path d=\"M11 11H27V27H11Z\" fill=\"currentColor\" fill-opacity=\".14\"/><g stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M21 8V5H5V21H21V14\"/><path d=\"M11 18V11H27V27H11V24\"/></g><path d=\"M15 15H21V21H15Z\" fill=\"currentColor\" fill-opacity=\".22\"/></svg>",
+        "质量检查": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" aria-hidden=\"true\"><g transform=\"rotate(22.5 16 16)\"><path d=\"M16 3 19.37 7.87 25.19 6.81 24.13 12.63 29 16 24.13 19.37 25.19 25.19 19.37 24.13 16 29 12.63 24.13 6.81 25.19 7.87 19.37 3 16 7.87 12.63 6.81 6.81 12.63 7.87Z\" fill=\"currentColor\" fill-opacity=\".1\" stroke=\"currentColor\" stroke-width=\"1.3\" stroke-linejoin=\"round\"/></g><circle cx=\"16\" cy=\"16\" r=\"3.4\" stroke=\"currentColor\" stroke-width=\"1.3\"/></svg>"
+};
       let current = 0;
       let conversationStep = -1;
       let running = false;
@@ -395,7 +428,13 @@
           find('agent-list').replaceChildren();
           state.agents.forEach(([name, status]) => {
             const agent = make('div', 'lv-agent' + (status === '已完成' ? '' : ' lv-agent-current'));
-            agent.append(make('span', '', name));
+            const identity = make('span', 'lv-agent-identity');
+            const icon = make('span', 'lv-agent-icon');
+            icon.dataset.role = name;
+            icon.setAttribute('aria-hidden', 'true');
+            icon.innerHTML = agentMarks[name];
+            identity.append(icon, make('span', '', name));
+            agent.append(identity);
             agent.append(make('span', 'lv-agent-state', (status === '已完成' ? '✓ ' : '') + status));
             find('agent-list').append(agent);
           });

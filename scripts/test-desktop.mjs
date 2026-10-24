@@ -73,6 +73,7 @@ try {
       `${selector} must start collapsed`,
     );
   const address = new URL(operator.url()).origin;
+  await expand(operator, '.keyboard-composer');
   await operator.getByLabel('模型', { exact: true }).selectOption('test-model');
   await operator.getByLabel('Reasoning Effort', { exact: true }).selectOption('high');
   const beforeTasks = await readFile(record, 'utf8');
@@ -89,6 +90,7 @@ try {
   await operator.getByRole('button', { name: '验证执行设置', exact: true }).click();
   await operator.getByText(/已由 Codex 确认：计划模式、执行模式/).waitFor();
   await operator.getByText('模式说明与兼容验证', { exact: true }).click();
+  await operator.locator('.keyboard-composer > summary').press('Enter');
 
   for (let attempt = 0; attempt < 100; attempt++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
@@ -119,6 +121,7 @@ try {
     return page.executeJavaScript(`({desktop:typeof window.lingxiDesktop,node:typeof process})`);
   });
   assert.deepEqual(isolation, { desktop: 'undefined', node: 'undefined' });
+  await expand(operator, '.workbench-menu');
   await operator.getByRole('button', { name: '点选修改', exact: true }).click();
   await operator
     .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
@@ -143,7 +146,16 @@ try {
     .find((message) => message.method === 'turn/start');
   assert.equal(started.params.collaborationMode.mode, 'default');
   assert.equal(started.params.approvalsReviewer, 'user');
+  await expand(operator, '.workbench-menu');
   await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
+  assert.equal(
+    await operator
+      .getByRole('meter', { name: '上下文窗口占用', exact: true })
+      .getAttribute('aria-valuetext'),
+    '25.0% 已使用',
+  );
+  await operator.locator('.workbench-menu > summary').press('Enter');
+  await expand(operator, '.turn-tools');
   await operator.waitForFunction(() =>
     document.querySelector('.turn-usage-summary')?.textContent.includes('缓存命中率 35.7%'),
   );
@@ -152,15 +164,12 @@ try {
       '本轮 150,000 tokens',
     ),
   );
-  assert.equal(
-    await operator
-      .getByRole('meter', { name: '上下文窗口占用', exact: true })
-      .getAttribute('aria-valuetext'),
-    '25.0% 已使用',
-  );
+  await operator.locator('.turn-tools > summary').press('Enter');
+  await expand(operator, '.keyboard-composer');
   await operator.getByLabel('模型', { exact: true }).selectOption('fast-model');
   await operator.waitForFunction(() => document.querySelector('#codex-effort').value === 'low');
   assert.equal(await operator.locator('#codex-effort option[value="high"]').count(), 0);
+  await operator.locator('.keyboard-composer > summary').press('Enter');
 
   assert.ok(after.task.selection, 'Pointer selection must reach the same Codex task');
   assert.equal(
@@ -366,9 +375,14 @@ try {
   const agent = await reopened.locator('.live-activity').evaluate((element) => ({
     open: element.open,
     height: element.querySelector('summary').getBoundingClientRect().height,
+    viewportHeight: innerHeight,
   }));
   assert.equal(agent.open, false, 'Actual Agent details must start collapsed');
-  assert.ok(agent.height <= 36, `Agent summary must remain compact: ${JSON.stringify(agent)}`);
+  const agentLimit = agent.viewportHeight > 850 ? 40 : 26;
+  assert.ok(
+    agent.height <= agentLimit + 1,
+    `Agent summary must match the prototype density: ${JSON.stringify(agent)}`,
+  );
   const steps = await reopened
     .locator('.conversation-turn details')
     .evaluateAll((elements) =>

@@ -1,6 +1,7 @@
 import { type VoiceState, voiceStateSchema } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { MicrophoneIcon } from './MicrophoneIcon';
 
 async function command(action: string, text?: string) {
   const response = await fetch('/api/voice/command', {
@@ -327,15 +328,22 @@ export function VoiceControls({
           允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
         </label>
       )}
-      <p role="status">{state ? labels[state.status] : '正在读取语音状态'}</p>
+      <p role="status" className="voice-status">
+        <MicrophoneIcon muted={state?.status !== 'listening'} />
+        {state ? labels[state.status] : '正在读取语音状态'}
+      </p>
       <div className="live-actions">
-        <button
-          type="button"
-          disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
-          onClick={() => void operate('connect')}
-        >
-          连接灵矽
-        </button>
+        {(configuration ||
+          (state?.configured && ['disconnected', 'failed'].includes(state.status))) && (
+          <button
+            type="button"
+            disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
+            onClick={() => void operate('connect')}
+          >
+            连接灵矽
+          </button>
+        )}
+        {!configuration && state && !state.configured && <a href="/setup">连接设置</a>}
         {state && ['ready', 'speaking'].includes(state.status) && (
           <button type="button" onClick={() => void operate('listen')}>
             {configuration ? '开始收音' : '唤醒灵矽'}
@@ -346,10 +354,22 @@ export function VoiceControls({
             结束收音
           </button>
         )}
-        {state && !['disconnected', 'failed'].includes(state.status) && (
+        {configuration && state && !['disconnected', 'failed'].includes(state.status) && (
           <button type="button" onClick={() => void operate('disconnect')}>
             断开语音
           </button>
+        )}
+        {!configuration && state && !['disconnected', 'failed'].includes(state.status) && (
+          <details className="voice-more">
+            <summary aria-label="更多语音操作" title="更多语音操作">
+              ⋯
+            </summary>
+            <div>
+              <button type="button" onClick={() => void operate('disconnect')}>
+                断开语音
+              </button>
+            </div>
+          </details>
         )}
         {configuration && (
           <button

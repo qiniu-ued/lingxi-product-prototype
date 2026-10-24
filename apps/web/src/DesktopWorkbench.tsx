@@ -12,6 +12,7 @@ import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useStat
 import { ContextUsage } from './ContextUsage';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
+import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
 import { TurnUsage } from './TurnUsage';
 import { VoiceControls } from './VoiceControls';
@@ -20,6 +21,24 @@ import { WorkspaceTools } from './WorkspaceTools';
 const TerminalPanel = lazy(() =>
   import('./TerminalPanel').then((module) => ({ default: module.TerminalPanel })),
 );
+
+// The prototype uses Lucide Sparkles; its license is retained in public/licenses/LUCIDE-LICENSE.
+function SparklesIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" />
+      <path d="M20 3v4M22 5h-4M4 17v2M5 18H3" />
+    </svg>
+  );
+}
 
 export function DesktopWorkbench() {
   const display = location.pathname === '/display';
@@ -189,18 +208,7 @@ export function DesktopWorkbench() {
       <header className="live-header">
         <a href="/" className="brand">
           <span className="brand-mark" aria-hidden="true">
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z" />
-              <path d="M20 2v4M18 4h4" />
-            </svg>
+            <SparklesIcon />
           </span>
           <span>
             灵矽
@@ -247,6 +255,19 @@ export function DesktopWorkbench() {
                   >
                     打开大屏
                   </button>
+                  {state?.preview && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab('preview');
+                        setPicking((value) => !value);
+                        retry.current = null;
+                        if (workspaceMenu.current) workspaceMenu.current.open = false;
+                      }}
+                    >
+                      {picking ? '取消点选' : '点选修改'}
+                    </button>
+                  )}
                   <a href="/setup">连接向导</a>
                 </div>
                 {!display && (
@@ -456,7 +477,7 @@ export function DesktopWorkbench() {
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
                 <div className="live-empty">
-                  <span>✧</span>
+                  <SparklesIcon />
                   <h2>聊聊你的想法吧。</h2>
                 </div>
               ) : !display && shot ? (
@@ -495,31 +516,6 @@ export function DesktopWorkbench() {
                 <p>正在同步大屏中的作品…</p>
               ) : null}
             </div>
-            {!display && state?.preview && (
-              <p className="preview-caption">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPicking((value) => !value);
-                    retry.current = null;
-                  }}
-                >
-                  {picking ? '取消点选' : '点选修改'}
-                </button>{' '}
-                {selection && `已选：${selection.description.slice(0, 80)}`}
-                {selection && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelection(null);
-                      retry.current = null;
-                    }}
-                  >
-                    清除选择
-                  </button>
-                )}
-              </p>
-            )}
           </div>
         </section>
         <aside className="live-discussion live-panel">
@@ -590,7 +586,9 @@ export function DesktopWorkbench() {
                   ))}
                   {!display && (
                     <details className="turn-tools">
-                      <summary>本轮详情</summary>
+                      <summary aria-label="本轮详情" title="本轮详情">
+                        ⋯
+                      </summary>
                       {turn.attachments?.length ? (
                         <details>
                           <summary>本轮上下文 · {turn.attachments.length}</summary>
@@ -743,46 +741,52 @@ export function DesktopWorkbench() {
             )}
           </div>
           {task && (
-            <details className="live-activity" aria-label="实际执行进度" key={task.id}>
-              <summary className="agent-identity">
-                <span className="agent-icon" aria-hidden="true">
-                  <svg aria-hidden="true" viewBox="0 0 32 32" fill="none">
-                    <path d="M5 5H21V21H5Z" fill="currentColor" fillOpacity=".08" />
-                    <path d="M11 11H27V27H11Z" fill="currentColor" fillOpacity=".14" />
-                    <g
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 8V5H5V21H21V14" />
-                      <path d="M11 18V11H27V27H11V24" />
-                    </g>
-                    <path d="M15 15H21V21H15Z" fill="currentColor" fillOpacity=".22" />
-                  </svg>
-                </span>
-                <strong>{task.threadId ? 'Codex' : '本轮任务'}</strong>
-                <span className={`agent-state task-state-${task.status}`}>
-                  {task.status === 'waiting'
-                    ? '等待确认'
-                    : task.status === 'queued'
-                      ? '排队中'
-                      : task.status === 'starting'
-                        ? '准备中'
-                        : task.status === 'stopping'
-                          ? '停止中'
-                          : task.status === 'running'
-                            ? '进行中'
-                            : task.status === 'completed'
-                              ? '✓ 已完成'
-                              : task.status === 'failed'
-                                ? '失败'
-                                : '已停止'}
-                </span>
-              </summary>
-              <p className="runtime-stage">{task.activity}</p>
-              {task.error && <p role="alert">{task.error}</p>}
-            </details>
+            <section
+              className="live-agents"
+              aria-label={task.threadId ? '本次实际调用的 Agent' : '执行进度'}
+            >
+              <p className="agent-group-title">{task.threadId ? '本次调用的 Agent' : '执行进度'}</p>
+              <details className="live-activity" aria-label="实际执行进度" key={task.id}>
+                <summary className="agent-identity">
+                  <span className="agent-icon" aria-hidden="true">
+                    <svg aria-hidden="true" viewBox="0 0 32 32" fill="none">
+                      <path d="M5 5H21V21H5Z" fill="currentColor" fillOpacity=".08" />
+                      <path d="M11 11H27V27H11Z" fill="currentColor" fillOpacity=".14" />
+                      <g
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M21 8V5H5V21H21V14" />
+                        <path d="M11 18V11H27V27H11V24" />
+                      </g>
+                      <path d="M15 15H21V21H15Z" fill="currentColor" fillOpacity=".22" />
+                    </svg>
+                  </span>
+                  <strong>{task.threadId ? 'Codex' : '本轮任务'}</strong>
+                  <span className={`agent-state task-state-${task.status}`}>
+                    {task.status === 'waiting'
+                      ? '等待确认'
+                      : task.status === 'queued'
+                        ? '排队中'
+                        : task.status === 'starting'
+                          ? '准备中'
+                          : task.status === 'stopping'
+                            ? '停止中'
+                            : task.status === 'running'
+                              ? '进行中'
+                              : task.status === 'completed'
+                                ? '✓ 已完成'
+                                : task.status === 'failed'
+                                  ? '失败'
+                                  : '已停止'}
+                  </span>
+                </summary>
+                <p className="runtime-stage">{task.activity}</p>
+                {task.error && <p role="alert">{task.error}</p>}
+              </details>
+            </section>
           )}
           {!display &&
             task &&
@@ -898,7 +902,7 @@ export function DesktopWorkbench() {
           <div
             className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : ''}`}
           >
-            <span aria-hidden="true">{displayVoice?.status === 'listening' ? '●' : '○'}</span>
+            <MicrophoneIcon muted={displayVoice?.status !== 'listening'} />
             <strong>
               {!connected || !displayVoice
                 ? '正在同步麦克风状态'
@@ -973,21 +977,33 @@ export function DesktopWorkbench() {
                 </div>
               )}
               {selection && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    attach({
-                      id: crypto.randomUUID(),
-                      kind: 'browser',
-                      title: selection.description.slice(0, 100),
-                      text: `预览点选：${selection.description}`,
-                      selection,
-                    });
-                    setSelection(null);
-                  }}
-                >
-                  把此标记加入上下文
-                </button>
+                <div className="selection-tools">
+                  <p>已选：{selection.description.slice(0, 80)}</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      attach({
+                        id: crypto.randomUUID(),
+                        kind: 'browser',
+                        title: selection.description.slice(0, 100),
+                        text: `预览点选：${selection.description}`,
+                        selection,
+                      });
+                      setSelection(null);
+                    }}
+                  >
+                    把此标记加入上下文
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelection(null);
+                      retry.current = null;
+                    }}
+                  >
+                    清除选择
+                  </button>
+                </div>
               )}
               {running && (
                 <label>

@@ -161,6 +161,7 @@ test('composer loads models automatically, limits effort choices and resets inco
   page,
 }) => {
   const fixture = await open(page, runtime(), true);
+  await page.locator('.keyboard-composer > summary').click();
   await expect(page.getByText('模型列表读取失败，已保存的选择仍保留。')).toBeVisible();
   await expect(page.getByLabel('模型', { exact: true })).toHaveValue('test-model');
   await expect(page.getByLabel('Reasoning Effort', { exact: true })).toHaveValue('high');
@@ -175,6 +176,7 @@ test('context meter uses the last request, with separate cumulative and cached/r
   page,
 }) => {
   await open(page, runtime());
+  await page.locator('.workbench-menu > summary').click();
   const meter = page.getByRole('meter', { name: '上下文窗口占用', exact: true });
   await expect(meter).toHaveAttribute('aria-valuetext', '25.0% 已使用');
   await page.getByText('上下文使用详情', { exact: true }).click();
@@ -187,6 +189,7 @@ test('context meter uses the last request, with separate cumulative and cached/r
 });
 test('unknown usage or window capacity never appears as zero percent', async ({ page }) => {
   await open(page, { ...runtime(), usage: { ...usage, modelContextWindow: null } });
+  await page.locator('.workbench-menu > summary').click();
   await expect(page.getByRole('region', { name: '上下文用量' })).toContainText('容量未报告');
   await expect(page.getByRole('meter')).toHaveCount(0);
   await expect(page.getByRole('region', { name: '上下文用量' })).not.toContainText('0.0%');
@@ -194,6 +197,7 @@ test('unknown usage or window capacity never appears as zero percent', async ({ 
 
 test('no usage report is shown as waiting rather than zero consumption', async ({ page }) => {
   await open(page, null);
+  await page.locator('.workbench-menu > summary').click();
   await expect(page.getByRole('region', { name: '上下文用量' })).toContainText(
     '等待 Codex 报告用量',
   );
@@ -231,18 +235,17 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
   });
   const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
   const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
+  const runningTurn = page.locator('article.conversation-turn').filter({ hasText: '运行中' });
+  await firstTurn.locator('summary[aria-label="本轮详情"]').click();
+  await secondTurn.locator('summary[aria-label="本轮详情"]').click();
+  await runningTurn.locator('summary[aria-label="本轮详情"]').click();
   await expect(firstTurn.getByRole('region', { name: '本轮 Token 用量' })).toContainText(
     '本轮 32,000 tokens',
   );
   await expect(firstTurn).toContainText('缓存命中率 40.0%');
   await expect(secondTurn).toContainText('本轮用量未报告');
   await expect(secondTurn).not.toContainText('本轮 0 tokens');
-  await expect(
-    page
-      .locator('article.conversation-turn')
-      .filter({ hasText: '运行中' })
-      .getByRole('region', { name: '本轮 Token 用量' }),
-  ).toHaveCount(0);
+  await expect(runningTurn.getByRole('region', { name: '本轮 Token 用量' })).toHaveCount(0);
   await fixture.publish({
     turnUsage: [
       ...fixture.state().turnUsage,
@@ -300,6 +303,9 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
   });
   const article = (text: string) =>
     page.locator('article.conversation-turn').filter({ hasText: text });
+  for (const prompt of ['缺少基线', '缺少缓存', '无输入', '已中断']) {
+    await article(prompt).locator('summary[aria-label="本轮详情"]').click();
+  }
   await expect(article('缺少基线')).toContainText('缺少起始累计值，无法计算本轮用量');
   await expect(article('缺少缓存')).toContainText('缓存命中率 未报告');
   await expect(article('无输入')).toContainText('缓存命中率 不适用（无输入）');
@@ -309,6 +315,7 @@ test('composer selects collaboration modes and permissions, and reports explicit
   page,
 }) => {
   const fixture = await open(page, runtime());
+  await page.locator('.keyboard-composer > summary').click();
   await expect(page.locator('#collaboration-mode option[value="plan"]')).toBeEnabled();
   await page.getByLabel('工作模式', { exact: true }).selectOption('plan');
   await expect(page.getByLabel('工作模式', { exact: true })).toHaveValue('plan');
@@ -379,6 +386,7 @@ test('tools show readable skill, MCP and quota cards with independent errors and
     },
   };
   await page.route('**/api/workbench/catalog', (route) => route.fulfill({ json: catalog }));
+  await page.locator('.workbench-menu > summary').click();
   await page.getByRole('button', { name: '工具与额度', exact: true }).click();
   await page.getByRole('button', { name: '读取 Skills、MCP 和账号额度' }).click();
   await expect(page.getByRole('region', { name: 'Skills', exact: true })).toContainText('代码审阅');

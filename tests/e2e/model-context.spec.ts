@@ -86,6 +86,7 @@ async function open(
     ({ snapshot }) => {
       Object.defineProperty(window, 'lingxiDesktop', {
         value: {
+          info: async () => ({ platform: 'darwin', arch: 'arm64', systemVersion: 'fixture' }),
           microphone: async () => true,
           audioFrame: () => {},
           onAudio: () => () => {},
@@ -143,6 +144,9 @@ async function open(
         microphone: 'granted',
       },
     }),
+  );
+  await page.route('**/api/setup/codex/action', (route) =>
+    route.fulfill({ json: { action: null } }),
   );
   await page.route('**/api/workbench/models', (route) => {
     return route.fulfill(
@@ -251,6 +255,17 @@ async function open(
   await page.route('**/api/voice', (route) => route.fulfill({ json: voice }));
   await page.route('**/api/voice/inspect', (route) => route.fulfill({ json: voice }));
   const voiceCommands: Array<Record<string, unknown>> = [];
+  await page.route('**/api/voice/preferences', (route) => {
+    const body = route.request().postDataJSON();
+    voiceCommands.push({ action: 'preferences', ...body });
+    voice = {
+      ...voice,
+      allowVoiceSubmit: body.allowVoiceSubmit,
+      status: 'disconnected',
+      deviceToolsReady: false,
+    };
+    return route.fulfill({ json: voice });
+  });
   await page.route('**/api/voice/command', (route) => {
     const body = route.request().postDataJSON();
     voiceCommands.push(body);
@@ -266,6 +281,8 @@ async function open(
         status: 'ready',
         wake: { ...voice.wake, status: 'off', detectionId: null },
       };
+    if (body.action === 'wake-keyword')
+      voice = { ...voice, wake: { ...voice.wake, keyword: body.keyword } };
     if (body.action === 'context-details') voice = { ...voice, contextDetailsOpen: body.open };
     return route.fulfill({ json: voice });
   });
@@ -742,6 +759,66 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
       ),
     )
     .toBe(true);
+  await page.getByRole('button', { name: '开启语音唤醒', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
+  const arms = fixture.voiceCommands.filter((command) => command.action === 'arm-wake').length;
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'testMicTracks') as MediaStreamTrack[]).every(
+          (track) => track.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect
+    .poll(() => fixture.voiceCommands.filter((command) => command.action === 'stop-wake').length)
+    .toBe(2);
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '麦克风关闭' })).toBeVisible();
+  expect(fixture.voiceCommands.filter((command) => command.action === 'arm-wake')).toHaveLength(
+    arms,
+  );
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('本轮待发送草稿');
+});
+test('opening settings while microphone acquisition is pending releases the late stream without starting capture', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => {
+        const context = new AudioContext({ sampleRate: 16000 });
+        const output = context.createMediaStreamDestination();
+        Reflect.set(window, 'lateMicTracks', output.stream.getTracks());
+        await new Promise<void>((resolve) => Reflect.set(window, 'releaseMic', resolve));
+        return output.stream;
+      },
+    });
+  });
+  const fixture = await open(page, runtime());
+  fixture.publishVoice({ configured: true, status: 'ready' });
+  await page.getByRole('button', { name: '开始收音', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => typeof Reflect.get(window, 'releaseMic')))
+    .toBe('function');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+  await page.evaluate(() => Reflect.get(window, 'releaseMic')());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'lateMicTracks') as MediaStreamTrack[]).every(
+          (track) => track.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.voiceCommands.some((command) => command.action === 'listen')).toBe(false);
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeEnabled();
 });
 test('copy and Fork remain as icons while quotes and Sidechat require a text selection; voice opens details on both screens', async ({
   page,
@@ -768,4 +845,96 @@ test('copy and Fork remain as icons while quotes and Sidechat require a text sel
   await expect(page.getByRole('table')).toBeVisible();
   await page.getByRole('button', { name: '上下文使用详情', exact: true }).click();
   await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+test('permanent settings keep the active composer and manage voice consent and the session wake keyword', async ({
+  page,
+}) => {
+  const source = turn('保留设置前的工作');
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  fixture.publishVoice({
+    configured: true,
+    status: 'ready',
+    wake: { status: 'off', keyword: '丽塔同学', installed: true, detectionId: null, error: null },
+  });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByLabel('给 Codex 的本轮指令').fill('设置前没有发送的草稿');
+  await selectExcerpt(page, source.id, '保留设置前的工作的回答');
+  await page.getByRole('button', { name: '引用到对话', exact: true }).click();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /灵矽与语音执行/ })
+    .click();
+  const consent = page.getByRole('checkbox', { name: /允许主动收音后用语音提交/ });
+  await expect(consent).not.toBeChecked();
+  await consent.click();
+  await expect(consent).toBeChecked();
+  await expect(page.getByRole('region', { name: '语音交接状态' })).toContainText('语音执行已开启');
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /语音唤醒与麦克风/ })
+    .click();
+  await page.getByLabel('本次运行的唤醒词').fill('你好同学');
+  await page.getByRole('button', { name: '保存本次唤醒词', exact: true }).click();
+  await expect
+    .poll(() =>
+      fixture.voiceCommands.some(
+        (command) => command.action === 'wake-keyword' && command.keyword === '你好同学',
+      ),
+    )
+    .toBe(true);
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
+  await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
+  expect(fixture.commands).toHaveLength(0);
+  expect(
+    fixture.voiceCommands.some(
+      (command) => command.action === 'listen' || command.action === 'arm-wake',
+    ),
+  ).toBe(false);
+});
+test('voice handoff distinguishes draft-only, unhandled voice replies and accepted tasks on both screens', async ({
+  page,
+}) => {
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  fixture.publishVoice({ configured: true, status: 'ready', allowVoiceSubmit: false });
+  const handoff = page.getByRole('region', { name: '语音交接状态', exact: true });
+  await expect(handoff).toContainText('仅转写草稿');
+  fixture.publishVoice({
+    allowVoiceSubmit: true,
+    deviceToolsReady: true,
+    handoff: {
+      captureId: randomUUID(),
+      status: 'unhandled',
+      taskId: null,
+      message: '灵矽本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。',
+    },
+  });
+  await expect(handoff).toContainText('没有提交给 Codex');
+  await expect(page.locator('article.conversation-turn')).toHaveCount(0);
+  const task = turn('把这个页面变成粉色', 'running');
+  await fixture.publish({ history: [task], task });
+  fixture.publishVoice({
+    handoff: {
+      captureId: task.id,
+      status: 'submitted',
+      taskId: task.id,
+      message: '已交给 Codex，进度与回复在右侧对话中显示。',
+    },
+  });
+  await expect(handoff).toContainText(task.id.slice(0, 8));
+  await page.goto('/display');
+  await expect(page.getByRole('region', { name: '语音交接状态' })).toContainText('已交给 Codex');
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
 });

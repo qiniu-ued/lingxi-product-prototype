@@ -190,6 +190,14 @@ try {
     .getByRole('button', { name: '移除', exact: true })
     .click();
   await operator.getByLabel('给 Codex 的本轮指令').fill('主对话草稿保留');
+  await operator.getByRole('button', { name: '设置', exact: true }).click();
+  await operator.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
+  await operator.getByRole('navigation', { name: '设置分类' }).waitFor();
+  await operator.getByRole('heading', { name: 'Codex 环境检查通过', exact: true }).waitFor();
+  await operator.screenshot({ path: join(root, '.local/settings-smoke.png') });
+  assert.equal((await (await fetch(`${address}/api/workbench`)).json()).task.id, after.task.id);
+  await operator.getByRole('button', { name: '返回工作台', exact: true }).click();
+  assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '主对话草稿保留');
   await reply.selectText();
   await reply.dispatchEvent('mouseup');
   await operator.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
@@ -288,8 +296,8 @@ try {
   assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
   assert.equal(
     probes.length,
-    2,
-    'Startup diagnostics and explicit verification must use separate temporary connections',
+    3,
+    'Startup, settings diagnostics and explicit verification must use temporary connections',
   );
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)

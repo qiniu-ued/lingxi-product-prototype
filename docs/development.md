@@ -6,7 +6,7 @@
 
 桌面版提供原生项目选择、Codex App Server 任务、审批/问题/中断、唯一作品页面及 MCP 操作、截图点选和浅暖色双栏布局。作品支持静态 `preview/index.html` 或明确绑定的本机框架开发服务器。浏览器基础模式保留建议保存、SQLite、SSE 和恢复；独立浏览器不提供真实任务。
 
-新增常驻多轮会话、终端、Diff、Sidechat/Fork、上下文附件以及灵矽 OTA 绑定/WSS PCM 适配；自定义唤醒、自动 AirPlay、多 Agent 编排和独立 worktree 尚未接入。真实账号与 Mac 音频需要本机验收。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
+新增常驻多轮会话、终端、Diff、Sidechat/Fork、上下文附件以及灵矽 OTA 绑定/WSS PCM 适配；本地中文唤醒已接入，自动 AirPlay、多 Agent 编排和独立 worktree 尚未接入。真实账号与 Mac 音频需要本机验收。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
 
 ## 桌面开发
 
@@ -28,6 +28,7 @@ npm run dev
 
 - 操作台：<http://127.0.0.1:5173/>
 - 大屏：<http://127.0.0.1:5173/display>
+- 设置：<http://127.0.0.1:5173/settings>；向导：`/setup`
 - API 健康检查：<http://127.0.0.1:4310/api/health>
 
 两端在同一台 Mac 的浏览器中打开。使用 macOS 连接 AirPlay 扩展显示器，再把大屏窗口放过去。网页不直接启动 Codex，也不实现 AirPlay 协议；调用 Codex 由本机 Node 服务负责。只部署静态网页不足以运行完整产品。
@@ -75,3 +76,5 @@ dist/                 原型导出页面（继续提交到 Git）
 GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 Chromium 测试；通过后生成两个架构的 Mac 运行包和桌面 ZIP。真实模型调用、语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。
 
 工作区完整能力与限制见 [能力表](workspace-capabilities.md) 和 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。修改语音/绑定协议需更新本地协议替身；不要让 CI 用真实设备身份注册云端设备。
+
+操作台常驻「设置」使用内部导航，保留本页未发送草稿，停止其录音/唤醒，返回不自动恢复麦克风。设置与向导复用只读检查和配置表单，检查通过仍停留；直接加载路由或刷新不会保存内存草稿。语音任务许可与云端工具配置见 [Mac 指南](mac-setup.md)。

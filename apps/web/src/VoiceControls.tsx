@@ -1,7 +1,9 @@
-import { type VoiceState, voiceStateSchema } from '@lingxi/protocol';
+import { LINGXI_WORKBENCH_ROLE, type VoiceState, voiceStateSchema } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { MicrophoneIcon } from './MicrophoneIcon';
+import { SettingsLink } from './Navigation';
+import { VoiceHandoff } from './VoiceHandoff';
 
 async function command(action: string, values: Record<string, unknown> = {}) {
   const response = await fetch('/api/voice/command', {
@@ -71,8 +73,12 @@ export function VoiceControls({
     [deviceId, setDeviceId] = useState(''),
     [allow, setAllow] = useState(false);
   const [keyword, setKeyword] = useState('丽塔同学');
+  const [keywordEdited, setKeywordEdited] = useState(false);
+  const [roleNotice, setRoleNotice] = useState('');
   const [operating, setOperating] = useState(false);
   const inOperation = useRef(false),
+    operationEpoch = useRef(0),
+    pendingCapture = useRef(false),
     wakeActive = useRef(false),
     lastWake = useRef('');
   const suppressUntil = useRef(0);
@@ -150,15 +156,23 @@ export function VoiceControls({
     });
     return () => {
       active = false;
+      operationEpoch.current++;
       clearInterval(timer);
       unsubscribe?.();
+      const hadCapture = recording.current;
+      const hadPlayback = sources.current.size > 0;
       stopMic();
       if (wakeActive.current) void command('stop-wake').catch(() => {});
+      else if (hadCapture || pendingCapture.current) void command('stop-listening').catch(() => {});
+      if (hadPlayback) void command('stop-speaking').catch(() => {});
       resetPlayback();
       void playback.current?.close();
       playback.current = null;
     };
   }, [stopMic, resetPlayback]);
+  useEffect(() => {
+    if (state && !keywordEdited) setKeyword(state.wake.keyword);
+  }, [state, keywordEdited]);
   useEffect(() => {
     if (state) onState?.(state);
     if (!inOperation.current && state) {
@@ -198,18 +212,25 @@ export function VoiceControls({
   }, [state, onDraft, onState, stopMic]);
   async function operate(action: string, text?: string) {
     if (inOperation.current) return;
+    const epoch = operationEpoch.current;
+    const ensureActive = () => {
+      if (operationEpoch.current !== epoch) throw new Error('audio_owner_closed');
+    };
     inOperation.current = true;
+    pendingCapture.current = action === 'listen' || action === 'arm-wake';
     setOperating(true);
     try {
       setError('');
       if (['connect', 'speak', 'listen', 'arm-wake'].includes(action)) {
         playback.current ??= new AudioContext();
         await playback.current.resume();
+        ensureActive();
       }
       if (action === 'listen' || action === 'arm-wake') {
         if (action === 'arm-wake') wakeActive.current = true;
         if (!recording.current) {
           if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission');
+          ensureActive();
           const media = await navigator.mediaDevices.getUserMedia({
             audio: {
               channelCount: 1,
@@ -219,11 +240,16 @@ export function VoiceControls({
             },
             video: false,
           });
+          if (operationEpoch.current !== epoch) {
+            for (const track of media.getTracks()) track.stop();
+            return;
+          }
           stream.current = media;
           const context = new AudioContext({ sampleRate: 16000 });
           capture.current = context;
           if (context.sampleRate !== 16000) throw new Error('sample rate unsupported');
           await context.audioWorklet.addModule('/pcm-worklet.js');
+          ensureActive();
           const worklet = new AudioWorkletNode(context, 'lingxi-pcm-capture');
           worklet.port.onmessage = (event) => {
             if (recording.current && event.data instanceof ArrayBuffer) {
@@ -235,7 +261,15 @@ export function VoiceControls({
           worklet.connect(context.destination);
         }
         if (action === 'listen') await prepare?.();
-        const value = await command(action, action === 'arm-wake' ? { keyword } : {});
+        ensureActive();
+        const value = await command(
+          action,
+          action === 'arm-wake' ? { keyword: state?.wake.keyword ?? keyword } : {},
+        );
+        if (operationEpoch.current !== epoch) {
+          await command(action === 'arm-wake' ? 'stop-wake' : 'stop-listening');
+          return;
+        }
         if (action === 'arm-wake' && value.wake.status !== 'armed') throw new Error('wake_failed');
         recording.current = true;
         setState(value);
@@ -252,13 +286,15 @@ export function VoiceControls({
         setState(await command(action, text ? { text } : {}));
       }
     } catch {
+      if (operationEpoch.current !== epoch) return;
       stopMic();
       wakeActive.current = false;
       if (action === 'listen' || action === 'arm-wake') void command('stop-wake').catch(() => {});
       setError('操作未完成。请检查连接配置、麦克风权限和系统声音设置。');
     } finally {
       inOperation.current = false;
-      setOperating(false);
+      pendingCapture.current = false;
+      if (operationEpoch.current === epoch) setOperating(false);
     }
   }
   startCapture.current = (action) => operate(action);
@@ -378,26 +414,78 @@ export function VoiceControls({
             </details>
           )}
           {configuration && state?.configured && (
-            <label>
-              <input
-                type="checkbox"
-                checked={state.allowVoiceSubmit}
-                onChange={async (e) => {
-                  try {
-                    const response = await fetch('/api/voice/preferences', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ allowVoiceSubmit: e.target.checked }),
-                    });
-                    if (!response.ok) throw new Error();
-                    setState(voiceStateSchema.parse(await response.json()));
-                  } catch {
-                    setError('未能保存语音提交设置。');
-                  }
-                }}
-              />
-              允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
-            </label>
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.allowVoiceSubmit}
+                  onChange={async (e) => {
+                    try {
+                      const response = await fetch('/api/voice/preferences', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ allowVoiceSubmit: e.target.checked }),
+                      });
+                      if (!response.ok) throw new Error();
+                      setState(voiceStateSchema.parse(await response.json()));
+                    } catch {
+                      setError('未能保存语音提交设置。');
+                    }
+                  }}
+                />
+                允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
+              </label>
+              <p>
+                默认关闭时仅保留转写草稿；开启并重新连接后，灵矽才可调用
+                Codex。开启唤醒不会自动开启这项权限。
+              </p>
+            </>
+          )}
+          {configuration && (
+            <>
+              <VoiceHandoff state={state} showSettings={false} />
+              <p>
+                在七牛控制台打开绑定的智能体 →
+                技能与扩展，选择「统一意图识别」，并确认聊天模型支持工具调用；保存后重新连接。「无意图识别」只做普通聊天。
+              </p>
+              <details>
+                <summary>配置语音工作台角色</summary>
+                <p>
+                  工作台通过设备端 MCP
+                  提供操作能力。可将下面的说明复制到云端智能体角色介绍，让页面修改要求交给 Codex。
+                </p>
+                <textarea
+                  aria-label="语音工作台角色说明"
+                  value={LINGXI_WORKBENCH_ROLE}
+                  readOnly
+                  rows={5}
+                />
+                <button
+                  className="button secondary"
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      if (window.lingxiDesktop)
+                        await window.lingxiDesktop.copy(LINGXI_WORKBENCH_ROLE);
+                      else await navigator.clipboard.writeText(LINGXI_WORKBENCH_ROLE);
+                      setRoleNotice('角色说明已复制，请在灵矽控制台保存后重新连接。');
+                    } catch {
+                      setRoleNotice('未能复制，请选中上面的说明复制。');
+                    }
+                  }}
+                >
+                  复制角色说明
+                </button>
+                {roleNotice && <p role="status">{roleNotice}</p>}
+                <a
+                  href="https://linx.qiniu.com/docs/xrobot/guide/agent-config"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  官方智能体配置说明 ↗
+                </a>
+              </details>
+            </>
           )}
           <p role="status" className="voice-status">
             <MicrophoneIcon
@@ -427,7 +515,9 @@ export function VoiceControls({
                 连接灵矽
               </button>
             )}
-            {!configuration && state && !state.configured && <a href="/setup">连接设置</a>}
+            {!configuration && state && !state.configured && (
+              <SettingsLink section="lingxi" label="连接设置" />
+            )}
             {state && ['ready', 'speaking'].includes(state.status) && (
               <button type="button" disabled={operating} onClick={() => void operate('listen')}>
                 开始收音
@@ -480,9 +570,7 @@ export function VoiceControls({
         <WakePanel className="wake-settings">
           {configuration ? <h3>本地唤醒模型</h3> : <summary>语音唤醒</summary>}
           {configuration && (
-            <p>
-              下载一次后离线检测，无需额外账号。完成后回工作台开启唤醒，默认词为“丽塔同学”，可在那里修改。
-            </p>
+            <p>下载一次后离线检测，无需额外账号。在这里设置本次唤醒词，完成后回工作台开启检测。</p>
           )}
           {!configuration && (
             <>
@@ -490,28 +578,59 @@ export function VoiceControls({
                 开启后麦克风持续在本机检测；说出唤醒词、听到提示音后再说指令，停顿约 1.2
                 秒结束收音。待唤醒音频不上传、不保存。播报期间暂停检测；退出或刷新页面后需重新开启。
               </p>
+              <p>
+                唤醒词：{state?.wake.keyword ?? keyword}{' '}
+                <SettingsLink section="wake" label="修改唤醒词" />
+              </p>
+            </>
+          )}
+          {!state?.wake.installed &&
+            (configuration ? (
+              <button
+                type="button"
+                className={configuration ? 'button secondary' : undefined}
+                disabled={operating || state?.wake.status === 'installing'}
+                onClick={() => void operate('install-wake')}
+              >
+                {state?.wake.status === 'installing'
+                  ? '正在下载模型…'
+                  : '下载本地唤醒模型（约 33 MB）'}
+              </button>
+            ) : (
+              <SettingsLink section="wake" label="配置语音唤醒" />
+            ))}
+          {configuration && (
+            <>
               <label>
-                中文唤醒词
+                本次运行的唤醒词
                 <input
                   value={keyword}
                   maxLength={12}
-                  disabled={operating || wakeActive.current}
-                  onChange={(event) => setKeyword(event.target.value)}
+                  disabled={operating}
+                  onChange={(event) => {
+                    setKeywordEdited(true);
+                    setKeyword(event.target.value);
+                  }}
                 />
               </label>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={operating || !/^[\u4e00-\u9fff]{2,12}$/.test(keyword)}
+                onClick={async () => {
+                  try {
+                    setState(await command('wake-keyword', { keyword }));
+                    setKeywordEdited(false);
+                    setError('');
+                  } catch {
+                    setError('未能修改唤醒词，请先关闭正在运行的语音唤醒后重试。');
+                  }
+                }}
+              >
+                保存本次唤醒词
+              </button>
+              <p>此项只在本次应用运行期间保留，重启后恢复“丽塔同学”。保存不会开启麦克风。</p>
             </>
-          )}
-          {!state?.wake.installed && (
-            <button
-              type="button"
-              className={configuration ? 'button secondary' : undefined}
-              disabled={operating || state?.wake.status === 'installing'}
-              onClick={() => void operate('install-wake')}
-            >
-              {state?.wake.status === 'installing'
-                ? '正在下载模型…'
-                : '下载本地唤醒模型（约 33 MB）'}
-            </button>
           )}
           {state?.wake.installed && configuration && (
             <p role="status">模型文件已下载。复查配置后，回到工作台开启语音唤醒。</p>

@@ -12,6 +12,7 @@ import {
   type VoiceState,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SettingsLink, SetupLink } from './Navigation';
 import { VoiceControls } from './VoiceControls';
 
 const steps = ['配置 Codex', '配置灵矽', '配置唤醒模型'];
@@ -105,15 +106,20 @@ async function readCheck(signal?: AbortSignal) {
 export function SetupPage({
   initialInspection = null,
   onContinue,
+  mode = 'wizard',
 }: {
   initialInspection?: SetupInspection | null;
   onContinue: () => void;
+  mode?: 'wizard' | 'settings';
 }) {
   const seeded = useRef(initialInspection);
   const [wake, setWake] = useState<SetupInspection['wake']>(null);
   const [microphone, setMicrophone] = useState<SetupInspection['microphone']>('unknown');
   const modelObserved = useRef(false);
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(() =>
+    mode === 'settings' ? Math.max(0, ['#codex', '#lingxi', '#wake'].indexOf(location.hash)) : 0,
+  );
+  const titles = mode === 'settings' ? ['Codex', '灵矽与语音执行', '语音唤醒与麦克风'] : steps;
   const [desktopInfo, setDesktopInfo] = useState<{
     platform: string;
     arch: string;
@@ -201,9 +207,9 @@ export function SetupPage({
   }
   useEffect(() => {
     const controller = new AbortController();
-    void inspectEnvironment(controller.signal);
+    void inspectEnvironment(controller.signal, mode === 'wizard');
     return () => controller.abort();
-  }, [inspectEnvironment]);
+  }, [inspectEnvironment, mode]);
 
   useEffect(() => {
     if (!action || finished(action)) return;
@@ -346,16 +352,17 @@ export function SetupPage({
         >
           <span className="brand-mark">灵</span>
           <span>
-            灵矽 <span className="brand-detail">/ 连接向导</span>
+            灵矽 <span className="brand-detail">/ {mode === 'settings' ? '设置' : '连接向导'}</span>
           </span>
         </a>
         <button className="button secondary" type="button" onClick={onContinue}>
-          {allReady ? '进入工作台' : '暂时用文字进入工作台'}
+          {mode === 'settings' ? '返回工作台' : allReady ? '进入工作台' : '暂时用文字进入工作台'}
         </button>
+        {mode === 'settings' ? <SetupLink /> : <SettingsLink />}
       </header>
       <section className="intro">
-        <p className="eyebrow">连接你的工具</p>
-        <h1>先检查，再配置。</h1>
+        <p className="eyebrow">{mode === 'settings' ? '应用设置' : '连接你的工具'}</p>
+        <h1>{mode === 'settings' ? '配置与连接' : '先检查，再配置。'}</h1>
         <p className="intro-detail">
           根据这台电脑的实际状态，准备 Codex、灵矽、唤醒模型与麦克风权限。
         </p>
@@ -440,13 +447,21 @@ export function SetupPage({
             重新检查全部配置
           </button>
           <main className="setup-layout">
-            <nav className="setup-steps" aria-label="连接步骤">
-              {steps.map((title, index) => (
+            <nav className="setup-steps" aria-label={mode === 'settings' ? '设置分类' : '连接步骤'}>
+              {titles.map((title, index) => (
                 <button
                   type="button"
                   key={title}
                   aria-current={step === index ? 'step' : undefined}
-                  onClick={() => setStep(index)}
+                  onClick={() => {
+                    setStep(index);
+                    if (mode === 'settings')
+                      history.replaceState(
+                        null,
+                        '',
+                        `/settings#${['codex', 'lingxi', 'wake'][index]}`,
+                      );
+                  }}
                 >
                   <span className="step-number">0{index + 1}</span>
                   <span>{title}</span>
@@ -454,10 +469,12 @@ export function SetupPage({
               ))}
             </nav>
             <section className="panel setup-content" aria-labelledby="setup-step-title">
-              <p className="eyebrow">
-                步骤 {step + 1} / {steps.length}
-              </p>
-              <h2 id="setup-step-title">{steps[step]}</h2>
+              {mode === 'wizard' && (
+                <p className="eyebrow">
+                  步骤 {step + 1} / {steps.length}
+                </p>
+              )}
+              <h2 id="setup-step-title">{titles[step]}</h2>
               {step === 0 ? (
                 <>
                   {check && (
@@ -624,31 +641,33 @@ export function SetupPage({
                   {error && <p role="alert">{error}</p>}
                 </>
               )}
-              <div className="setup-pagination">
-                {step > 0 && (
-                  <button
-                    className="button secondary"
-                    type="button"
-                    onClick={() => setStep(step - 1)}
-                  >
-                    上一步
-                  </button>
-                )}
-                {step < steps.length - 1 && (
-                  <button
-                    className="button secondary"
-                    type="button"
-                    onClick={() => setStep(step + 1)}
-                  >
-                    下一步：{steps[step + 1]}
-                  </button>
-                )}
-                {step === steps.length - 1 && (
-                  <button className="button secondary" type="button" onClick={onContinue}>
-                    {allReady ? '进入工作台' : '暂时用文字进入工作台'}
-                  </button>
-                )}
-              </div>
+              {mode === 'wizard' && (
+                <div className="setup-pagination">
+                  {step > 0 && (
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => setStep(step - 1)}
+                    >
+                      上一步
+                    </button>
+                  )}
+                  {step < steps.length - 1 && (
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => setStep(step + 1)}
+                    >
+                      下一步：{steps[step + 1]}
+                    </button>
+                  )}
+                  {step === steps.length - 1 && (
+                    <button className="button secondary" type="button" onClick={onContinue}>
+                      {allReady ? '进入工作台' : '暂时用文字进入工作台'}
+                    </button>
+                  )}
+                </div>
+              )}
             </section>
           </main>
         </>

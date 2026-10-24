@@ -289,6 +289,7 @@ export function buildApp(options: AppOptions) {
     app.register(fastifyStatic, { root: options.webRoot });
     app.get('/display', (_request, reply) => reply.sendFile('index.html'));
     app.get('/setup', (_request, reply) => reply.sendFile('index.html'));
+    app.get('/settings', (_request, reply) => reply.sendFile('index.html'));
   }
   app.setErrorHandler((error, request, reply) => {
     if (

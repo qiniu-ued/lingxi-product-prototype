@@ -81,7 +81,7 @@ export async function smokeProduction(root) {
     const databasePath = join(temporary, 'session.db');
     running = await start(root, databasePath);
     assert.equal((await (await request(running.address, '/api/health')).json()).status, 'ok');
-    for (const path of ['/', '/display', '/setup']) {
+    for (const path of ['/', '/display', '/setup', '/settings']) {
       const response = await request(running.address, path);
       assert.match(response.headers.get('content-type') ?? '', /text\/html/);
       const html = await response.text();

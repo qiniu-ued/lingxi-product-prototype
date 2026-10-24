@@ -34,6 +34,29 @@
   width: 18px;
   height: 18px;
 }
+.voice-handoff {
+  flex-shrink: 1;
+  min-height: 0;
+  max-height: 22dvh;
+  overflow: auto;
+  margin: 5px 0;
+  padding: 8px;
+  border: 1px solid var(--live-line, #d9cfc1);
+  border-radius: 8px;
+  color: var(--live-muted, #766f62);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.voice-handoff :is(strong, small) {
+  display: block;
+}
+.voice-handoff p {
+  margin: 5px 0 0;
+}
+.voice-handoff a {
+  color: inherit;
+}
+
 .voice-status {
   display: inline-flex;
   align-items: center;

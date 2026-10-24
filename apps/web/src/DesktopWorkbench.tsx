@@ -15,9 +15,11 @@ import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
+import { SettingsLink, SetupLink } from './Navigation';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
 import { VoiceControls, voicePresentation } from './VoiceControls';
+import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
 const TerminalPanel = lazy(() =>
@@ -44,7 +46,7 @@ export function SparklesIcon() {
   );
 }
 
-export function DesktopWorkbench() {
+export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const display = location.pathname === '/display';
   const [state, setState] = useState<WorkbenchState | null>(null),
     [connected, setConnected] = useState(false),
@@ -80,8 +82,14 @@ export function DesktopWorkbench() {
   } = useComposerDraft(target);
   const latestState = useRef(state);
   latestState.current = state;
+  const lastVoice = useRef('');
   const receiveVoice = useCallback(
-    (text: string, id: string) => setVoiceDraft({ text, id }),
+    (text: string, id: string) => {
+      const key = `${id}:${text}`;
+      if (lastVoice.current === key) return;
+      lastVoice.current = key;
+      setVoiceDraft({ text, id });
+    },
     [setVoiceDraft],
   );
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
@@ -387,6 +395,7 @@ export function DesktopWorkbench() {
                 }[task.status]
               : '等待需求'}
           </span>
+          {!display && <SettingsLink />}
           {!display && (
             <details className="workbench-menu" ref={workspaceMenu}>
               <summary>工作区</summary>
@@ -411,7 +420,7 @@ export function DesktopWorkbench() {
                       {picking ? '取消点选' : '点选修改'}
                     </button>
                   )}
-                  <a href="/setup">连接向导</a>
+                  <SetupLink />
                 </div>
                 {!display && (
                   <nav className="project-actions">
@@ -918,6 +927,7 @@ export function DesktopWorkbench() {
             expanded={displayVoice?.contextDetailsOpen ?? false}
             onExpand={(open) => void contextDetails(open)}
           />
+          <VoiceHandoff state={displayVoice} showSettings={!display} />
           {task && (
             <section
               className="live-agents"
@@ -1106,7 +1116,7 @@ export function DesktopWorkbench() {
             )}
           </div>
         )}
-        {!display && (
+        {!display && active && (
           <VoiceControls
             onDraft={receiveVoice}
             task={task}

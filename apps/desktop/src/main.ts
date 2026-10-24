@@ -99,13 +99,16 @@ function protect(window: BrowserWindow) {
     }
   });
 }
-function openDisplay() {
+function openDisplay(activate = true) {
+  let created = false;
   if (!display || display.isDestroyed()) {
+    created = true;
     const target = screen
       .getAllDisplays()
       .find((value) => value.id !== screen.getPrimaryDisplay().id);
     display = new BrowserWindow({
       ...windowOptions(),
+      show: false,
       ...(target ? { ...target.bounds, fullscreen: true } : { width: 1440, height: 900 }),
     });
     protect(display);
@@ -121,7 +124,8 @@ function openDisplay() {
     });
     void display.loadURL(`${address}/display`);
   }
-  display.show();
+  if (activate) display.show();
+  else if (created) display.showInactive();
   return display;
 }
 async function api(operation: string, body: unknown) {
@@ -227,14 +231,14 @@ async function desktopCall(method: string, params: unknown) {
     return null;
   }
   if (method === 'publish') {
-    openDisplay();
+    openDisplay(false);
     return preview?.publish(projectSchema.parse(params));
   }
   if (method === 'preview-connect') {
     const input = z
       .strictObject({ project: projectSchema, url: z.string().url().max(2000) })
       .parse(params);
-    openDisplay();
+    openDisplay(false);
     return preview?.connect(input.project, input.url);
   }
   if (method === 'preview') {

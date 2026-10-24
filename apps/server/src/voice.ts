@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  LINGXI_WORKBENCH_ROLE,
   type VoiceCommand,
   type VoiceConfig,
   type VoiceState,
@@ -20,6 +21,17 @@ const rpc = z.object({
 });
 const textInput = z.strictObject({ text: z.string().trim().min(1).max(4000) });
 const modeInput = z.strictObject({ mode: z.enum(['plan', 'default']) });
+const toolErrors: Record<string, string> = {
+  voice_submit_disabled:
+    '本机尚未开启语音执行。请在设置 → 灵矽与语音执行勾选允许语音提交，保存后重新连接灵矽；本轮未交给 Codex。',
+  capture_required: '没有有效的主动收音，请在工作台开始收音后重试。',
+  capture_expired: '本次收音的操作窗口已结束，请重新收音；不会自动重放旧指令。',
+  voice_context_changed: '项目或对话已切换，请在当前工作台重新收音。',
+  project_required: '尚未选择项目，请在工作区新建或打开项目后重新收音。',
+  task_running: 'Codex 当前仍在执行，本轮没有新建任务。请等待当前任务结束后重试。',
+  selection_stale: '页面或点选目标已变化，请重新点选并收音。',
+  capture_already_submitted: '这次收音已经提交过任务，请重新收音以提出新的要求。',
+};
 
 // Lingxi is the MCP client; this Mac is its device MCP server, encapsulated in
 // the outbound WSS. It is separate from Codex's authenticated preview MCP.
@@ -60,6 +72,8 @@ export class VoiceService {
     subtitle: '',
     error: null,
     allowVoiceSubmit: false,
+    deviceToolsReady: false,
+    handoff: null,
     contextDetailsOpen: false,
     wake: { status: 'off', keyword: '丽塔同学', installed: false, detectionId: null, error: null },
   };
@@ -122,7 +136,42 @@ export class VoiceService {
     }, 15000);
   }
   read() {
+    if (this.state.handoff?.status === 'awaiting-tool' && this.state.draft) {
+      if (this.target !== this.context())
+        return {
+          ...this.state,
+          handoff: {
+            ...this.state.handoff,
+            status: 'blocked' as const,
+            message: toolErrors.voice_context_changed as string,
+          },
+        };
+      if (Date.now() > this.armedUntil)
+        return {
+          ...this.state,
+          handoff: {
+            ...this.state.handoff,
+            status: 'unhandled' as const,
+            message: '本轮语音没有交给 Codex，收音操作窗口已结束。可使用转写草稿提交，或重新收音。',
+          },
+        };
+    }
     return this.state;
+  }
+  private handoff(
+    status: NonNullable<VoiceState['handoff']>['status'],
+    message: string,
+    taskId: string | null = null,
+    captureId = this.state.captureId,
+  ) {
+    if (
+      captureId !== this.state.captureId ||
+      (this.state.handoff?.captureId === captureId &&
+        this.state.handoff.status === 'submitted' &&
+        status !== 'submitted')
+    )
+      return;
+    this.update({ handoff: { captureId, status, message, taskId } });
   }
   private update(value: Partial<VoiceState>) {
     if (value.status === 'ready' && this.state.status !== 'ready' && this.wakeEnabled) {
@@ -163,6 +212,11 @@ export class VoiceService {
     if (!this.options.desktop) throw new Error('desktop_required');
     if (command.action === 'context-details') {
       this.update({ contextDetailsOpen: command.open });
+      return;
+    }
+    if (command.action === 'wake-keyword') {
+      if (this.wakeEnabled || this.state.wake.status === 'loading') throw new Error('wake_active');
+      this.update({ wake: { ...this.state.wake, keyword: command.keyword } });
       return;
     }
     if (command.action === 'stop-wake') {
@@ -257,6 +311,12 @@ export class VoiceService {
         error: null,
       });
       this.target = target;
+      this.handoff(
+        this.config?.allowVoiceSubmit ? 'awaiting-tool' : 'draft-only',
+        this.config?.allowVoiceSubmit
+          ? '本轮尚未交给 Codex，等待灵矽调用工作台工具。'
+          : '当前仅转写草稿，未开启语音执行；不会自动交给 Codex。',
+      );
       this.automaticCapture = this.wakeEnabled && this.state.wake.status === 'detected';
       this.captureFrames = this.voicedFrames = this.silentFrames = 0;
       this.capturedContext = context;
@@ -404,6 +464,10 @@ export class VoiceService {
       this.update({ status: 'ready', error: null });
     } else if (message.type === 'stt') {
       if (!this.state.captureId || Date.now() > this.armedUntil) return;
+      if (this.target !== this.context()) {
+        this.handoff('blocked', toolErrors.voice_context_changed as string);
+        return;
+      }
       const text = z.string().max(4000).parse(message.text);
       this.update({ draft: text }); // STT alone never executes a task.
     } else if (message.type === 'tts') {
@@ -421,6 +485,13 @@ export class VoiceService {
       }
       if (event.state === 'sentence_start') this.update({ subtitle: event.text ?? '' });
       if (event.state === 'stop') {
+        if (this.state.draft && this.state.handoff?.status === 'awaiting-tool')
+          this.handoff(
+            'unhandled',
+            this.state.deviceToolsReady
+              ? '灵矽本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。'
+              : '灵矽尚未读取工作台工具列表，本轮没有提交给 Codex。请检查云端意图识别配置并重新连接。',
+          );
         if (event.is_aborted)
           void this.options.desktop?.call('voice-audio', { reset: true }).catch(() => {});
         if (this.state.status === 'speaking') {
@@ -447,8 +518,10 @@ export class VoiceService {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
         serverInfo: { name: 'lingxi-workbench-device', version: '0.2.0' },
+        instructions: LINGXI_WORKBENCH_ROLE,
       };
-    else if (request.method === 'tools/list')
+    else if (request.method === 'tools/list') {
+      this.update({ deviceToolsReady: true });
       result = {
         tools: [
           {
@@ -459,7 +532,7 @@ export class VoiceService {
           {
             name: 'workbench_submit',
             description:
-              '用户明确要求提交开发任务时调用。仅在用户主动收音且已允许语音提交时可用；一次收音最多一个任务。',
+              '把用户的页面或代码修改要求交给本机 Codex 执行，例如“把这个页面变成粉色”“修改布局”“把标题改成周末出发”。无需用户额外说提交任务，也不要以语音助手不能编辑文件为由拒绝转交。受本机语音授权、当前项目和收音窗口限制，一次收音最多一个任务；返回 taskId 仅表示任务已接收。',
             inputSchema: z.toJSONSchema(textInput),
           },
           {
@@ -484,9 +557,11 @@ export class VoiceService {
             description: '用户明确要求停止当前 Codex 任务时调用。不会回退代码。',
             inputSchema: { type: 'object', properties: {}, additionalProperties: false },
           },
-        ],
+        ].map((tool) => ({ ...tool, type: 0 })),
+        nextCursor: null,
       };
-    else if (request.method === 'tools/call') {
+    } else if (request.method === 'tools/call') {
+      const captureId = this.state.captureId;
       try {
         const call = z
           .object({
@@ -512,6 +587,11 @@ export class VoiceService {
                   taskId: state.task?.id,
                   status: state.task?.status,
                   activity: state.task?.activity,
+                  voiceSubmitEnabled: this.config?.allowVoiceSubmit ?? false,
+                  previewAvailable: !!state.preview,
+                  conversationKind:
+                    state.threads.find((thread) => thread.id === state.selectedThreadId)?.kind ??
+                    null,
                   questions: state.task?.approvals
                     ?.filter((a) => a.kind === 'question')
                     .flatMap((a) => a.questions?.filter((q) => !q.isSecret) ?? []),
@@ -520,16 +600,19 @@ export class VoiceService {
             ],
           };
         } else {
-          if (
-            !this.config?.allowVoiceSubmit ||
-            !this.state.captureId ||
-            Date.now() > this.armedUntil
-          )
-            throw new Error('not_armed');
+          if (!this.config?.allowVoiceSubmit) throw new Error('voice_submit_disabled');
+          if (!this.state.captureId) throw new Error('capture_required');
+          if (Date.now() > this.armedUntil) throw new Error('capture_expired');
           if (this.target !== this.context()) throw new Error('voice_context_changed');
           if (call.name === 'workbench_context_details') {
             const { open } = z.strictObject({ open: z.boolean() }).parse(call.arguments);
             this.update({ contextDetailsOpen: open });
+            this.handoff(
+              'handled',
+              open
+                ? '已展开上下文详情；没有创建开发任务。'
+                : '已收起上下文详情；没有创建开发任务。',
+            );
             result = {
               content: [
                 { type: 'text', text: open ? '已展开上下文用量详情。' : '已收起上下文用量详情。' },
@@ -555,6 +638,14 @@ export class VoiceService {
                   !!this.config?.allowVoiceSubmit,
               );
               this.modeInCapture = mode;
+              this.handoff(
+                'handled',
+                mode === 'plan'
+                  ? '已切换到计划模式；没有创建开发任务。'
+                  : '已切换到执行模式；没有创建开发任务。',
+                null,
+                captureId,
+              );
             } finally {
               this.modePending = false;
             }
@@ -577,6 +668,7 @@ export class VoiceService {
             );
             this.submittedCapture = text;
             this.target = this.context();
+            this.handoff('submitted', '已交给 Codex，进度与回复在右侧对话中显示。', task.id);
             result = {
               content: [
                 {
@@ -592,18 +684,24 @@ export class VoiceService {
           } else {
             z.strictObject({}).parse(call.arguments);
             this.options.workbench.interrupt();
+            this.handoff('handled', '已请求停止当前 Codex 任务。');
             result = {
               content: [{ type: 'text', text: '已请求停止 Codex。已产生的文件修改保留。' }],
             };
           }
         }
-      } catch {
+      } catch (error) {
+        const message = error instanceof Error ? toolErrors[error.message] : undefined;
+        const detail =
+          message ??
+          '工作台未接受本次操作，请检查当前任务、项目和输入内容。开发请求未被接受时可以使用转写草稿提交。';
+        this.handoff('blocked', detail, null, captureId);
         result = {
           isError: true,
           content: [
             {
               type: 'text',
-              text: '操作未执行。请确认已主动收音、允许语音提交并选中正确的项目和对话；也可在操作台提交。',
+              text: detail,
             },
           ],
         };
@@ -669,7 +767,7 @@ export class VoiceService {
     this.sessionId = '';
     this.armedUntil = 0;
     this.responses.clear();
-    this.update({ status: 'disconnected' });
+    this.update({ status: 'disconnected', deviceToolsReady: false });
     void this.options.desktop?.call('voice-audio', { reset: true }).catch(() => {});
   }
 }

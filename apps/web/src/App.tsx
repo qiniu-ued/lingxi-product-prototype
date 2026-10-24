@@ -1,11 +1,12 @@
 import { errorSchema, type Session, sessionSchema } from '@lingxi/protocol';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { DesktopWorkbench } from './DesktopWorkbench.js';
+import { SettingsLink } from './Navigation';
 
 const sourceLabels = { keyboard: '键盘', voice: '语音', pointer: '点选' } as const;
 
-export function App() {
-  return window.lingxiDesktop ? <DesktopWorkbench /> : <DraftApp />;
+export function App({ active = true }: { active?: boolean }) {
+  return window.lingxiDesktop ? <DesktopWorkbench active={active} /> : <DraftApp />;
 }
 
 function DraftApp() {
@@ -120,6 +121,7 @@ function DraftApp() {
           </span>
         </a>
         <div className="topbar-actions">
+          {!display && <SettingsLink />}
           <span className={`connection ${connection}`} role="status">
             {status}
           </span>

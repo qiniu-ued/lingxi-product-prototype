@@ -481,3 +481,92 @@ it('times out an empty wake capture and only accepts context detail voice contro
   await f.voice.command({ action: 'context-details', open: false });
   expect(f.voice.read().contextDetailsOpen).toBe(false);
 });
+it('shows draft-only mode and explains denied handoff without starting Codex', async () => {
+  const f = await create('pcm', false);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '把这个页面变成粉色' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('把这个页面变成粉色'));
+  expect(f.voice.read().handoff?.status).toBe('draft-only');
+  const refused = await f.call(801, 'workbench_submit', { text: '把这个页面变成粉色' });
+  expect(refused.isError).toBe(true);
+  expect(JSON.stringify(refused)).toContain('尚未开启语音执行');
+  expect(f.voice.read().handoff).toMatchObject({ status: 'blocked', taskId: null });
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('reports discovered device tools and an agent refusal as not handed to Codex', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 802, method: 'initialize' } });
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 803, method: 'tools/list' } });
+  await vi.waitFor(() => expect(f.voice.read().deviceToolsReady).toBe(true));
+  const initialization = f.frames.find(
+    (value) => (value as { payload?: { id: number } }).payload?.id === 802,
+  );
+  expect(JSON.stringify(initialization)).toContain('把这个页面变成粉色');
+  const listing = f.frames.find(
+    (value) => (value as { payload?: { id: number } }).payload?.id === 803,
+  );
+  expect(JSON.stringify(listing)).toContain('把这个页面变成粉色');
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '把这个页面变成粉色' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('把这个页面变成粉色'));
+  await f.voice.command({ action: 'stop-listening' });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '我做不到' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('unhandled'));
+  expect(f.voice.read().handoff?.message).toContain('没有提交给 Codex');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('only reports submission after a real receipt and resets the next capture', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  const id = f.voice.read().captureId;
+  await f.call(804, 'workbench_submit', { text: '把这个页面变成粉色' });
+  expect(f.voice.read().handoff).toMatchObject({ status: 'submitted', taskId: id, captureId: id });
+  expect(f.start.mock.calls[0]?.[1]).toBe('把这个页面变成粉色');
+  await f.call(805, 'workbench_submit', { text: 'another task' });
+  expect(f.voice.read().handoff?.status).toBe('submitted');
+  await f.voice.command({ action: 'stop-listening' });
+  await f.voice.command({ action: 'listen' });
+  expect(f.voice.read().handoff).toMatchObject({ status: 'awaiting-tool', taskId: null });
+  expect(f.voice.read().handoff?.captureId).not.toBe(id);
+});
+it('rejects stale transcripts and projects missing on submission with specific public reasons', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.state({ selectedThreadId: randomUUID() });
+  f.send({ type: 'stt', text: 'late speech from another conversation' });
+  await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('blocked'));
+  expect(f.voice.read().draft).toBe('');
+  expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'stop-listening' });
+  await f.voice.command({ action: 'listen' });
+  f.start.mockImplementationOnce(() => {
+    throw new Error('project_required');
+  });
+  const result = await f.call(806, 'workbench_submit', { text: 'pink' });
+  expect(JSON.stringify(result)).toContain('尚未选择项目');
+  expect(f.voice.read().handoff?.status).toBe('blocked');
+});
+it('can set a session wake keyword without connecting or opening the microphone', async () => {
+  const wake = wakePeer(),
+    f = await create('pcm', true, wake);
+  await f.voice.command({ action: 'wake-keyword', keyword: '你好同学' });
+  expect(f.voice.read().wake.keyword).toBe('你好同学');
+  expect(f.voice.read().status).toBe('disconnected');
+  expect(wake.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '你好同学' });
+  await expect(f.voice.command({ action: 'wake-keyword', keyword: '丽塔同学' })).rejects.toThrow(
+    'wake_active',
+  );
+});

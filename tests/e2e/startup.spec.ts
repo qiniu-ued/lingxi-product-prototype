@@ -162,3 +162,18 @@ test('a failed startup inspection opens a retryable wizard instead of a redirect
   await expect(page.getByRole('heading', { name: '唤醒模型检查通过', exact: true })).toBeVisible();
   expect(f.actions).toEqual([]);
 });
+
+test('settings can always be opened directly and remain open after every configuration check succeeds', async ({
+  page,
+}) => {
+  const f = await fixture(page);
+  await page.goto('/settings#lingxi');
+  await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '灵矽与语音执行', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '重新检查全部配置', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '灵矽与语音执行', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/settings#lingxi$/);
+  expect(f.actions).toEqual([]);
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+});

@@ -648,7 +648,7 @@ try {
     if (status === 'interrupted') {
       await waitForTask(recovery, prompt, 'running');
       for (const page of [recovery, recoveryDisplay]) {
-        await page.getByText('Agent 正在工作 · 麦克风已关闭', { exact: true }).waitFor();
+        await page.getByText('正在制作 · 麦克风已关闭', { exact: true }).waitFor();
         assert.equal(
           await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
           0,
@@ -658,7 +658,7 @@ try {
       presentationCaptureId = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).task
         .id;
       for (const page of [recovery, recoveryDisplay]) {
-        await page.getByText('已提交 · Agent 正在工作 · 麦克风已关闭', { exact: true }).waitFor();
+        await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
         assert.equal(await page.locator('.voice-submitted, .live-mic-state.submitted').count(), 1);
       }
       await expand(recovery, '.keyboard-composer');
@@ -712,10 +712,10 @@ try {
       await empty.locator('.live-empty').getByRole('button', { name }).isEnabled(),
       true,
     );
-  const wake = empty.getByRole('button', { name: '唤醒灵矽', exact: true });
+  const wake = empty.getByRole('button', { name: '开始收音', exact: true });
   await wake.waitFor();
   assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');
-  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再唤醒灵矽。');
+  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
   assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
   await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
   console.log(

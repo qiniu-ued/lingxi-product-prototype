@@ -1092,7 +1092,7 @@ export function DesktopWorkbench() {
           <VoiceControls
             onDraft={receiveVoice}
             task={task}
-            listenUnavailable={!state?.project ? '请先新建或打开项目，再唤醒灵矽。' : undefined}
+            listenUnavailable={!state?.project ? '请先新建或打开项目，再开始收音。' : undefined}
             prepare={async () => {
               if (
                 !state?.project ||

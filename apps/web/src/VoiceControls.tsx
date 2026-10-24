@@ -16,7 +16,7 @@ const labels: Record<VoiceState['status'], string> = {
   disconnected: '语音未连接 · 麦克风已关闭',
   connecting: '正在连接灵矽 · 麦克风已关闭',
   ready: '灵矽已连接 · 麦克风关闭',
-  listening: '收音中 · 麦克风已开启 · 最长 60 秒',
+  listening: '收音中 · 麦克风已开启',
   speaking: '灵矽正在播报 · 麦克风已关闭',
   failed: '语音连接失败 · 麦克风已关闭',
 };
@@ -31,7 +31,7 @@ export function voicePresentation(state: VoiceState | null, task: WorkbenchState
         ? '等待执行'
         : task?.status === 'stopping'
           ? '正在停止'
-          : 'Agent 正在工作';
+          : '正在制作';
   if (state.status === 'ready')
     return {
       label: working
@@ -394,7 +394,7 @@ export function VoiceControls({
             title={listenUnavailable}
             onClick={() => void operate('listen')}
           >
-            {configuration ? '开始收音' : '唤醒灵矽'}
+            开始收音
           </button>
         )}
         {state?.status === 'listening' && (

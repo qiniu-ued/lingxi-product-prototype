@@ -59,7 +59,8 @@ try {
     extraResource: [runtime],
     overwrite: true,
     extendInfo: {
-      NSMicrophoneUsageDescription: '主动收音时将语音发送给七牛灵矽，用于转写和语音控制 Codex。',
+      NSMicrophoneUsageDescription:
+        '主动收音时将语音发送给七牛语音服务，用于转写和语音控制 Codex。',
     },
     asar: false,
     ...(process.env.electron_config_cache

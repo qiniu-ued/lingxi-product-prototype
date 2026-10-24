@@ -90,7 +90,7 @@ export function RuntimeApp() {
           <section className="panel setup-result" role="status">
             <h1>正在检查运行配置…</h1>
             <p>
-              检查 Codex、灵矽、唤醒模型与麦克风权限；不会自动下载、登录、连接语音或打开麦克风。
+              检查 Codex、丽塔同学、唤醒模型与麦克风权限；不会自动下载、登录、连接语音或打开麦克风。
             </p>
           </section>
         </main>

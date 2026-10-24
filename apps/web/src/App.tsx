@@ -115,9 +115,9 @@ function DraftApp() {
     <div className={`workbench ${display ? 'display' : ''}`}>
       <header className="topbar">
         <a className="brand" href={display ? '/display' : '/'}>
-          <span className="brand-mark">灵</span>
+          <span className="brand-mark">丽</span>
           <span>
-            灵矽 <span className="brand-detail">/ 共创工作台</span>
+            丽塔同学 <span className="brand-detail">/ 共创工作台</span>
           </span>
         </a>
         <div className="topbar-actions">
@@ -173,7 +173,7 @@ function DraftApp() {
               <i className="integration-dot" /> Codex 待连接
             </span>
             <span>
-              <i className="integration-dot" /> 灵矽语音待连接
+              <i className="integration-dot" /> 丽塔同学语音待连接
             </span>
           </div>
         </section>

@@ -16,10 +16,11 @@ async function command(action: string, values: Record<string, unknown> = {}) {
 }
 const labels: Record<VoiceState['status'], string> = {
   disconnected: '语音未连接 · 麦克风已关闭',
-  connecting: '正在连接灵矽 · 麦克风已关闭',
-  ready: '灵矽已连接 · 麦克风关闭',
+  connecting: '正在连接丽塔同学 · 麦克风已关闭',
+  ready: '丽塔同学已连接 · 麦克风关闭',
   listening: '收音中 · 麦克风已开启 · 最长 60 秒',
-  speaking: '灵矽正在播报 · 麦克风已关闭',
+  processing: '正在处理这句话 · 麦克风已关闭',
+  speaking: '丽塔同学正在播报 · 麦克风已关闭',
   failed: '语音连接失败 · 麦克风已关闭',
 };
 export function VoiceControls({
@@ -79,6 +80,8 @@ export function VoiceControls({
   const inOperation = useRef(false),
     operationEpoch = useRef(0),
     pendingCapture = useRef(false),
+    conversationOwner = useRef(false),
+    lastSpeech = useRef(''),
     wakeActive = useRef(false),
     lastWake = useRef('');
   const suppressUntil = useRef(0);
@@ -112,11 +115,12 @@ export function VoiceControls({
   useEffect(() => {
     let active = true;
     const update = async () => {
+      const epoch = operationEpoch.current;
       try {
         const response = await fetch('/api/voice');
         if (!response.ok) return;
         const value = voiceStateSchema.parse(await response.json());
-        if (active) setState(value);
+        if (active && epoch === operationEpoch.current && !inOperation.current) setState(value);
       } catch {
         /* Keep previous status until reconnection. */
       }
@@ -162,7 +166,9 @@ export function VoiceControls({
       const hadCapture = recording.current;
       const hadPlayback = sources.current.size > 0;
       stopMic();
-      if (wakeActive.current) void command('stop-wake').catch(() => {});
+      if (conversationOwner.current || pendingCapture.current)
+        void command('stop-session').catch(() => {});
+      else if (wakeActive.current) void command('stop-wake').catch(() => {});
       else if (hadCapture || pendingCapture.current) void command('stop-listening').catch(() => {});
       if (hadPlayback) void command('stop-speaking').catch(() => {});
       resetPlayback();
@@ -177,7 +183,14 @@ export function VoiceControls({
     if (state) onState?.(state);
     if (!inOperation.current && state) {
       if (['off', 'failed'].includes(state.wake.status)) wakeActive.current = false;
-      if (state.status !== 'listening' && !wakeActive.current && recording.current) stopMic();
+      if (
+        !state.conversationActive &&
+        state.status !== 'listening' &&
+        !wakeActive.current &&
+        recording.current
+      )
+        stopMic();
+      if (!state.conversationActive) conversationOwner.current = false;
     }
     if (
       state?.wake.status === 'detected' &&
@@ -201,6 +214,17 @@ export function VoiceControls({
       void startCapture.current('listen');
     }
     if (
+      state?.conversationActive &&
+      state.status === 'ready' &&
+      state.speechId &&
+      state.speechId !== lastSpeech.current &&
+      recording.current &&
+      !inOperation.current
+    ) {
+      lastSpeech.current = state.speechId;
+      void startCapture.current('listen');
+    }
+    if (
       state?.draft &&
       state.captureId &&
       `${state.captureId}:${state.draft}` !== lastDraft.current &&
@@ -212,21 +236,21 @@ export function VoiceControls({
   }, [state, onDraft, onState, stopMic]);
   async function operate(action: string, text?: string) {
     if (inOperation.current) return;
-    const epoch = operationEpoch.current;
+    const epoch = ++operationEpoch.current;
     const ensureActive = () => {
       if (operationEpoch.current !== epoch) throw new Error('audio_owner_closed');
     };
     inOperation.current = true;
-    pendingCapture.current = action === 'listen' || action === 'arm-wake';
+    pendingCapture.current = ['listen', 'start-session', 'arm-wake'].includes(action);
     setOperating(true);
     try {
       setError('');
-      if (['connect', 'speak', 'listen', 'arm-wake'].includes(action)) {
+      if (['connect', 'speak', 'listen', 'start-session', 'arm-wake'].includes(action)) {
         playback.current ??= new AudioContext();
         await playback.current.resume();
         ensureActive();
       }
-      if (action === 'listen' || action === 'arm-wake') {
+      if (['listen', 'start-session', 'arm-wake'].includes(action)) {
         if (action === 'arm-wake') wakeActive.current = true;
         if (!recording.current) {
           if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission');
@@ -267,11 +291,12 @@ export function VoiceControls({
           action === 'arm-wake' ? { keyword: state?.wake.keyword ?? keyword } : {},
         );
         if (operationEpoch.current !== epoch) {
-          await command(action === 'arm-wake' ? 'stop-wake' : 'stop-listening');
+          await command(action === 'arm-wake' ? 'stop-wake' : 'stop-session');
           return;
         }
         if (action === 'arm-wake' && value.wake.status !== 'armed') throw new Error('wake_failed');
         recording.current = true;
+        if (action !== 'arm-wake') conversationOwner.current = true;
         setState(value);
         await capture.current?.resume();
       } else {
@@ -289,12 +314,28 @@ export function VoiceControls({
       if (operationEpoch.current !== epoch) return;
       stopMic();
       wakeActive.current = false;
-      if (action === 'listen' || action === 'arm-wake') void command('stop-wake').catch(() => {});
+      if (['listen', 'start-session', 'arm-wake'].includes(action))
+        void command('stop-session').catch(() => {});
       setError('操作未完成。请检查连接配置、麦克风权限和系统声音设置。');
     } finally {
-      inOperation.current = false;
-      pendingCapture.current = false;
-      if (operationEpoch.current === epoch) setOperating(false);
+      if (operationEpoch.current === epoch) {
+        inOperation.current = false;
+        pendingCapture.current = false;
+        setOperating(false);
+      }
+    }
+  }
+  async function stopSession() {
+    operationEpoch.current++;
+    stopMic();
+    resetPlayback();
+    wakeActive.current = conversationOwner.current = false;
+    inOperation.current = pendingCapture.current = false;
+    setOperating(false);
+    try {
+      setState(await command('stop-session'));
+    } catch {
+      setError('本机麦克风已关闭，未能确认远端状态；请断开语音连接。');
     }
   }
   startCapture.current = (action) => operate(action);
@@ -323,7 +364,7 @@ export function VoiceControls({
   return (
     <section
       className={`voice-controls voice-${state?.status ?? 'disconnected'}`}
-      aria-label="灵矽语音"
+      aria-label="丽塔同学语音"
     >
       {variant !== 'wake' && (
         <>
@@ -337,7 +378,7 @@ export function VoiceControls({
                 target="_blank"
                 rel="noreferrer"
               >
-                打开灵矽控制台 ↗
+                打开七牛语音控制台 ↗
               </a>
               <p>2. 申请本机激活码，在控制台的设备绑定入口输入六位数字。</p>
               <button type="button" disabled={bindingBusy} onClick={() => void bind('start')}>
@@ -362,7 +403,7 @@ export function VoiceControls({
               </button>
               {binding?.status === 'bound' && (
                 <p role="status">
-                  绑定已确认，连接配置已加密保存。现在可以连接灵矽并测试收音与播报。
+                  绑定已确认，连接配置已加密保存。现在可以连接丽塔同学并测试收音与播报。
                 </p>
               )}
               {binding?.status === 'waiting' && (
@@ -375,7 +416,7 @@ export function VoiceControls({
             <details>
               <summary className="voice-config-summary">高级：手动配置已绑定设备</summary>
               <p>
-                在灵矽控制台创建智能体并绑定本机设备，获取设备 WebSocket 令牌。此处使用官方 PCM
+                在七牛语音控制台创建智能体并绑定本机设备，获取设备 WebSocket 令牌。此处使用官方 PCM
                 16kHz 单声道协议；如果服务只返回 Opus，会明确提示协议不兼容。
               </p>
               <label>
@@ -402,7 +443,7 @@ export function VoiceControls({
                   checked={allow}
                   onChange={(e) => setAllow(e.target.checked)}
                 />
-                允许主动收音后，通过灵矽 MCP 提交或停止 Codex 任务
+                允许主动收音后，通过丽塔同学 MCP 提交或停止 Codex 任务
               </label>
               <p>
                 令牌仅在本机加密保存。普通转写保留为草稿；开启语音提交后，每次主动收音最多提交一个任务，30
@@ -436,7 +477,7 @@ export function VoiceControls({
                 允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
               </label>
               <p>
-                默认关闭时仅保留转写草稿；开启并重新连接后，灵矽才可调用
+                默认关闭时仅保留转写草稿；开启并重新连接后，丽塔同学才可调用
                 Codex。开启唤醒不会自动开启这项权限。
               </p>
             </>
@@ -468,7 +509,7 @@ export function VoiceControls({
                       if (window.lingxiDesktop)
                         await window.lingxiDesktop.copy(LINGXI_WORKBENCH_ROLE);
                       else await navigator.clipboard.writeText(LINGXI_WORKBENCH_ROLE);
-                      setRoleNotice('角色说明已复制，请在灵矽控制台保存后重新连接。');
+                      setRoleNotice('角色说明已复制，请在七牛语音控制台保存后重新连接。');
                     } catch {
                       setRoleNotice('未能复制，请选中上面的说明复制。');
                     }
@@ -490,19 +531,28 @@ export function VoiceControls({
           <p role="status" className="voice-status">
             <MicrophoneIcon
               muted={
+                !state?.conversationActive &&
                 state?.status !== 'listening' &&
                 !['armed', 'detected'].includes(state?.wake.status ?? '')
               }
             />
-            {state &&
-            ['armed', 'detected'].includes(state.wake.status) &&
-            ['ready', 'speaking'].includes(state.status)
-              ? state.status === 'speaking'
-                ? '播报中 · 本地麦克风开启，暂停唤醒'
-                : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`
-              : state
-                ? labels[state.status]
-                : '正在读取语音状态'}
+            {state?.conversationActive
+              ? state.status === 'ready'
+                ? '语音会话开启 · 本机待说话 · 麦克风已开启'
+                : state.status === 'processing'
+                  ? '正在处理这句话 · 语音会话保持开启'
+                  : state.status === 'speaking'
+                    ? '丽塔同学正在播报 · 语音会话保持开启'
+                    : '收音中 · 语音会话保持开启'
+              : state &&
+                  ['armed', 'detected'].includes(state.wake.status) &&
+                  ['ready', 'speaking'].includes(state.status)
+                ? state.status === 'speaking'
+                  ? '播报中 · 本地麦克风开启，暂停唤醒'
+                  : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`
+                : state
+                  ? labels[state.status]
+                  : '正在读取语音状态'}
           </p>
           <div className="live-actions">
             {(configuration ||
@@ -512,20 +562,24 @@ export function VoiceControls({
                 disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
                 onClick={() => void operate('connect')}
               >
-                连接灵矽
+                连接丽塔同学
               </button>
             )}
             {!configuration && state && !state.configured && (
               <SettingsLink section="lingxi" label="连接设置" />
             )}
-            {state && ['ready', 'speaking'].includes(state.status) && (
-              <button type="button" disabled={operating} onClick={() => void operate('listen')}>
+            {state && !state.conversationActive && state.status === 'ready' && (
+              <button
+                type="button"
+                disabled={operating}
+                onClick={() => void operate('start-session')}
+              >
                 开始收音
               </button>
             )}
-            {state?.status === 'listening' && (
-              <button type="button" onClick={() => void operate('stop-listening')}>
-                结束收音
+            {(state?.conversationActive || (operating && pendingCapture.current)) && (
+              <button type="button" onClick={() => void stopSession()}>
+                关闭语音
               </button>
             )}
             {configuration && state && !['disconnected', 'failed'].includes(state.status) && (
@@ -549,7 +603,7 @@ export function VoiceControls({
               <button
                 type="button"
                 disabled={!state || !['ready', 'speaking'].includes(state.status)}
-                onClick={() => void operate('speak', '灵矽已连接，现在可以开始共创。')}
+                onClick={() => void operate('speak', '丽塔同学已连接，现在可以开始共创。')}
               >
                 测试播报
               </button>

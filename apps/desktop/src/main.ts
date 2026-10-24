@@ -318,7 +318,7 @@ async function startService() {
       clearTimeout(timer);
       if (!quitting) {
         reject(new Error('本机服务意外退出。'));
-        dialog.showErrorBox('灵矽服务已停止', '请重新打开应用。已有文件和会话数据仍保留。');
+        dialog.showErrorBox('丽塔同学服务已停止', '请重新打开应用。已有文件和会话数据仍保留。');
         app.quit();
       }
     });
@@ -471,7 +471,7 @@ else {
       Menu.setApplicationMenu(
         Menu.buildFromTemplate([
           {
-            label: '灵矽',
+            label: '丽塔同学',
             submenu: [
               { role: 'about' },
               {
@@ -481,7 +481,7 @@ else {
                 },
               },
               { type: 'separator' },
-              { role: 'quit', label: '退出灵矽（停止本机服务）' },
+              { role: 'quit', label: '退出丽塔同学（停止本机服务）' },
             ],
           },
           {
@@ -516,6 +516,9 @@ else {
         ]),
       );
       await operator.loadURL(address);
+      openDisplay();
+      operator.show();
+      operator.focus();
       powerMonitor.on('suspend', () => child?.send?.({ channel: 'desktop.voice-stop' }));
       const state = (await (await fetch(`${address}/api/workbench`)).json()) as {
         project: unknown;
@@ -532,7 +535,7 @@ else {
       });
     })
     .catch((error) => {
-      dialog.showErrorBox('无法打开灵矽', String(error));
+      dialog.showErrorBox('无法打开丽塔同学', String(error));
       app.quit();
     });
 }

@@ -4,15 +4,18 @@
 
 ## 当前实现
 
-- 电脑操作台：输入并保存待执行的修改建议。
-- 大屏视图：实时同步本地会话，刷新或断线后恢复最新状态。
-- 本地服务：SQLite 保存建议，处理重复提交与版本冲突。
-- 连接向导：`/setup` 显示真实服务环境，按需检查 Codex CLI、App Server 与认证配置，指导灵矽账号、设备和音频准备。
-- 自动检查：格式、类型、协议、持久化、HTTP、双端浏览器与生产构建。
+桌面版提供原生项目选择、Codex App Server 任务、审批/问题/中断、唯一作品页面及 MCP 操作、截图点选和深色大屏布局。当前作品限定 `preview/index.html` 静态前端。浏览器基础模式保留建议保存、SQLite、SSE 和恢复；独立浏览器不提供真实任务。
 
-Codex、七牛灵矽的真实适配器，项目启动、元素点选、语音采集及自动投屏尚未实现。启动和测试无需模型账号或密钥，界面明确显示“已保存、尚未执行”。
+灵矽音频、自定义本地唤醒词、自动 AirPlay 连接、任意项目 dev server 和多 Agent 编排尚未接入。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
 
-设计师维护的 39 步原型继续保留在 `source/` 和根 `dist/`。其原始需求保存在 [原型需求快照](reference/original-product-brief.md)，当前设计以 [产品设计](product-design.md) 为准。
+## 桌面开发
+
+```sh
+npm ci
+npm run desktop:dev
+```
+
+Electron 首次使用会下载其运行时。桌面服务使用随机回环端口，关闭操作台或菜单退出会清理服务与任务；关闭大屏只隐藏窗口。源码修改后重新编译启动，无热更新。桌面数据默认 `~/Library/Application Support/Lingxi/`，与安装位置分开。`LINGXI_DESKTOP_DATA` 可指定隔离开发/测试数据；不要与另一服务共用同一数据库。
 
 ## 本地开发
 
@@ -50,6 +53,7 @@ npm start
 ## 工程结构
 
 ```text
+apps/desktop/         Electron 主进程、preload、唯一作品 WebContentsView
 apps/web/             React + Vite，电脑与大屏
 apps/server/          Fastify、SSE、SQLite
 packages/protocol/    Zod 校验、共享类型、适配器接口
@@ -68,4 +72,4 @@ dist/                 原型导出页面（继续提交到 Git）
 - [运行、交付与更新](deployment.md)
 - [Mac 首次运行与连接准备](mac-setup.md)
 
-GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 Chromium 测试；通过后生成两个 Mac 运行包。真实语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。
+GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 Chromium 测试；通过后生成两个架构的 Mac 运行包和桌面 ZIP。真实模型调用、语音、Codex 登录与 AirPlay 留待 Mac 集成验收，CI 不使用模型密钥模拟成功。

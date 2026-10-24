@@ -2,13 +2,28 @@
 
 ## 部署在哪里
 
-当前部署目标是使用者的 Mac：Node.js 本地服务管理 SQLite 和会话，浏览器显示电脑操作台与大屏。之后 Codex App Server 与灵矽音频适配器也在该 Mac 上接入。无需云服务器；仅把静态页面部署到网站托管平台无法获得本机执行能力。
+部署在使用者的 Mac，无需云服务器。Electron 桌面应用管理独立 Node 24 服务、Codex App Server、SQLite 和唯一作品页面。安装后日常启动/退出无需终端；灵矽音频和 AirPlay 自动配对仍未接入。静态网站托管无法获得本机执行能力。
 
-目前版本实现建议保存、双端同步和恢复，尚未调用 Codex、录音或执行代码。运行不需要模型密钥。AirPlay 由 macOS 手动建立，浏览器不控制系统投屏。
+`127.0.0.1` 属于浏览器所在电脑，云工作区运行不代表用户的 Mac 已运行。当前开发者没有远程控制用户 Mac 的入口，真机验收由用户本机配合。
 
-`127.0.0.1` 指打开浏览器的那台电脑。云端工作区启动的服务不会因此运行在你的 Mac，也不能访问 Mac 上的 Codex。远程启动本机进程需要已连接的本机执行入口；本项目尚未提供远程安装或控制服务。
+## 桌面应用（推荐）
 
-## 从源码运行
+在 [Actions → CI](https://github.com/qiniu-ued/lingxi-product-prototype/actions/workflows/ci.yml) 选择对应分支/PR/提交的全部通过运行，登录 GitHub 下载对应 artifact：
+
+| Mac                    | Artifact 前缀             | 桌面 ZIP                        |
+| ---------------------- | ------------------------- | ------------------------------- |
+| Apple Silicon / M1 Pro | `runtime-macos-15-`       | `Lingxi-0.1.0-darwin-arm64.zip` |
+| Intel                  | `runtime-macos-15-intel-` | `Lingxi-0.1.0-darwin-x64.zip`   |
+
+版本以实际文件名为准。解开 GitHub 的 artifact ZIP，再解开内部桌面 ZIP，把 `Lingxi.app` 拖入「应用程序」。包内含 Node 24、npm 11、网页、服务和目标架构 SQLite；用户不用预先安装 Node/npm。Codex CLI 按需在向导另行安装 latest，需要网络与账号授权。
+
+这是**未进行 Developer ID 签名和公证的开发预览**。校验来源与 `.sha256` 后，首次被系统阻止时，可按 macOS「系统设置 → 隐私与安全性 → 仍要打开」对这个可信应用单独放行，具体入口随系统版本变化。不要关闭全局 Gatekeeper 或使用递归去隔离属性命令。受组织策略限制时需等待签名/公证版本。严格免终端且不经系统放行的正式分发，还需要维护者提供 Apple Developer 签名与公证配置。
+
+打开应用 → 连接向导 → 配置 Codex → 新建/打开项目 → 提交指令。项目入口是 `preview/index.html`，只支持本地静态资产，暂不运行任意 dev server、CDN 或外部 API。大屏窗口持有实际页面，电脑端显示实时截图，可点选修改；Cmd+Q、应用菜单退出或关闭操作台会停止受控服务/任务。关闭大屏仅隐藏窗口。
+
+数据位于 `~/Library/Application Support/Lingxi/`：数据库、托管 CLI、项目注册表、冻结资产；Electron 项目 session 的 localStorage 也在应用数据目录。安装目录可以替换，数据不随包删除。不要同时启动桌面版与使用相同数据路径的终端服务。桌面服务端口随机，由应用自动使用；不需要手动打开 4310。
+
+## 从源码运行与终端备用模式
 
 需要 Git、Node.js **24.x**、npm **11.x**。检查 `node --version` 与 `npm --version`。SQLite 有原生依赖；如果安装需要本机编译工具，macOS 可先执行 `xcode-select --install`。
 
@@ -20,6 +35,8 @@ cd lingxi-product-prototype
 npm ci
 ```
 
+完整桌面开发使用 `npm run desktop:dev`，修改源码后退出并重新运行。以下为独立浏览器基础模式，只保存建议和同步，不执行 Codex 任务。
+
 开发时运行 `npm run dev`，打开 <http://127.0.0.1:5173/> 与 <http://127.0.0.1:5173/display>，支持自动重载。停止用终端里的 Ctrl+C。
 
 日常运行使用编译结果，网页和 API 共用一个服务：
@@ -29,11 +46,11 @@ npm run build
 LINGXI_DB_PATH="$HOME/Library/Application Support/Lingxi/lingxi.db" npm start
 ```
 
-打开 <http://127.0.0.1:4310/> 和 <http://127.0.0.1:4310/display>。保持终端进程运行，Ctrl+C 停止；当前没有登录自启或后台服务安装器。
+打开 <http://127.0.0.1:4310/> 和 <http://127.0.0.1:4310/display>。保持终端进程运行，Ctrl+C 停止；该备用模式没有登录自启或后台服务安装器；桌面版由应用管理生命周期。
 
 首次配置从 <http://127.0.0.1:4310/setup> 开始。只有 Codex 桌面应用、尚未注册灵矽的完整准备步骤见 [Mac 连接指南](mac-setup.md)。
 
-## 下载 Mac 运行包
+## 兼容的终端运行包
 
 在仓库 [Actions → CI](https://github.com/qiniu-ued/lingxi-product-prototype/actions/workflows/ci.yml) 选择**全部通过**的运行，在 Artifacts 下载对应文件，需要有仓库读取权限并登录 GitHub：
 
@@ -78,19 +95,21 @@ Codex 环境检查默认通过服务的 PATH 查找 `codex`。自定义位置可
 
 ## 更新、备份和回退
 
-1. 在原终端 Ctrl+C 停止服务，确认旧进程退出。
+1. 桌面版通过 Cmd+Q 退出，终端模式 Ctrl+C 停止服务，确认旧进程退出。
 2. 备份数据目录。SQLite 可能有 `lingxi.db-wal`、`lingxi.db-shm`；服务停止后备份整个目录，避免只复制仍在写入的主数据库。
-3. 将通过 CI 的新包解压到新版本目录，保留旧版本；使用相同 `LINGXI_DB_PATH` 或默认外部数据目录启动新版本。
+3. 桌面版备份旧应用，再替换为已通过 CI 的新 `.app`；终端版解压到新版本目录，使用相同外部数据库路径。没有自动更新器。
 4. 检查 `/api/health`、已有建议、操作台提交与大屏同步，再结束更新。
 
-当前 schemaVersion 为 1，尚未实现数据库升级工具。未来有数据格式变更时必须提供迁移与兼容说明。相同数据格式可以停止新版并启动旧包回退；若升级改变数据格式，应恢复升级前备份并运行对应旧版，升级后新增的数据需另行保留。不要通过删除数据库来修复启动问题。
+当前 schemaVersion 为 1，桌面功能通过增加 `workbench_state` 与 `workbench_requests` 表实现，原会话表不变；旧版忽略新表，不删除或降级。未来有数据格式变更时必须提供迁移与兼容说明。相同数据格式可以停止新版并启动旧包回退；若升级改变数据格式，应恢复升级前备份并运行对应旧版，升级后新增的数据需另行保留。不要通过删除数据库来修复启动问题。
 
 源码更新也先停止和备份，再在目标分支 `git pull --ff-only`、`npm ci`、`npm run build`，使用原来的外部数据库路径启动。
 
 ## CI/CD 如何工作
 
-PR、推送 main 或手动触发 CI 都执行静态/类型检查、覆盖率、生产启动与重启恢复、Chromium 双端测试；Linux 还执行生产依赖审计和 workflow 语法检查。通过后，在 Apple Silicon 与 Intel Mac 分别构建、解压验证并上传运行包。覆盖率报告保存 7 天，运行包保存 14 天，长期版本发布可在后续接 GitHub Releases。
+PR、推送 main 或手动触发 CI 都执行静态/类型检查、覆盖率、生产启动与重启恢复、Chromium 双端测试；Linux 还执行生产依赖审计和 workflow 语法检查。通过后，在 Apple Silicon 与 Intel Mac 分别构建运行包，以及含 Node/npm 的桌面 ZIP；解压 ZIP 后启动真实 `.app` 验证同页 MCP、退出和重启，再上传。覆盖率报告保存 7 天，运行包保存 14 天，长期版本发布可在后续接 GitHub Releases。
 
 当前 CD 完成的是**经验证的运行包交付**，安装由使用者手动执行，不会自动修改任何人的 Mac。手动触发入口需要 workflow 先存在于默认分支；基础工程 PR 可以通过 PR 检查自动获得包。Dependabot 配置合并到默认分支后每周检查 npm 与 Actions 更新，更新 PR 仍需通过同一套 CI，不自动合并。
 
 维护者本机可运行 `npm run release:pack`，产物位于 `artifacts/`，只针对执行机器的操作系统与架构。流程不需要 Codex、灵矽或部署密钥。检查细节见 [测试策略](testing.md)。
+
+维护者在目标 Mac 上执行 `npm run desktop:pack`，产物在 `artifacts/`，含兼容终端包和桌面 ZIP；不支持在 Linux 伪造 Mac 应用。桌面 ZIP 会先通过集成检查再交付。代码签名、公证、自动更新和发布到 GitHub Releases 均未自动执行。

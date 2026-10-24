@@ -10,7 +10,10 @@ import {
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { CodexSetup } from './codex-setup.js';
+import type { DesktopBridge } from './desktop-bridge.js';
 import { SessionStore, StoreConflict } from './store.js';
+import { Workbench } from './workbench.js';
+import { workbenchRoutes } from './workbench-routes.js';
 
 interface AppOptions {
   databasePath: string;
@@ -19,6 +22,10 @@ interface AppOptions {
   logger?: boolean;
   checkCodex?: () => Promise<CodexCheck>;
   codexSetup?: CodexSetup;
+  desktop?: DesktopBridge;
+  mcpToken?: string;
+  taskExecutable?: string;
+  taskPrefixArgs?: string[];
 }
 
 export function buildApp(options: AppOptions) {
@@ -29,8 +36,23 @@ export function buildApp(options: AppOptions) {
     new CodexSetup({
       toolsRoot: join(dirname(options.databasePath), 'tools'),
       ...(process.env.LINGXI_CODEX_BIN ? { executable: process.env.LINGXI_CODEX_BIN } : {}),
+      ...(process.env.LINGXI_NPM_CLI
+        ? { npmExecutable: process.execPath, npmPrefixArgs: [process.env.LINGXI_NPM_CLI] }
+        : {}),
     });
   const subscribers = new Set<(snapshot: Session | null) => void>();
+  const workbench = new Workbench({
+    databasePath: options.databasePath,
+    codex: setup,
+    mcpToken: options.mcpToken ?? '',
+    ...(options.desktop ? { desktop: options.desktop } : {}),
+    ...(options.taskExecutable ? { executable: options.taskExecutable } : {}),
+    ...(options.taskPrefixArgs ? { prefixArgs: options.taskPrefixArgs } : {}),
+  });
+  workbenchRoutes(app, workbench, options.desktop, options.mcpToken ?? '');
+  app.addHook('onListen', async () => {
+    workbench.setAddress(`http://127.0.0.1:${(app.server.address() as { port: number }).port}`);
+  });
 
   app.addHook('onRequest', async (request, reply) => {
     const host = request.headers.host;
@@ -64,7 +86,7 @@ export function buildApp(options: AppOptions) {
         nodeVersion: process.versions.node,
         nodeSupported: process.versions.node.split('.')[0] === '24',
       },
-      capabilities: { codexTasks: false, lingxiVoice: false },
+      capabilities: { codexTasks: !!options.desktop, lingxiVoice: false },
     };
   };
   app.get('/api/setup', async (_request, reply) => {
@@ -183,5 +205,5 @@ export function buildApp(options: AppOptions) {
     subscribers.clear();
   });
   app.addHook('onClose', async () => store.close());
-  return app;
+  return Object.assign(app, { workbench });
 }

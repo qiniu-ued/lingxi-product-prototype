@@ -91,7 +91,7 @@ test('existing signed-in Codex skips installation and suggests Lingxi preparatio
     .click();
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
-  await expect(page.getByText(/当前版本仍未开放执行任务/).first()).toBeVisible();
+  await expect(page.getByText(/当前浏览器入口可保存建议和同步大屏/).first()).toBeVisible();
 });
 
 test('installs only after clicking and proceeds to login after verification', async ({ page }) => {

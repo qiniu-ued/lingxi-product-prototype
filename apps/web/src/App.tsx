@@ -1,9 +1,14 @@
 import { errorSchema, type Session, sessionSchema } from '@lingxi/protocol';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { DesktopWorkbench } from './DesktopWorkbench.js';
 
 const sourceLabels = { keyboard: '键盘', voice: '语音', pointer: '点选' } as const;
 
 export function App() {
+  return window.lingxiDesktop ? <DesktopWorkbench /> : <DraftApp />;
+}
+
+function DraftApp() {
   const display = window.location.pathname === '/display';
   const [session, setSession] = useState<Session | null>(null);
   const [connection, setConnection] = useState<'connecting' | 'connected' | 'disconnected'>(

@@ -11,7 +11,8 @@
   "workspaces": [
     "packages/protocol",
     "apps/server",
-    "apps/web"
+    "apps/web",
+    "apps/desktop"
   ],
   "scripts": {
     "dev": "npm run build -w @lingxi/protocol && concurrently --kill-others --names server,web \"npm run dev -w @lingxi/server\" \"npm run dev -w @lingxi/web\"",
@@ -27,10 +28,14 @@
     "release:pack": "npm run build && node scripts/package.mjs",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run build && npm run smoke",
-    "prototype": "python3 -m http.server 8080 --directory dist"
+    "prototype": "python3 -m http.server 8080 --directory dist",
+    "desktop:dev": "npm run build && node scripts/desktop.mjs",
+    "desktop:pack": "npm run build && node scripts/package-desktop.mjs",
+    "test:desktop": "npm run build && node scripts/test-desktop.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",
+    "@electron/packager": "^20.3.0",
     "@playwright/test": "^1.64.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
@@ -39,6 +44,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^5.0.5",
     "concurrently": "^10.0.6",
+    "electron": "^45.0.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",

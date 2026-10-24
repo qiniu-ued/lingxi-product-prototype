@@ -1,24 +1,14 @@
 # Mac 首次运行与连接准备
 
-适用于只有 Codex 桌面应用、尚未创建灵矽账号的起点。工作台提供 `/setup` 连接向导，可从操作台顶部「连接向导」进入。向导检查环境并提供操作步骤；当前自动修改代码、项目预览和灵矽语音控制仍未开放。
+适用于只有 Codex 桌面应用、尚未创建灵矽账号的起点。打开应用的「连接向导」，先同时检查 Codex 与灵矽，再按结果配置。桌面版可以执行 Codex 任务和预览，灵矽音频/设备检测尚未接入。
 
-## 先把工作台跑起来
+## 先打开应用
 
-安装 [Node.js 24.x](https://nodejs.org/en/download)，确认终端中的 `node --version` 为 24.x、`npm --version` 为 11.x。私有仓库拉取需要 GitHub 访问权限，沿用你的本机 GitHub 登录方式。
+推荐下载对应架构桌面 ZIP，解压后把 `Lingxi.app` 放到「应用程序」并打开。M1 Pro 选择 `darwin-arm64`。桌面包内置 Node/npm，不需终端启动，退出用 Cmd+Q 或关闭操作台。未签名开发包的系统首次放行、下载步骤和回退见 [部署文档](deployment.md)。
 
-```sh
-git clone https://github.com/qiniu-ued/lingxi-product-prototype.git
-cd lingxi-product-prototype
-npm ci
-npm run build
-LINGXI_DB_PATH="$HOME/Library/Application Support/Lingxi/lingxi.db" npm start
-```
+源码开发使用 Node 24 / npm 11：`npm ci` 后 `npm run desktop:dev`。未合入功能先切换 `feat/mac-desktop-workbench`，合并后使用默认分支。终端/浏览器备用模式见部署文档；打开向导已经说明应用在运行，向导内不重复指导安装工作台本身。
 
-保留终端窗口，打开 <http://127.0.0.1:4310/setup>。开发模式可用 `npm run dev`，地址为 <http://127.0.0.1:5173/setup>。Ctrl+C 停止。下载运行包则解压后执行 `./start.sh`，数据默认已经位于上述外部目录，详见 [部署文档](deployment.md)。
-
-首次体验尚未合入的向导分支时，在 `npm ci` 前执行 `git switch feat/mac-connection-guide`；合并后默认分支即可使用。已下载过仓库时先停止服务，再 `git pull --ff-only`、`npm ci` 和 `npm run build` 后重新启动，保留原数据路径。
-
-浏览器中的 `127.0.0.1` 属于当前电脑。向导显示的是后端服务所在电脑的系统、架构和 Node 版本；云端环境的检测不能作为 Mac 已配置好的证据。
+向导显示的是服务所在电脑的系统、架构与 Node 版本；桌面版额外显示具体系统版本。云端测试不能当作 Mac 配置成功。
 
 ## 先检查两项环境，再配置 Codex
 
@@ -53,12 +43,12 @@ codex login
 LINGXI_CODEX_BIN="/absolute/path/to/codex" npm start
 ```
 
-路径不能包含命令参数。诊断通过仅表示版本命令、App Server 握手和认证配置可读取，不代表模型调用、额度或项目权限已验证。向导不会接管 Codex 桌面应用已有会话；真实任务执行仍待接入。测试使用固定的协议替身验证契约，用户安装入口使用 latest；未来任务适配器需记录测试过的 CLI 与协议范围。
+路径不能包含命令参数。诊断通过仅表示版本命令、App Server 握手和认证配置可读取，不代表模型调用、额度或项目权限已验证。向导不会接管 Codex 桌面应用已有会话；桌面版的真实任务入口已经接入，仍需本机模型调用验收。测试使用固定的协议替身验证契约，用户安装入口使用 latest；任务适配器参照 CLI 0.163.0 生成的 v2 类型，通过子进程协议替身测试；latest 发生协议变化时需更新适配。
 
 ## 准备灵矽
 
 1. 在[七牛灵矽控制台](https://xrobo.qiniu.com/)注册/登录，创建专用于工作台的智能体。
-2. 按[官方 Mac 音频客户端文档](https://linx.qiniu.com/docs/xrobot/guide/client-demo)安装依赖并编译运行。官方示例为 C++ 客户端，macOS 使用 PortAudio；工作台运行包目前不包含该客户端。
+2. 开发联调可按[官方 Mac 音频客户端文档](https://linx.qiniu.com/docs/xrobot/guide/client-demo)安装依赖并编译运行。官方示例为 C++ 客户端，macOS 使用 PortAudio；桌面包目前不包含该客户端；面向普通用户的下一步是预编译打包 helper，而不是要求用户编译。
 3. 按[设备绑定指南](https://linx.qiniu.com/docs/xrobot/guide/quick-start)，用客户端提供的设备验证码绑定智能体。
 4. 在「系统设置 → 隐私与安全性 → 麦克风」授权运行客户端的应用，检查输入/输出设备；先确认测试语句能被识别，并能听到回复。
 
@@ -66,8 +56,12 @@ LINGXI_CODEX_BIN="/absolute/path/to/codex" npm start
 
 后续优先通过 Mac 主动建立的连接接入[端侧 MCP](https://linx.qiniu.com/docs/xrobot/mcp/hardware-mcp)。独立异步播报、远场拾音、回声和多人发言仍需真机验证。
 
-## 连接大屏并验收
+## Codex、作品与大屏验收
 
-在同一台 Mac 打开操作台 `/` 与大屏 `/display`，保存一条建议，确认同步。然后在 macOS 控制中心连接 AirPlay；支持扩展显示时将大屏窗口移到电视并全屏，电脑保留操作台。只能镜像时两块屏幕画面一致。
+回到桌面操作台，新建/打开允许修改的项目，要求“在 preview/index.html 做一个周末出游投票页”。核对真实文件和预览后，再要求“给金山城市沙滩投一票”。Codex 的 MCP 指向大屏窗口的同一个页面，操作台显示它的截图；纯页面操作不应导致重载。点击「点选修改」再点目标，输入准确修改要求；作品版本变化后重新选取。
 
-先验证保存、刷新恢复、双端同步和投屏画面；语音修改代码需等待真实任务与语音适配器接入。参考 [接入边界](integrations.md) 与 [实施清单](roadmap.md)。
+检查一次批准/拒绝和停止任务。应用重启后核对已修改文件，未完成任务标为中断，不能自动重放。这里只展示最近一轮任务；未提供代码回退。
+
+在 macOS 控制中心手动连接 AirPlay，支持扩展显示时点击「打开大屏」，应用优先使用已有外接屏，必要时自行移动窗口并全屏。电视 PIN 由系统处理，当前不支持语音自动连接。核对远距离阅读、画面重连、声音路由。
+
+记录 M1 Pro 的实际 macOS 版本、CLI 版本和应用提交。灵矽登录、绑定与音频验证在用户本机进行；当前向导不能自动绑定设备。音频适配、自定义“丽塔同学”、TTS 与系统自动化的后续步骤见 [设计对齐计划](desktop-voice-plan.md)。

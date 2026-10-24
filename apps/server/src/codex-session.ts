@@ -22,21 +22,37 @@ export function runCodexSession<T>(options: {
   onReady: (send: Sender) => void;
   onMessage: (message: Message, send: Sender, finish: (value: T) => void) => void;
   onCancel?: (send: Sender) => void;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  maxOutputBytes?: number;
+  processGroup?: boolean;
 }): Promise<SessionResult<T>> {
   return new Promise((resolve) => {
     const child = spawn(options.executable, [...(options.prefixArgs ?? []), 'app-server'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       shell: false,
+      ...(options.cwd ? { cwd: options.cwd } : {}),
+      ...(options.env ? { env: options.env } : {}),
+      detached: options.processGroup === true && process.platform !== 'win32',
     });
     let outcome: SessionResult<T> | undefined;
     let force: ReturnType<typeof setTimeout> | undefined;
+    const kill = (signal: NodeJS.Signals) => {
+      if (options.processGroup && process.platform !== 'win32' && child.pid) {
+        try {
+          process.kill(-child.pid, signal);
+        } catch {
+          /* Already exited. */
+        }
+      } else child.kill(signal);
+    };
     const stop = (result: SessionResult<T>) => {
       if (outcome) return;
       outcome = result;
       clearTimeout(deadline);
       child.stdin.end();
-      child.kill('SIGTERM');
-      force = setTimeout(() => child.kill('SIGKILL'), 500);
+      kill('SIGTERM');
+      force = setTimeout(() => kill('SIGKILL'), 500);
     };
     const deadline = setTimeout(() => stop({ status: 'timed-out' }), options.timeoutMs);
     const send: Sender = (message) => child.stdin.write(`${JSON.stringify(message)}\n`);
@@ -53,7 +69,7 @@ export function runCodexSession<T>(options: {
     child.stdout.on('data', (chunk: string) => {
       if (outcome) return;
       bytes += Buffer.byteLength(chunk);
-      if (bytes > 64 * 1024) return stop({ status: 'failed' });
+      if (bytes > (options.maxOutputBytes ?? 64 * 1024)) return stop({ status: 'failed' });
       buffer += chunk;
       let boundary = buffer.indexOf('\n');
       while (boundary !== -1 && !outcome) {
@@ -90,6 +106,7 @@ export function runCodexSession<T>(options: {
     child.once('close', () => {
       clearTimeout(deadline);
       clearTimeout(force);
+      if (options.processGroup) kill('SIGKILL');
       options.signal?.removeEventListener('abort', cancel);
       resolve(outcome ?? { status: 'failed' });
     });

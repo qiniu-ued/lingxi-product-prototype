@@ -16,6 +16,8 @@
 
 - [x] 常驻 RPC 连接、完整多轮历史、重命名/归档、排队与 turn/steer。
 - [x] 输入区自动模型/Reasoning Effort 选择器、最近上下文占用及累计 token 明细，未知值明确显示，元数据独立持久化。
+- [x] 正式 Plan/Default 选择器及独立临时会话验证入口；语音 MCP 切换、Manual/自动审查/完整访问策略与提交前确认。
+- [x] Skills、MCP、额度可读卡片与完整 MCP 分页，未知/部分失败独立提示。
 - [x] 每轮结束的 token 消耗、缓存命中率和明细；多请求累计差值、迟到报告修正、历史与重启恢复，未知/重置提示。
 - [x] xterm PTY、实际 turn/Git diff、多个提问请求和选项、上下文附件。
 - [x] 已完成轮次的 Sidechat/Fork，Sidechat 禁用 MCP 和文件写入。
@@ -35,4 +37,4 @@
 
 ## 后续增强
 
-区域截图标记、独立 Git worktree、并发 Sidechat、官方 Plan/Skills/MCP 配置管理、真实子 Agent 树、源码定位/高亮、成果回退/快照清理、Developer ID 签名与公证、自动更新。AirPlay 自动连接需原生固定操作、系统授权和兼容性矩阵；A2UI 可后续用于确认卡片，不代替预览和系统能力。详见 [设计对齐计划](desktop-voice-plan.md)。
+区域截图标记、独立 Git worktree、并发 Sidechat、官方 Skills 调用/MCP 配置管理、真实子 Agent 树、源码定位/高亮、成果回退/快照清理、Developer ID 签名与公证、自动更新。Plan/权限需完成用户 Mac 的真实 CLI 和模型验收。AirPlay 自动连接需原生固定操作、系统授权和兼容性矩阵；A2UI 可后续用于确认卡片，不代替预览和系统能力。详见 [设计对齐计划](desktop-voice-plan.md)。

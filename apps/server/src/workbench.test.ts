@@ -42,7 +42,8 @@ async function create(mode = 'success', publish = true) {
       mode,
       record,
     ],
-    timeoutMs: mode === 'hang' ? 150 : mode === 'steer-timeout' ? 800 : 5000,
+    timeoutMs:
+      mode === 'hang' || mode.startsWith('settings-') ? 150 : mode === 'steer-timeout' ? 800 : 5000,
   });
   cleanup.push(() => wb.close());
   wb.setAddress('http://127.0.0.1:1234');
@@ -310,9 +311,13 @@ it('switches durable histories, forks at completed turns, and makes Sidechat rea
     model: 'test-model',
     effort: 'high',
   });
-  expect(records.filter((r) => r.method === 'turn/start').at(-1).params.input[0].text).toContain(
-    '先制定计划',
-  );
+  expect(records.filter((r) => r.method === 'turn/start').at(-1).params).toMatchObject({
+    input: [{ type: 'text', text: 'plan' }],
+    collaborationMode: {
+      mode: 'plan',
+      settings: { model: 'test-model', reasoning_effort: 'high', developer_instructions: null },
+    },
+  });
   await expect(wb.command({ action: 'select-thread', id: randomUUID() })).rejects.toThrow(
     'thread_unavailable',
   );
@@ -496,7 +501,8 @@ it.each(['turn-usage', 'turn-usage-late'])(
       (state) =>
         state.task?.id === second &&
         state.task.status === 'completed' &&
-        state.runtime?.usage?.total.totalTokens === 480,
+        state.runtime?.usage?.total.totalTokens === 480 &&
+        state.turnUsage.find((usage) => usage.taskId === first)?.tokens?.totalTokens === 240,
     );
     const usage = wb.read().turnUsage;
     expect(usage).toHaveLength(2);
@@ -564,4 +570,122 @@ it('marks a decrease in cumulative counters unavailable instead of showing a sma
   await until(wb, (state) => state.turnUsage[0]?.status === 'counter-reset');
   expect(wb.read().task?.status).toBe('completed');
   expect(wb.read().turnUsage[0]?.tokens).toBeNull();
+});
+it('discovers execution capabilities without starting a thread and verifies on an isolated non-model session', async () => {
+  const { wb, record } = await create();
+  expect(await wb.executionOptions()).toMatchObject({
+    plan: true,
+    permissions: { manual: true, 'auto-review': true, 'full-access': true },
+  });
+  expect(await readFile(record, 'utf8')).not.toContain('thread/start');
+  const before = wb.read();
+  expect((await wb.verifyExecution()).verified).toEqual([
+    'plan',
+    'default',
+    'manual',
+    'auto-review',
+    'full-access',
+  ]);
+  expect(wb.read()).toEqual(before);
+  const wire = await readFile(record, 'utf8');
+  expect(wire).toContain('"ephemeral":true');
+  expect(wire).not.toContain('turn/start');
+});
+it('captures Plan and permissions when queueing and explicitly restores default mode on the next turn', async () => {
+  const { wb, record, project } = await create('rich');
+  await wb.command({ action: 'set-permission', permission: 'auto-review' });
+  wb.start(randomUUID(), 'hold');
+  await until(wb, (s) => s.task?.status === 'running');
+  await wb.command({ action: 'set-mode', mode: 'plan' });
+  await wb.command({ action: 'set-permission', permission: 'full-access' });
+  const queued = randomUUID();
+  wb.start(queued, 'plan next', null, [], 'queue');
+  await wb.command({ action: 'set-mode', mode: 'default' });
+  await wb.command({ action: 'set-permission', permission: 'manual' });
+  await wb.steer(randomUUID(), 'finish', null, []);
+  await until(wb, (s) => s.task?.id === queued && s.task.status === 'completed');
+  wb.start(randomUUID(), 'execute next', null, [], 'queue');
+  await until(wb, (s) => s.task?.prompt === 'execute next' && s.task.status === 'completed');
+  const turns = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((s) => JSON.parse(s))
+    .filter((r) => r.method === 'turn/start');
+  expect(turns[0].params).toMatchObject({
+    approvalsReviewer: 'auto_review',
+    approvalPolicy: 'on-request',
+    sandboxPolicy: { type: 'workspaceWrite', writableRoots: [project.path], networkAccess: false },
+    collaborationMode: { mode: 'default' },
+  });
+  expect(turns[1].params).toMatchObject({
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'dangerFullAccess' },
+    collaborationMode: { mode: 'plan' },
+  });
+  expect(turns[1].params.input[0].text).toBe('plan next');
+  expect(turns[2].params).toMatchObject({
+    approvalsReviewer: 'user',
+    approvalPolicy: 'on-request',
+    sandboxPolicy: { type: 'workspaceWrite' },
+    collaborationMode: { mode: 'default' },
+  });
+});
+it.each(['no-modes', 'settings-error', 'settings-mismatch'])(
+  'does not call a model after unsupported or unconfirmed settings (%s)',
+  async (mode) => {
+    const { wb, record } = await create(mode);
+    wb.start(randomUUID(), 'do work');
+    await until(wb, (s) => s.task?.status === 'failed');
+    expect(await readFile(record, 'utf8')).not.toContain('turn/start');
+    expect(JSON.stringify(wb.read())).not.toContain('PRIVATE');
+  },
+);
+it('respects managed restrictions and rejects a voice mode change whose context expired while checking', async () => {
+  const { wb } = await create('restricted');
+  expect((await wb.executionOptions()).permissions).toEqual({
+    manual: true,
+    'auto-review': false,
+    'full-access': false,
+  });
+  await expect(wb.command({ action: 'set-permission', permission: 'full-access' })).rejects.toThrow(
+    'execution_not_supported',
+  );
+  await expect(wb.command({ action: 'set-mode', mode: 'plan' }, () => false)).rejects.toThrow(
+    'voice_context_changed',
+  );
+  expect(wb.read().permission).toBe('manual');
+  expect(wb.read().settings.plan).toBe(false);
+});
+it('keeps execution available when the CLI supports Default but not Plan', async () => {
+  const { wb } = await create('default-only');
+  expect(await wb.executionOptions()).toMatchObject({ plan: false, defaultMode: true });
+  await expect(wb.command({ action: 'set-mode', mode: 'plan' })).rejects.toThrow(
+    'execution_not_supported',
+  );
+  wb.start(randomUUID(), 'execute normally');
+  await until(wb, (s) => s.task?.status === 'completed');
+});
+it('shows actual automatic review denial and keeps Sidechat read-only under a Full Access preference', async () => {
+  const { wb, record } = await create('review-denied');
+  await wb.command({ action: 'set-permission', permission: 'auto-review' });
+  wb.start(randomUUID(), 'review action');
+  await until(wb, (s) => s.task?.status === 'completed');
+  expect(wb.read().task?.items).toContainEqual(
+    expect.objectContaining({ type: '自动审批审查', status: '已拒绝' }),
+  );
+  const task = wb.read().task as NonNullable<WorkbenchState['task']>;
+  await wb.command({ action: 'set-permission', permission: 'full-access' });
+  await wb.command({ action: 'fork', taskId: task.id, kind: 'sidechat' });
+  wb.start(randomUUID(), 'discuss');
+  await until(wb, (s) => s.task?.status === 'completed');
+  const turns = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((s) => JSON.parse(s))
+    .filter((r) => r.method === 'turn/start');
+  expect(turns.at(-1).params).toMatchObject({
+    approvalsReviewer: 'user',
+    approvalPolicy: 'never',
+    sandboxPolicy: { type: 'readOnly', networkAccess: false },
+  });
 });

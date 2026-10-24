@@ -117,9 +117,32 @@ async function open(
   });
   await page.route('**/api/workbench/workspace', async (route) => {
     const body = route.request().postDataJSON();
-    state = { ...state, revision: state.revision + 1, settings: body.settings };
+    state = {
+      ...state,
+      revision: state.revision + 1,
+      ...(body.action === 'set-permission'
+        ? { permission: body.permission }
+        : {
+            settings:
+              body.action === 'set-mode'
+                ? { ...state.settings, plan: body.mode === 'plan' }
+                : body.settings,
+          }),
+    };
     await route.fulfill({ json: state });
   });
+  const execution = {
+    projectId,
+    plan: true,
+    permissions: { manual: true, 'auto-review': true, 'full-access': true },
+    verified: [] as string[],
+  };
+  await page.route('**/api/workbench/execution-options', (route) =>
+    route.fulfill({ json: execution }),
+  );
+  await page.route('**/api/workbench/verify-execution', (route) =>
+    route.fulfill({ json: { ...execution, verified: ['plan', 'default', 'manual'] } }),
+  );
   await page.goto('/');
   return {
     state: () => state,
@@ -281,4 +304,112 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
   await expect(article('缺少缓存')).toContainText('缓存命中率 未报告');
   await expect(article('无输入')).toContainText('缓存命中率 不适用（无输入）');
   await expect(article('已中断')).toContainText('截至最后报告的用量');
+});
+test('composer selects collaboration modes and permissions, and reports explicit verification', async ({
+  page,
+}) => {
+  const fixture = await open(page, runtime());
+  await expect(page.locator('#collaboration-mode option[value="plan"]')).toBeEnabled();
+  await page.getByLabel('工作模式', { exact: true }).selectOption('plan');
+  await expect(page.getByLabel('工作模式', { exact: true })).toHaveValue('plan');
+  expect(fixture.state().settings.plan).toBe(true);
+  await page.getByLabel('权限', { exact: true }).selectOption('full-access');
+  await expect(page.getByRole('region', { name: '执行设置' })).toContainText(
+    '可访问沙箱外文件和网络',
+  );
+  expect(fixture.state().permission).toBe('full-access');
+  await page.getByLabel('权限', { exact: true }).selectOption('auto-review');
+  await expect(page.getByRole('region', { name: '执行设置' })).toContainText(
+    '越界请求由 Codex 自动审查',
+  );
+  await page.getByLabel('工作模式', { exact: true }).selectOption('default');
+  await expect(page.getByLabel('工作模式', { exact: true })).toHaveValue('default');
+  await page.getByText('模式说明与兼容验证', { exact: true }).click();
+  await page.getByRole('button', { name: '验证执行设置', exact: true }).click();
+  await expect(
+    page.getByText('已由 Codex 确认：计划模式、执行模式、Manual · 手动审批'),
+  ).toBeVisible();
+  await expect(page.getByText('先给计划并请求确认', { exact: true })).toHaveCount(0);
+});
+test('tools show readable skill, MCP and quota cards with independent errors and no raw JSON', async ({
+  page,
+}) => {
+  const fixture = await open(page, null);
+  let catalog = {
+    projectId,
+    skills: {
+      status: 'ready',
+      items: [
+        {
+          name: 'review',
+          displayName: '代码审阅',
+          description: '检查修改并给出建议',
+          enabled: true,
+          scope: 'user',
+          path: '/skills/review/SKILL.md',
+        },
+      ],
+      issues: [],
+    },
+    mcp: {
+      status: 'ready',
+      items: [
+        {
+          name: '作品预览',
+          runtimeStatus: 'connected',
+          authStatus: 'oAuth',
+          toolsUnavailable: false,
+          tools: [{ name: 'click', description: '点击同一个作品页面' }],
+          resourceCount: 0,
+        },
+      ],
+    },
+    limits: {
+      status: 'ready',
+      ordinaryUsageAllowed: false,
+      buckets: [
+        {
+          id: 'codex',
+          name: 'Codex',
+          primary: { usedPercent: 20, windowDurationMins: 300, resetsAt: 1800000000 },
+          secondary: null,
+          credits: null,
+        },
+      ],
+    },
+  };
+  await page.route('**/api/workbench/catalog', (route) => route.fulfill({ json: catalog }));
+  await page.getByRole('button', { name: '工具与额度', exact: true }).click();
+  await page.getByRole('button', { name: '读取 Skills、MCP 和账号额度' }).click();
+  await expect(page.getByRole('region', { name: 'Skills', exact: true })).toContainText('代码审阅');
+  await expect(page.getByRole('region', { name: 'Skills', exact: true })).toContainText('已启用');
+  await expect(page.getByRole('region', { name: 'MCP', exact: true })).toContainText(
+    '已连接 · 已登录',
+  );
+  await page.getByText('查看工具', { exact: true }).click();
+  await expect(page.getByRole('region', { name: 'MCP', exact: true })).toContainText(
+    '点击同一个作品页面',
+  );
+  await expect(page.getByRole('progressbar', { name: '5 小时窗口' })).toHaveAttribute(
+    'value',
+    '20',
+  );
+  await expect(page.getByRole('region', { name: '账号额度', exact: true })).toContainText(
+    '当前暂停普通额度',
+  );
+  await expect(page.locator('.workspace-tool pre')).toHaveCount(0);
+  catalog = {
+    ...catalog,
+    skills: { status: 'unavailable', items: [], issues: [] },
+    limits: { ...catalog.limits, buckets: [] },
+  };
+  await page.getByRole('button', { name: '刷新 Skills、MCP 和账号额度' }).click();
+  await expect(page.getByRole('region', { name: 'Skills', exact: true })).toContainText(
+    '技能列表暂不可用',
+  );
+  await expect(page.getByRole('region', { name: 'MCP', exact: true })).toContainText('已连接');
+  await expect(page.getByRole('region', { name: '账号额度', exact: true })).toContainText(
+    '尚未报告额度窗口',
+  );
+  expect(fixture.state().task).toBeNull();
 });

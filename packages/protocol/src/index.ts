@@ -184,6 +184,8 @@ export interface VoiceAdapter {
   speak(text: string, signal: AbortSignal): Promise<void>;
 }
 
+export * from './catalog.js';
+export * from './execution.js';
 export * from './model-usage.js';
 export * from './voice.js';
 export * from './workbench.js';

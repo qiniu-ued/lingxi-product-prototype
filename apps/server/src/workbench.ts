@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   type ContextAttachment,
   type Conversation,
@@ -16,9 +19,11 @@ import {
   type WorkspaceCommand,
 } from '@lingxi/protocol';
 import { z } from 'zod';
+import { listMcp, normalizeCatalog } from './catalog.js';
 import { CodexClient, type RpcMessage } from './codex-client.js';
 import type { CodexSetup } from './codex-setup.js';
 import type { DesktopBridge } from './desktop-bridge.js';
+import { applyExecution, executionOptions, executionParams } from './execution.js';
 import { countersDecreased, zeroTokens } from './turn-usage.js';
 import { WorkbenchStore } from './workbench-store.js';
 
@@ -77,6 +82,7 @@ export class Workbench {
   >();
   private closed = false;
   private switching = false;
+  private probes = new Set<CodexClient>();
   private address = '';
   constructor(
     private options: {
@@ -309,6 +315,7 @@ export class Workbench {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    this.store.writePermission(id, this.state.permission);
     this.update({ history: [...this.state.history, task], ...(queued ? {} : { task }) });
     if (!queued) this.launch(project, task);
     return task;
@@ -376,7 +383,7 @@ export class Workbench {
     })();
     return this.connecting;
   }
-  private async config(readonly: boolean, client: CodexClient) {
+  private async config(readonly: boolean, client: CodexClient, recordPlugins = true) {
     const config: Record<string, unknown> = {
       mcp_servers: {
         lingxi_preview: {
@@ -415,7 +422,7 @@ export class Workbench {
           throw new Error('mcp_discovery_incomplete');
         if (cursor) seen.add(cursor);
       } while (cursor);
-      this.discoveredPlugins = [...plugins];
+      if (recordPlugins) this.discoveredPlugins = [...plugins];
       for (const name of names) {
         if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('unsupported_mcp_name');
         config[`mcp_servers.${name}.enabled`] = false;
@@ -436,20 +443,34 @@ export class Workbench {
   private async run(project: Project, task: Task) {
     try {
       const client = await this.connection();
-      if (this.state.task?.status === 'stopping') {
+      if (this.read().task?.status === 'stopping') {
         this.finish('interrupted');
         return;
       }
       const thread = this.conversation();
       const freshThread = !thread.codexId;
+      const settings = task.settings ?? this.state.settings;
+      const readonly = thread.kind === 'sidechat';
+      const permission = this.store.permission(task.id);
+      const available = await executionOptions(client, project.id);
+      if (
+        (settings.plan ? !available.plan : !available.defaultMode) ||
+        (!readonly && !available.permissions[permission])
+      )
+        throw new Error('execution_not_supported');
       if (!this.loaded.has(thread.id)) {
         const readonly = thread.kind === 'sidechat';
         const result = threadResult.parse(
           await client.request(thread.codexId ? 'thread/resume' : 'thread/start', {
             ...(thread.codexId ? { threadId: thread.codexId } : {}),
             cwd: project.path,
-            approvalPolicy: readonly ? 'never' : 'on-request',
-            sandbox: readonly ? 'read-only' : 'workspace-write',
+            approvalPolicy: readonly || permission === 'full-access' ? 'never' : 'on-request',
+            approvalsReviewer: !readonly && permission === 'auto-review' ? 'auto_review' : 'user',
+            sandbox: readonly
+              ? 'read-only'
+              : permission === 'full-access'
+                ? 'danger-full-access'
+                : 'workspace-write',
             config: await this.config(readonly, client),
             developerInstructions: this.instructions(readonly),
           }),
@@ -468,11 +489,27 @@ export class Workbench {
           threads: this.state.threads.map((t) => (t.id === thread.id ? { ...thread } : t)),
         });
       }
+      const runtime = this.runtimeFor(thread);
+      const model = settings.model ?? runtime.model;
+      if (!model) throw new Error('execution_not_supported');
+      const execution = executionParams(
+        thread.codexId as string,
+        project,
+        permission,
+        readonly,
+        settings.plan ? 'plan' : 'default',
+        model,
+        settings.effort ?? runtime.effort,
+      );
+      await applyExecution(client, execution);
+      if (this.read().task?.status === 'stopping') {
+        this.finish('interrupted');
+        return;
+      }
       this.taskUpdate({ threadId: thread.codexId, activity: '正在提交需求…' });
       const previous = this.store
         .history(thread.id)
         .findLast((t) => t.id !== task.id && t.threadId === thread.codexId && t.turnId);
-      const runtime = this.runtimeFor(thread);
       this.store.writeUsageRecord({
         taskId: task.id,
         conversationId: thread.id,
@@ -492,9 +529,9 @@ export class Workbench {
         this.interrupt();
       }, this.options.timeoutMs ?? 1_800_000);
       const input = this.input(task.prompt, task.selection, task.attachments ?? []);
-      const settings = task.settings ?? this.state.settings;
       const result = turnResult.parse(
         await client.request('turn/start', {
+          ...execution,
           threadId: thread.codexId,
           ...(thread.kind === 'sidechat'
             ? { disabledPluginIds: this.readonlyPlugins.get(thread.id) ?? [] }
@@ -503,15 +540,6 @@ export class Workbench {
           input,
           ...(settings.model ? { model: settings.model } : {}),
           ...(settings.effort ? { effort: settings.effort } : {}),
-          ...(settings.plan
-            ? {
-                input: this.input(
-                  `先制定计划并向我确认，再实施。\n${task.prompt}`,
-                  task.selection,
-                  task.attachments ?? [],
-                ),
-              }
-            : {}),
         }),
       );
       if (this.state.task?.id !== task.id || done(this.state.task)) return;
@@ -528,8 +556,15 @@ export class Workbench {
       this.turnEventBytes = 0;
       for (const event of events) this.onMessage(event);
       if (stopping && !done(this.state.task)) this.interrupt();
-    } catch {
+    } catch (error) {
       this.finish('failed');
+      if (
+        error instanceof Error &&
+        ['execution_not_supported', 'execution_unconfirmed'].includes(error.message)
+      )
+        this.taskUpdate({
+          error: 'Codex 未确认所选执行设置；请验证执行设置或更新 CLI 后重试。未提交模型任务。',
+        });
     }
   }
   private input(
@@ -962,6 +997,36 @@ export class Workbench {
         activity: message.method === 'item/started' ? `正在执行 · ${item.type}` : 'Codex 正在继续…',
       });
     }
+    if (
+      message.method === 'item/autoApprovalReview/started' ||
+      message.method === 'item/autoApprovalReview/completed'
+    ) {
+      const event = z
+        .object({
+          reviewId: z.string(),
+          review: z.object({
+            status: z.enum(['inProgress', 'approved', 'denied', 'timedOut', 'aborted']),
+          }),
+        })
+        .safeParse(p);
+      if (event.success) {
+        const labels = {
+          inProgress: '审查中',
+          approved: '已批准',
+          denied: '已拒绝',
+          timedOut: '审查超时',
+          aborted: '已取消',
+        };
+        const id = `auto-review:${event.data.reviewId}`;
+        const status = labels[event.data.review.status];
+        this.taskUpdate({
+          items: [
+            ...(this.state.task?.items ?? []).filter((item) => item.id !== id),
+            { id, type: '自动审批审查', status, text: `Codex 自动审查：${status}` },
+          ],
+        });
+      }
+    }
     if (message.method === 'turn/diff/updated') this.taskUpdate({ diff: z.string().parse(p.diff) });
     if (message.method === 'turn/plan/updated')
       this.taskUpdate({
@@ -972,10 +1037,23 @@ export class Workbench {
       if (!task.turnId || task.turnId === turn.id) this.finish(turn.status);
     }
   }
-  async command(command: WorkspaceCommand) {
+  async command(command: WorkspaceCommand, guard?: () => boolean) {
     if (!this.state.project || !this.options.desktop) throw new Error('project_required');
     if (command.action === 'settings') {
       this.update({ settings: command.settings });
+      return;
+    }
+    if (command.action === 'set-mode') {
+      if (command.mode === 'plan' && !(await this.executionOptions()).plan)
+        throw new Error('execution_not_supported');
+      if (guard && !guard()) throw new Error('voice_context_changed');
+      this.update({ settings: { ...this.state.settings, plan: command.mode === 'plan' } });
+      return;
+    }
+    if (command.action === 'set-permission') {
+      const available = await this.executionOptions();
+      if (!available.permissions[command.permission]) throw new Error('execution_not_supported');
+      this.update({ permission: command.permission });
       return;
     }
     if (command.action === 'cancel-queued') {
@@ -1174,21 +1252,85 @@ export class Workbench {
   }
   async catalog() {
     if (!this.options.desktop || !this.state.project) throw new Error('project_required');
+    const projectId = this.state.project.id;
+    const cwd = this.state.project.path;
     const client = await this.connection();
     const results = await Promise.allSettled([
       this.models(),
-      client.request('skills/list', { cwds: [this.state.project.path] }),
-      client.request('mcpServerStatus/list', {}),
+      client.request('skills/list', { cwds: [cwd] }),
+      listMcp(client),
       client.request('account/rateLimits/read', {}),
     ]);
     // Allowlisted informational methods only. Do not return provider config or
     // account tokens. Each failed capability remains independently unavailable.
-    return Object.fromEntries(
-      ['models', 'skills', 'mcp', 'limits'].map((name, i) => [
-        name,
-        results[i]?.status === 'fulfilled' ? results[i].value : null,
-      ]),
-    );
+    if (this.state.project?.id !== projectId) throw new Error('project_changed');
+    const values = results.map((result) => (result.status === 'fulfilled' ? result.value : null));
+    return { models: values[0], ...normalizeCatalog(projectId, values[1], values[2], values[3]) };
+  }
+  async executionOptions() {
+    if (!this.options.desktop || !this.state.project) throw new Error('project_required');
+    const id = this.state.project.id;
+    const result = await executionOptions(await this.connection(), id);
+    if (this.state.project?.id !== id) throw new Error('project_changed');
+    return result;
+  }
+  async verifyExecution() {
+    if (!this.options.desktop || !this.state.project) throw new Error('project_required');
+    if (this.closed || this.probes.size) throw new Error('verification_busy');
+    const projectId = this.state.project.id;
+    const root = await mkdtemp(join(tmpdir(), 'lingxi-execution-'));
+    const client = new CodexClient({
+      executable: this.options.executable ?? (await this.options.codex.executable()),
+      prefixArgs: this.options.prefixArgs ?? [],
+      cwd: root,
+      timeoutMs: 8000,
+      onMessage() {},
+      onDisconnect() {},
+    });
+    this.probes.add(client);
+    try {
+      await client.ready;
+      const available = await executionOptions(client, projectId);
+      if (!available.defaultMode) return available;
+      const result = threadResult.parse(
+        await client.request('thread/start', {
+          cwd: root,
+          ephemeral: true,
+          sandbox: 'read-only',
+          approvalPolicy: 'never',
+          config: await this.config(true, client, false),
+        }),
+      );
+      const model = result.model ?? result.thread.model;
+      if (!model) throw new Error('execution_not_supported');
+      const project = { id: projectId, name: '执行设置验证', path: root };
+      const modes: Array<'plan' | 'default'> = available.plan ? ['plan', 'default'] : ['default'];
+      for (const mode of modes) {
+        await applyExecution(
+          client,
+          executionParams(result.thread.id, project, 'manual', true, mode, model, null),
+        );
+        available.verified.push(mode);
+      }
+      for (const permission of ['manual', 'auto-review', 'full-access'] as const) {
+        if (!available.permissions[permission]) continue;
+        try {
+          await applyExecution(
+            client,
+            executionParams(result.thread.id, project, permission, false, 'default', model, null),
+          );
+          available.verified.push(permission);
+        } catch {
+          available.permissions[permission] = false;
+        }
+      }
+      if (this.state.project?.id !== projectId) throw new Error('project_changed');
+      return available;
+    } finally {
+      this.probes.delete(client);
+      await client.close();
+      await rm(root, { recursive: true, force: true });
+    }
   }
   private async disposeClient(client: CodexClient, terminalId?: string) {
     if (terminalId)
@@ -1200,6 +1342,7 @@ export class Workbench {
   async close() {
     if (this.closed) return;
     this.closed = true;
+    await Promise.all([...this.probes].map((client) => client.close()));
     clearTimeout(this.turnTimer);
     clearTimeout(this.stopTimer);
     this.finish('interrupted');

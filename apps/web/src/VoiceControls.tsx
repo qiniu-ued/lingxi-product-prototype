@@ -321,7 +321,7 @@ export function VoiceControls({
               }
             }}
           />
-          允许主动收音后用语音提交/停止任务（保存后需重新连接）
+          允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
         </label>
       )}
       <p role="status">{state ? labels[state.status] : '正在读取语音状态'}</p>

@@ -128,3 +128,5 @@ PR、推送 main 或手动触发 CI 都执行静态/类型检查、覆盖率、�
 模型与上下文显示分支 `feat/model-context-controls` 额外保存 `workspace_thread_runtime_v1` 元数据（确认的线程模型/强度、上次 token 报告和时间），不向旧 `workspace_state_v2` JSON 增加新字段。旧版仍可读取其快照；降级不删除也不刷新统计，升级后按 Codex thread ID 验证，不把历史统计称为新报告。启动、打包和更新命令不变。
 
 逐轮统计分支 `feat/turn-token-usage` 再新增 `workspace_turn_usage_v1`，保存每轮起始累计值和收到的报告，供历史与重启恢复使用；不向旧状态或任务 JSON 写入新字段。升级不会回填没有记录的旧轮次；旧版本忽略新表，降级期间执行的轮次可能缺少基线。启动、打包及部署方式不变。
+
+执行设置分支 `feat/workspace-modes-and-tools` 新增 `workspace_permissions_v1`：保存权限偏好及每个 task 提交/排队时捕获的选择，初始 Manual；旧 v2 状态与任务 JSON 不增加字段。旧版本忽略新表，不代表数据库降级。Plan 沿用已有 settings.plan 偏好，执行时改用正式 collaborationMode 协议。升级后可在 App 点击「验证执行设置」做无模型调用的兼容检查，运行/打包命令不变。

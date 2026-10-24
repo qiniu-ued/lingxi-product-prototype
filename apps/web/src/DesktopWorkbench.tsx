@@ -9,6 +9,7 @@ import {
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ContextUsage } from './ContextUsage';
 import { DiffPanel } from './DiffPanel';
+import { ExecutionControls } from './ExecutionControls';
 import { ModelControls } from './ModelControls';
 import { TurnUsage } from './TurnUsage';
 import { VoiceControls } from './VoiceControls';
@@ -306,7 +307,7 @@ export function DesktopWorkbench() {
                 ['preview', '预览'],
                 ['terminal', '终端'],
                 ['diff', 'Diff'],
-                ['tools', '工具与计划'],
+                ['tools', '工具与额度'],
               ].map(([value, label]) => (
                 <button
                   type="button"
@@ -755,6 +756,14 @@ export function DesktopWorkbench() {
             <form onSubmit={submit}>
               {state && (
                 <ModelControls state={state} busy={busy} connected={connected} operate={operate} />
+              )}
+              {state && (
+                <ExecutionControls
+                  state={state}
+                  busy={busy}
+                  connected={connected}
+                  operate={operate}
+                />
               )}
               <label htmlFor="task-prompt">给 Codex 的本轮指令</label>
               <textarea

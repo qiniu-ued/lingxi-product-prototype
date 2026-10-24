@@ -19,7 +19,7 @@ export const voiceConfigSchema = z.strictObject({
     .min(1)
     .max(4096)
     .regex(/^[^\r\n]+$/),
-  allowVoiceSubmit: z.boolean().default(false),
+  allowVoiceSubmit: z.boolean().default(true),
 });
 export const wakePreferenceSchema = z.strictObject({
   version: z.literal(1),
@@ -44,20 +44,20 @@ export const voiceStateSchema = z.strictObject({
   captureId: z.uuid().nullable(),
   subtitle: z.string(),
   error: z.string().nullable(),
-  allowVoiceSubmit: z.boolean(),
+  allowVoiceSubmit: z.boolean().default(true),
   deviceToolsReady: z.boolean().default(false),
   handoff: voiceHandoffSchema.nullable().default(null),
   contextDetailsOpen: z.boolean().default(false),
   wakePreference: wakePreferenceSchema.default({
     version: 1,
-    enabled: false,
-    source: 'legacy-review',
+    enabled: true,
+    source: 'default',
   }),
   wakeAutoSuspended: z.boolean().default(false),
   connectionPreference: wakePreferenceSchema.default({
     version: 1,
-    enabled: false,
-    source: 'legacy-review',
+    enabled: true,
+    source: 'default',
   }),
   connection: z
     .strictObject({
@@ -250,7 +250,7 @@ export const voiceDiagnosticsSchema = z.strictObject({
     dirty: false,
     builtAt: null,
   }),
-  enabled: z.boolean(),
+  enabled: z.literal(true),
   capacity: z.literal(128),
   retentionMinutes: z.literal(30),
   dropped: z.number().int().nonnegative(),
@@ -271,7 +271,7 @@ export const voiceDiagnosticsSchema = z.strictObject({
 });
 export type VoiceDiagnostics = z.infer<typeof voiceDiagnosticsSchema>;
 
-// Explicit opt-in content debugging is separate from default metadata exports.
+// Always-on content debugging is separate from metadata-only exports.
 export const voiceDebugEventSchema = z.strictObject({
   sequence: z.number().int().positive(),
   at: z.iso.datetime(),
@@ -288,7 +288,7 @@ export const voiceDebugEventSchema = z.strictObject({
 export type VoiceDebugEvent = z.infer<typeof voiceDebugEventSchema>;
 export const voiceDebugSchema = z.strictObject({
   build: voiceBuildSchema,
-  enabled: z.boolean(),
+  enabled: z.literal(true),
   capacity: z.literal(64),
   retentionMinutes: z.literal(10),
   maxPayloadCharacters: z.literal(8192),

@@ -77,12 +77,13 @@ it('redacts before truncation and bounds arrays, depth, binary data and circular
   expect(wide.truncated).toBe(true);
   expect(redactVoicePayload('\ud800', ['\ud800']).payload).toContain('[REDACTED]');
 });
-it('is opt-in, cannot recover old bodies, rotates without timers and clears on disable or exit', () => {
+it('records from startup, rotates without timers, continues after clear and stops only on exit', () => {
   vi.useFakeTimers();
   const journal = new VoiceDebug(() => ['PRIVATE_TOKEN']);
   journal.record({ ...base, payload: { text: 'before enabled' } });
-  expect(journal.read()).toMatchObject({ enabled: false, events: [] });
-  journal.setEnabled(true);
+  expect(journal.read().enabled).toBe(true);
+  expect(JSON.stringify(journal.read())).toContain('before enabled');
+  journal.clear();
   for (let index = 0; index < 70; index++)
     journal.record({ ...base, payload: { text: `turn ${index}`, token: 'PRIVATE_TOKEN' } });
   expect(journal.read()).toMatchObject({ capacity: 64, dropped: 6 });
@@ -97,12 +98,10 @@ it('is opt-in, cannot recover old bodies, rotates without timers and clears on d
   journal.record({ ...base, payload: { text: 'clear me' } });
   journal.clear();
   expect(journal.read().events).toEqual([]);
-  journal.record({ ...base, payload: { text: 'stop me' } });
-  journal.setEnabled(false);
-  journal.record({ ...base, payload: { text: 'not recorded' } });
-  expect(journal.read().events).toEqual([]);
-  journal.setEnabled(true);
+  journal.record({ ...base, payload: { text: 'after clear' } });
+  expect(JSON.stringify(journal.read())).toContain('after clear');
   journal.record({ ...base, payload: { text: 'exit me' } });
   journal.close();
-  expect(journal.read()).toMatchObject({ enabled: false, events: [] });
+  journal.record({ ...base, payload: { text: 'after exit' } });
+  expect(journal.read()).toMatchObject({ enabled: true, events: [] });
 });

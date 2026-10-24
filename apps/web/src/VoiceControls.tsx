@@ -153,7 +153,8 @@ export function VoiceControls({
   }
   const [token, setToken] = useState(''),
     [deviceId, setDeviceId] = useState(''),
-    [allow, setAllow] = useState(false);
+    [allow, setAllow] = useState(true);
+  const allowEdited = useRef(false);
   const [keyword, setKeyword] = useState('丽塔同学');
   const keywordEdited = useRef(false);
   const [roleNotice, setRoleNotice] = useState('');
@@ -277,6 +278,7 @@ export function VoiceControls({
   }, [stopMic, resetPlayback]);
   useEffect(() => {
     if (state && !keywordEdited.current) setKeyword(state.wake.keyword);
+    if (state && !allowEdited.current) setAllow(state.allowVoiceSubmit);
   }, [state]);
   useEffect(() => {
     if (state) onState?.(state);
@@ -741,13 +743,16 @@ export function VoiceControls({
                 <input
                   type="checkbox"
                   checked={allow}
-                  onChange={(e) => setAllow(e.target.checked)}
+                  onChange={(e) => {
+                    allowEdited.current = true;
+                    setAllow(e.target.checked);
+                  }}
                 />
                 允许主动收音后，通过丽塔同学 MCP 提交或停止 Codex 任务
               </label>
               <p>
                 令牌仅在本机加密保存。普通转写保留为草稿；开启语音提交后，每次主动收音最多提交一个任务，30
-                秒后不再接受工具指令。自动唤醒需另行明确开启，本地等待音频不会上传。
+                秒后不再接受工具指令。自动唤醒默认开启，仍需模型和系统麦克风授权；本地等待音频不会上传。
               </p>
               <button type="button" disabled={!token || !deviceId} onClick={() => void save()}>
                 保存设备配置
@@ -764,9 +769,6 @@ export function VoiceControls({
                 />
                 应用启动后自动连接并保持语音服务
               </label>
-              {state.connectionPreference.source === 'legacy-review' && (
-                <p>旧版未记录长期连接选择，请确认一次；不会新增绑定或凭据。</p>
-              )}
               {state.connectionPreference.source === 'unavailable' && (
                 <p role="alert">无法读取或保存连接偏好，自动连接已停用。</p>
               )}
@@ -795,8 +797,8 @@ export function VoiceControls({
                 允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
               </label>
               <p>
-                默认关闭时仅保留转写草稿；开启并重新连接后，丽塔同学才可调用
-                Codex。开启唤醒不会自动开启这项权限。
+                默认开启；保存后重新连接生效。仍需有效绑定、项目与本轮收音上下文，语音不能提高执行权限。
+                明确关闭后仅保留转写草稿，开启唤醒不会覆盖这项关闭选择。
               </p>
             </>
           )}
@@ -956,9 +958,6 @@ export function VoiceControls({
               />
               自动开启本地语音唤醒
             </label>
-          )}
-          {state?.wakePreference.source === 'legacy-review' && (
-            <p>旧版未记录长期唤醒选择。请确认一次是否自动唤醒；之后会记住选择。</p>
           )}
           {state?.wakePreference.source === 'unavailable' && (
             <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在设置中检查。</p>

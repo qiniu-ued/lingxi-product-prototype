@@ -21,7 +21,7 @@ it('bounds metadata by age and capacity without a retention timer', () => {
   expect(log.read().events).toEqual([]);
   expect(vi.getTimerCount()).toBe(0);
 });
-it('rejects content-bearing entries, clears on disable/exit and cannot be mutated through a read', () => {
+it('rejects content-bearing entries, continues after clear, closes terminally and returns isolated reads', () => {
   const log = new VoiceDiagnostics();
   log.record({ ...entry, text: 'PRIVATE_TRANSCRIPT', token: 'PRIVATE_TOKEN' } as typeof entry);
   log.record({ ...entry, tool: 'PRIVATE_TOKEN' } as unknown as typeof entry);
@@ -30,15 +30,12 @@ it('rejects content-bearing entries, clears on disable/exit and cannot be mutate
   const view = log.read();
   view.events[0]!.kind = 'assistant-start';
   expect(log.read().events[0]?.kind).toBe('tools-discovered');
-  log.setEnabled(false);
-  log.record(entry);
-  expect(log.read().events).toHaveLength(0);
-  log.setEnabled(true);
-  log.record(entry);
-  expect(log.read().events).toHaveLength(1);
   log.clear();
   expect(log.read().events).toHaveLength(0);
+  log.record(entry);
+  expect(log.read()).toMatchObject({ enabled: true });
+  expect(log.read().events).toHaveLength(1);
   log.close();
   log.record(entry);
-  expect(log.read()).toMatchObject({ enabled: false, events: [] });
+  expect(log.read()).toMatchObject({ enabled: true, events: [] });
 });

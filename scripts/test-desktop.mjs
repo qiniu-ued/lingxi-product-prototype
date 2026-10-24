@@ -836,13 +836,8 @@ try {
   assert.ok(!diagnosticCopy.includes('Authorization') && !diagnosticCopy.includes('token='));
   await reopened.screenshot({ path: join(root, '.local/voice-diagnostics.png') });
   const detailed = reopened.getByRole('region', { name: '详细语音调试' });
-  const detailedSwitch = detailed.getByRole('checkbox', {
-    name: '开启详细调试（包含对话和项目内容）',
-  });
-  await detailedSwitch.waitFor({ state: 'visible' });
-  assert.equal(await detailedSwitch.isChecked(), false);
-  await detailedSwitch.click();
-  await detailed.getByText('详细调试正在记录', { exact: false }).waitFor();
+  assert.equal(await detailed.getByRole('checkbox').count(), 0);
+  await detailed.getByText('详细调试持续记录', { exact: false }).waitFor();
   await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
   await detailed.getByRole('status').waitFor();
   const detailedCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
@@ -850,9 +845,8 @@ try {
   assert.ok(detailedCopy.includes('分享前请检查') && detailedCopy.includes('Enabled: true'));
   await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
   await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
-  await detailedSwitch.click();
-  await detailed.getByText('详细调试未开启', { exact: false }).waitFor();
-  assert.equal(await detailedSwitch.isChecked(), false);
+  await detailed.getByRole('button', { name: '清空详细调试' }).click();
+  await detailed.getByText('详细调试持续记录 · 保留 0 条', { exact: false }).waitFor();
   await reopened.getByRole('button', { name: '关闭诊断', exact: true }).click();
 
   assert.equal(
@@ -867,8 +861,8 @@ try {
   assert.ok(role.includes('workbench_submit') && role.includes('把这个页面变成粉色'));
   assert.equal(
     (await (await fetch(`${reopenedAddress}/api/voice`)).json()).allowVoiceSubmit,
-    false,
-    'Viewing binding instructions and copying the role must not enable voice execution',
+    true,
+    'The default setting is enabled, but viewing setup must not create credentials or capture audio',
   );
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
   await reopened
@@ -1061,6 +1055,13 @@ try {
   const freshAddress = new URL(empty.url()).origin;
   const freshVoice = await (await fetch(`${freshAddress}/api/voice`)).json();
   assert.deepEqual(freshVoice.wakePreference, { version: 1, enabled: true, source: 'default' });
+  assert.deepEqual(freshVoice.connectionPreference, {
+    version: 1,
+    enabled: true,
+    source: 'default',
+  });
+  assert.equal(freshVoice.allowVoiceSubmit, true);
+  assert.equal((await (await fetch(`${freshAddress}/api/voice/debug`)).json()).enabled, true);
   assert.equal(freshVoice.wake.keyword, '丽塔同学');
   assert.equal(freshVoice.wake.status, 'off', 'A missing model must prevent automatic capture');
   assert.ok(

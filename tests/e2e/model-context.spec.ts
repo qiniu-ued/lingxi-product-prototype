@@ -282,6 +282,8 @@ async function open(
     subtitle: '',
     error: null,
     allowVoiceSubmit: false,
+    wakePreference: { version: 1, enabled: false, source: 'user' },
+    connectionPreference: { version: 1, enabled: false, source: 'user' },
   });
   await page.route('**/api/voice', (route) => route.fulfill({ json: voice }));
   await page.route('**/api/voice/inspect', (route) => route.fulfill({ json: voice }));
@@ -289,7 +291,7 @@ async function open(
     route.fulfill({
       json: {
         build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
-        enabled: false,
+        enabled: true,
         capacity: 64,
         retentionMinutes: 10,
         maxPayloadCharacters: 8192,
@@ -1675,10 +1677,9 @@ test('voice diagnostics show actual status calls and copy only bounded metadata'
   };
   await page.route('**/api/voice/diagnostics', (route) => {
     if (route.request().method() === 'POST') {
-      const body = route.request().postDataJSON();
+      expect(route.request().postDataJSON()).toEqual({ action: 'clear' });
       diagnostics = {
         ...diagnostics,
-        ...(body.action === 'enabled' ? { enabled: body.enabled } : {}),
         events: [],
         dropped: 0,
       };
@@ -1714,78 +1715,62 @@ test('voice diagnostics show actual status calls and copy only bounded metadata'
   await expect(dialog.getByLabel('诊断日志文本（可手动复制）')).toHaveValue(
     /Enabled: true; dropped: 0; events: 0/,
   );
-  await page.getByRole('checkbox', { name: '记录脱敏诊断' }).click();
-  await expect(dialog).toContainText('尚无阶段记录');
-  await expect(page.getByRole('checkbox', { name: '记录脱敏诊断' })).not.toBeChecked();
-  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
-  await expect(dialog.getByLabel('诊断日志文本（可手动复制）')).toHaveValue(
-    /Enabled: false; dropped: 0; events: 0/,
-  );
+  await expect(page.getByRole('checkbox', { name: '记录脱敏诊断' })).toHaveCount(0);
 
   await page.getByRole('button', { name: '关闭诊断', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   expect(f.commands).toHaveLength(0);
 });
 
-test('detailed voice logs require opt-in, copy separately with a warning, and clear on disable', async ({
+test('detailed voice logs always record, copy separately with a warning, and continue after clear', async ({
   page,
 }) => {
   const f = await open(page, runtime());
+  const entry = {
+    sequence: 1,
+    at: new Date().toISOString(),
+    direction: 'inbound' as const,
+    event: 'message' as const,
+    sessionId: randomUUID(),
+    captureId: randomUUID(),
+    projectId,
+    conversationId,
+    taskId: null,
+    payload: JSON.stringify({
+      type: 'mcp',
+      params: {
+        name: 'workbench_submit',
+        arguments: { text: 'PRIVATE_DIALOG_CONTENT', token: '[REDACTED]' },
+      },
+      result: { status: 'accepted' },
+    }),
+    truncated: true,
+  };
   let debug: VoiceDebugState = {
     build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
-    enabled: false,
+    enabled: true,
     capacity: 64,
     retentionMinutes: 10,
     maxPayloadCharacters: 8192,
     dropped: 0,
-    events: [],
+    events: [entry],
   };
   const actions: unknown[] = [];
   await page.route('**/api/voice/debug', (route) => {
     if (route.request().method() === 'POST') {
       const action = route.request().postDataJSON();
       actions.push(action);
-      debug = {
-        ...debug,
-        enabled: action.action === 'enabled' ? action.enabled : debug.enabled,
-        events: action.enabled
-          ? [
-              {
-                sequence: 1,
-                at: new Date().toISOString(),
-                direction: 'inbound',
-                event: 'message',
-                sessionId: randomUUID(),
-                captureId: randomUUID(),
-                projectId,
-                conversationId,
-                taskId: null,
-                payload: JSON.stringify({
-                  type: 'mcp',
-                  params: {
-                    name: 'workbench_submit',
-                    arguments: { text: 'PRIVATE_DIALOG_CONTENT', token: '[REDACTED]' },
-                  },
-                  result: { status: 'accepted' },
-                }),
-                truncated: true,
-              },
-            ]
-          : [],
-      };
+      debug = { ...debug, events: [] };
     }
     return route.fulfill({ json: debug });
   });
   f.publishVoice({ configured: true, status: 'ready' });
   await page.getByRole('button', { name: '语音诊断', exact: true }).click();
   const panel = page.getByRole('region', { name: '详细语音调试' });
-  const enabled = panel.getByRole('checkbox', { name: '开启详细调试（包含对话和项目内容）' });
-  await expect(enabled).not.toBeChecked();
-  await expect(panel).toContainText('默认关闭');
-  expect(actions).toHaveLength(0);
-  await enabled.click();
-  await expect(enabled).toBeChecked();
+  await expect(panel.getByRole('checkbox')).toHaveCount(0);
+  await expect(panel).toContainText('应用运行时自动记录');
   await expect(panel).toContainText('部分 payload 已截断');
+  expect(actions).toHaveLength(0);
   await panel.getByText('预览详细日志（含对话内容）', { exact: true }).click();
   await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
     /PRIVATE_DIALOG_CONTENT/,
@@ -1808,16 +1793,66 @@ test('detailed voice logs require opt-in, copy separately with a warning, and cl
   await expect(panel.getByRole('status')).toHaveCount(0);
   await expect(panel).toContainText('无法自动复制详细日志');
   await panel.getByRole('button', { name: '清空详细调试' }).click();
-  await expect(enabled).toBeChecked();
   await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).not.toHaveValue(
     /PRIVATE_DIALOG_CONTENT/,
   );
-  await enabled.click();
-  await expect(enabled).not.toBeChecked();
-  await expect(panel).toContainText('详细调试未开启');
   await expect(panel.getByLabel('详细日志文本（可手动复制）')).toHaveCount(0);
+  debug = {
+    ...debug,
+    events: [{ ...entry, sequence: 2, payload: 'AFTER_CLEAR_CONTENT', truncated: false }],
+  };
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
+    /AFTER_CLEAR_CONTENT/,
+  );
+  expect(actions).toEqual([{ action: 'clear' }]);
   expect(f.commands).toHaveLength(0);
   expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
+});
+
+test('settings show all three defaults on while preserving saved off choices without requesting audio', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const defaults = voiceStateSchema.parse({
+    configured: true,
+    status: 'ready',
+    draft: '',
+    captureId: null,
+    subtitle: '',
+    error: null,
+  });
+  f.publishVoice(defaults);
+  await page.goto('/settings#lingxi');
+  const connection = page.getByRole('checkbox', { name: '应用启动后自动连接并保持语音服务' });
+  const execution = page.getByRole('checkbox', {
+    name: '允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）',
+  });
+  await expect(connection).toBeChecked();
+  await expect(execution).toBeChecked();
+  await execution.click();
+  await expect(execution).not.toBeChecked();
+  await page.reload();
+  await expect(execution).not.toBeChecked();
+  await page.getByText('高级：手动配置已绑定设备', { exact: true }).click();
+  await expect(
+    page.getByRole('checkbox', { name: '允许主动收音后，通过丽塔同学 MCP 提交或停止 Codex 任务' }),
+  ).not.toBeChecked();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /语音唤醒与麦克风/ })
+    .click();
+  await expect(page.getByRole('checkbox', { name: '自动开启本地语音唤醒' })).toBeChecked();
+  const off = { version: 1 as const, enabled: false, source: 'user' as const };
+  f.publishVoice({ wakePreference: off, connectionPreference: off });
+  await expect(page.getByRole('checkbox', { name: '自动开启本地语音唤醒' })).not.toBeChecked();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /丽塔同学与语音执行/ })
+    .click();
+  await expect(connection).not.toBeChecked();
+  await expect(execution).not.toBeChecked();
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
+  expect(f.commands).toHaveLength(0);
 });
 
 test('projectless voice messages stream, settle once and survive a page refresh without becoming tasks', async ({

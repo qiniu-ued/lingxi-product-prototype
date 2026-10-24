@@ -295,7 +295,7 @@ it('switches modes only through armed device MCP and never lets speech elevate p
   expect((await f.call(34, 'workbench_set_mode', { mode: 'default' })).isError).toBeUndefined();
   expect(f.command).toHaveBeenCalledTimes(2);
 });
-it('requires explicit permission for voice submission and can save preferences without exposing the token', async () => {
+it('respects a saved voice-execution choice and can change it without exposing the token', async () => {
   const f = await create('pcm', false);
   await f.voice.inspect();
   await f.voice.preferences(true);
@@ -754,10 +754,12 @@ it('starts local default wake without connecting or uploading and requires exist
     f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true }),
   ).rejects.toThrow('wake_auto_not_ready');
 });
-it('refuses automatic wake for denied permission, legacy intent or suspended audio without creating a provider session', async () => {
+it('refuses automatic wake for denied permission, explicit off or suspended audio without creating a provider session', async () => {
+  const disabled = new WakePreferences(null);
+  disabled.save(false);
   for (const [prefs, permission] of [
     [new WakePreferences(null), 'denied'],
-    [new WakePreferences(null, true), 'granted'],
+    [disabled, 'granted'],
   ] as const) {
     const wake = wakePeer(),
       f = await create('pcm', true, wake, undefined, prefs, permission);
@@ -1151,7 +1153,6 @@ it('distinguishes a peer close after TTS from idle capture, and reconnects witho
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
   await f.voice.command({ action: 'listen' });
   const capture = f.voice.read().captureId;
-  f.voice.debugAction({ action: 'enabled', enabled: true });
   f.send({ type: 'tts', state: 'start' });
   f.send({ type: 'tts', state: 'stop' });
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
@@ -1204,15 +1205,16 @@ it('distinguishes a peer close after TTS from idle capture, and reconnects witho
   expect(f.start).not.toHaveBeenCalled();
 });
 
-it('records redacted protocol bodies only after detailed debugging is explicitly enabled', async () => {
+it('always records redacted protocol bodies, including before opening diagnostics, and continues after clear', async () => {
   const f = await create();
   await f.voice.command({ action: 'connect' });
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
   await f.voice.command({ action: 'listen' });
   f.send({ type: 'stt', text: 'before debug' });
   await vi.waitFor(() => expect(f.voice.read().draft).toBe('before debug'));
-  expect(f.voice.readDebug()).toMatchObject({ enabled: false, events: [] });
-  f.voice.debugAction({ action: 'enabled', enabled: true });
+  expect(f.voice.readDebug().enabled).toBe(true);
+  expect(JSON.stringify(f.voice.readDebug())).toContain('before debug');
+  f.voice.debugAction({ action: 'clear' });
   await f.voice.command({ action: 'listen' });
   f.send({
     type: 'stt',
@@ -1234,7 +1236,29 @@ it('records redacted protocol bodies only after detailed debugging is explicitly
     /PRIVATE_TOKEN|UNRELATED_PROVIDER_SECRET|02:12:34:56:78:90|before debug/,
   );
   expect(JSON.stringify(f.voice.diagnostics())).not.toMatch(/把标题变粉色|收到，交给/);
-  f.voice.debugAction({ action: 'enabled', enabled: false });
+  f.voice.debugAction({ action: 'clear' });
+  expect(f.voice.readDebug().events).toEqual([]);
   await f.call(1603, 'workbench_status');
-  expect(f.voice.readDebug()).toMatchObject({ enabled: false, events: [] });
+  expect(f.voice.readDebug().enabled).toBe(true);
+  expect(f.voice.readDebug().events.length).toBeGreaterThan(0);
+});
+
+it('defaults a new binding on, preserves a stored false during rebinding, and enforces it after reconnection', async () => {
+  const fresh = await create();
+  const binding = { ...fresh.config()!, allowVoiceSubmit: true };
+  fresh.removeConfiguration();
+  await fresh.voice.saveBinding(binding);
+  expect(fresh.config()?.allowVoiceSubmit).toBe(true);
+  const off = await create('pcm', false);
+  await off.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(off.voice.read().status).toBe('ready'));
+  await off.voice.saveBinding({ ...binding, token: 'NEW_FIXTURE_TOKEN' });
+  await vi.waitFor(() => expect(off.voice.read().status).toBe('ready'));
+  expect(off.config()?.allowVoiceSubmit).toBe(false);
+  expect(off.voice.read().allowVoiceSubmit).toBe(false);
+  await off.voice.command({ action: 'listen' });
+  expect((await off.call(1604, 'workbench_submit', { text: 'must remain disabled' })).isError).toBe(
+    true,
+  );
+  expect(off.start).not.toHaveBeenCalled();
 });

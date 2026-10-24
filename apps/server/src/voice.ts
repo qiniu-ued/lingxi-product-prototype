@@ -100,10 +100,9 @@ export class VoiceService {
   readDebug() {
     return { ...this.debugJournal.read(), build: readBuildInfo() };
   }
-  debugAction(input: { action: 'enabled'; enabled: boolean } | { action: 'clear' }) {
+  debugAction(_input: { action: 'clear' }) {
     if (this.closed) throw new Error('voice_closed');
-    if (input.action === 'enabled') this.debugJournal.setEnabled(input.enabled);
-    else this.debugJournal.clear();
+    this.debugJournal.clear();
     return this.readDebug();
   }
   diagnostics() {
@@ -126,10 +125,9 @@ export class VoiceService {
       },
     };
   }
-  diagnosticsAction(input: { action: 'enabled'; enabled: boolean } | { action: 'clear' }) {
+  diagnosticsAction(_input: { action: 'clear' }) {
     if (this.closed) throw new Error('voice_closed');
-    if (input.action === 'enabled') this.journal.setEnabled(input.enabled);
-    else this.journal.clear();
+    this.journal.clear();
     return this.diagnostics();
   }
   readConversation() {
@@ -194,13 +192,13 @@ export class VoiceService {
     captureId: null,
     subtitle: '',
     error: null,
-    allowVoiceSubmit: false,
+    allowVoiceSubmit: true,
     deviceToolsReady: false,
     handoff: null,
     contextDetailsOpen: false,
-    wakePreference: { version: 1, enabled: false, source: 'legacy-review' },
+    wakePreference: { version: 1, enabled: true, source: 'default' },
     wakeAutoSuspended: false,
-    connectionPreference: { version: 1, enabled: false, source: 'legacy-review' },
+    connectionPreference: { version: 1, enabled: true, source: 'default' },
     connection: { attempt: 0, nextRetryAt: null, exhausted: false },
     wake: { status: 'off', keyword: '丽塔同学', installed: false, detectionId: null, error: null },
   };
@@ -408,6 +406,10 @@ export class VoiceService {
     if (this.connectionLoop && this.state.connectionPreference.enabled)
       void this.startAutoConnection();
   }
+  async saveBinding(config: VoiceConfig) {
+    if (!this.config) await this.inspect();
+    await this.save({ ...config, allowVoiceSubmit: this.config?.allowVoiceSubmit ?? true });
+  }
   private context() {
     const state = this.options.workbench.read();
     return JSON.stringify([state.project?.id, state.selectedThreadId]);
@@ -423,7 +425,7 @@ export class VoiceService {
     this.config = config ? voiceConfigSchema.parse(config) : undefined;
     this.update({
       configured: !!this.config,
-      allowVoiceSubmit: this.config?.allowVoiceSubmit ?? false,
+      allowVoiceSubmit: this.config?.allowVoiceSubmit ?? true,
       wake: { ...this.state.wake, installed: (await this.options.wake?.installed()) ?? false },
     });
     return this.state;

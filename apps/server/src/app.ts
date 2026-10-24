@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
@@ -39,13 +38,11 @@ interface AppOptions {
 }
 
 export function buildApp(options: AppOptions) {
-  const legacy = options.databasePath !== ':memory:' && existsSync(options.databasePath);
   const wakePreferences = options.desktop
     ? new WakePreferences(
         options.databasePath === ':memory:'
           ? null
           : join(dirname(options.databasePath), 'wake-preferences.v1.json'),
-        legacy,
       )
     : undefined;
   const connectionPreferences = options.desktop
@@ -53,7 +50,6 @@ export function buildApp(options: AppOptions) {
         options.databasePath === ':memory:'
           ? null
           : join(dirname(options.databasePath), 'voice-connection-preferences.v1.json'),
-        legacy,
       )
     : undefined;
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 16 * 1024 });
@@ -85,7 +81,7 @@ export function buildApp(options: AppOptions) {
     ...(options.desktop ? { desktop: options.desktop } : {}),
   });
   const binding = new VoiceBinding({
-    save: (config) => voice.save(config),
+    save: (config) => voice.saveBinding(config),
     ...(options.desktop ? { desktop: options.desktop } : {}),
   });
   app.get('/api/voice/binding', async (_request, reply) => {
@@ -120,12 +116,7 @@ export function buildApp(options: AppOptions) {
     reply.header('Cache-Control', 'no-store');
     if (!request.headers.origin || !options.desktop)
       return reply.code(403).send({ error: 'desktop_required' });
-    const input = z
-      .discriminatedUnion('action', [
-        z.strictObject({ action: z.literal('enabled'), enabled: z.boolean() }),
-        z.strictObject({ action: z.literal('clear') }),
-      ])
-      .safeParse(request.body);
+    const input = z.strictObject({ action: z.literal('clear') }).safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
     return voice.diagnosticsAction(input.data);
   });
@@ -145,12 +136,7 @@ export function buildApp(options: AppOptions) {
     reply.header('Cache-Control', 'no-store');
     if (!request.headers.origin || !options.desktop)
       return reply.code(403).send({ error: 'desktop_required' });
-    const input = z
-      .discriminatedUnion('action', [
-        z.strictObject({ action: z.literal('enabled'), enabled: z.boolean() }),
-        z.strictObject({ action: z.literal('clear') }),
-      ])
-      .safeParse(request.body);
+    const input = z.strictObject({ action: z.literal('clear') }).safeParse(request.body);
     if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
     return voice.debugAction(input.data);
   });

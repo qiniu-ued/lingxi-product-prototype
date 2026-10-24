@@ -107,7 +107,7 @@ export function redactVoicePayload(input: unknown, secrets: readonly string[]) {
 }
 
 export class VoiceDebug {
-  private enabled = false;
+  private closed = false;
   private events: VoiceDebugEvent[] = [];
   private dropped = 0;
   private sequence = 0;
@@ -119,7 +119,7 @@ export class VoiceDebug {
     this.dropped += before - this.events.length;
   }
   record(input: Input) {
-    if (!this.enabled) return;
+    if (this.closed) return;
     const result = voiceDebugEventSchema.safeParse({
       ...input,
       ...redactVoicePayload(input.payload, this.secrets()),
@@ -138,7 +138,7 @@ export class VoiceDebug {
   read() {
     this.prune();
     return {
-      enabled: this.enabled,
+      enabled: true as const,
       capacity: 64 as const,
       retentionMinutes: 10 as const,
       maxPayloadCharacters: 8192 as const,
@@ -150,11 +150,8 @@ export class VoiceDebug {
     this.events = [];
     this.dropped = 0;
   }
-  setEnabled(enabled: boolean) {
-    this.enabled = enabled;
-    if (!enabled) this.clear();
-  }
   close() {
-    this.setEnabled(false);
+    this.closed = true;
+    this.clear();
   }
 }

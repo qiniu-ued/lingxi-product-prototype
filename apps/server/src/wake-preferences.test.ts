@@ -17,18 +17,43 @@ it('defaults a fresh installation on and preserves an explicit off across restar
   const path = await file(),
     prefs = new WakePreferences(path);
   expect(prefs.read()).toMatchObject({ enabled: true, source: 'default' });
-  expect(new WakePreferences(path, true).read().enabled).toBe(true);
+  expect(new WakePreferences(path).read().enabled).toBe(true);
   prefs.save(false);
   expect(new WakePreferences(path).read()).toMatchObject({ enabled: false, source: 'user' });
   expect(JSON.parse(await readFile(path, 'utf8')).enabled).toBe(false);
 });
-it('requires one decision for a legacy installation without a recorded user choice', async () => {
-  const path = await file(),
-    prefs = new WakePreferences(path, true);
-  expect(prefs.read()).toMatchObject({ enabled: false, source: 'legacy-review' });
-  prefs.save(true);
-  expect(new WakePreferences(path, true).read()).toMatchObject({ enabled: true, source: 'user' });
-});
+it.each(['wake-preferences.v1.json', 'voice-connection-preferences.v1.json'])(
+  'migrates missing choices and known legacy defaults on for %s, preserving explicit false',
+  async (name) => {
+    const path = join(await file(), '..', name);
+    for (const stored of [
+      { version: 1 },
+      { version: 1, source: 'user' },
+      { version: 1, enabled: false, source: 'legacy-review' },
+    ]) {
+      await writeFile(path, JSON.stringify(stored));
+      expect(new WakePreferences(path).read()).toEqual({
+        version: 1,
+        enabled: true,
+        source: 'default',
+      });
+      expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({
+        version: 1,
+        enabled: true,
+        source: 'default',
+      });
+    }
+    for (const stored of [
+      { version: 1, enabled: false },
+      { version: 1, enabled: false, source: 'user' },
+      { version: 1, enabled: false, source: 'default' },
+    ]) {
+      await writeFile(path, JSON.stringify(stored));
+      expect(new WakePreferences(path).read().enabled).toBe(false);
+      expect(new WakePreferences(path).read().enabled).toBe(false);
+    }
+  },
+);
 it('disables ambiguous or corrupt preferences until the user replaces them', async () => {
   const path = await file();
   await writeFile(path, '{PRIVATE_INVALID');

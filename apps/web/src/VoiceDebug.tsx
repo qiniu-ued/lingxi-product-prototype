@@ -34,7 +34,7 @@ export function VoiceDebug() {
       clearInterval(timer);
     };
   }, []);
-  async function change(input: { action: 'enabled'; enabled: boolean } | { action: 'clear' }) {
+  async function clear() {
     const current = ++epoch.current;
     mutating.current = true;
     setSaving(true);
@@ -45,13 +45,13 @@ export function VoiceDebug() {
       const response = await fetch('/api/voice/debug', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ action: 'clear' }),
       });
       if (!response.ok) throw new Error();
       const value = voiceDebugSchema.parse(await response.json());
       if (current === epoch.current) setState(value);
     } catch {
-      setError('未能更改详细调试状态，请重试。');
+      setError('未能清空详细调试，请重试。');
     } finally {
       mutating.current = false;
       setSaving(false);
@@ -63,7 +63,7 @@ export function VoiceDebug() {
         '以下为经过凭据脱敏的详细 payload，不是未经修改的原始网络包。不包含二进制音频。',
         `应用版本: ${state.build.version}; commit=${state.build.commit ?? 'unknown'}${state.build.dirty ? '+local' : ''}; builtAt=${state.build.builtAt ?? 'unknown'}`,
         `导出时间: ${new Date().toISOString()} (UTC); 本地时区: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
-        `保留: 仅开启后记录，${state.capacity} 条 / ${state.retentionMinutes} 分钟，每条最多 ${state.maxPayloadCharacters} 字符；关闭或退出清空。`,
+        `保留: 应用运行时持续记录，${state.capacity} 条 / ${state.retentionMinutes} 分钟，每条最多 ${state.maxPayloadCharacters} 字符；退出清空。`,
         `Enabled: ${state.enabled}; dropped: ${state.dropped}; events: ${state.events.length}`,
         ...state.events.map(
           (event) =>
@@ -73,28 +73,18 @@ export function VoiceDebug() {
     : '';
   return (
     <section aria-label="详细语音调试" className="voice-debug">
-      <h3>详细调试（可选）</h3>
+      <h3>详细调试日志（自动记录）</h3>
       <p>
-        默认关闭。开启后会记录转写原文、助手文字、工具参数与返回结构，包含对话和项目内容；凭据始终遮盖，不录音、不落盘、不上传。分享前请预览检查。
+        应用运行时自动记录转写原文、助手文字、工具参数与返回结构，包含对话和项目内容；凭据始终遮盖，不录音、不落盘、不上传。分享前请预览检查。
       </p>
       <p>
         仅本次运行有效：最多 64 条 / 10 分钟，每条 8192
-        字符；超限注明截断。关闭会停止并清空，不能补回此前省略的原文。关闭面板不会停止已开启的记录。
+        字符；超限注明截断。退出清空；清空或关闭面板不会停止记录，不能补回旧版本省略的原文。
       </p>
-      <label>
-        <input
-          type="checkbox"
-          checked={state?.enabled ?? false}
-          disabled={!state || saving}
-          onChange={(event) => void change({ action: 'enabled', enabled: event.target.checked })}
-        />
-        开启详细调试（包含对话和项目内容）
-      </label>
       {state && (
         <>
           <p>
-            {state.enabled ? '详细调试正在记录' : '详细调试未开启'} · 保留 {state.events.length} 条
-            · 已轮转或过期 {state.dropped} 条
+            详细调试持续记录 · 保留 {state.events.length} 条 · 已轮转或过期 {state.dropped} 条
           </p>
           {state.events.some((event) => event.truncated) && (
             <p>部分 payload 已截断，标记 truncated=true。</p>
@@ -109,11 +99,7 @@ export function VoiceDebug() {
             />
           </details>
           <div className="live-actions">
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => void change({ action: 'clear' })}
-            >
+            <button type="button" disabled={saving} onClick={() => void clear()}>
               清空详细调试
             </button>
             <button

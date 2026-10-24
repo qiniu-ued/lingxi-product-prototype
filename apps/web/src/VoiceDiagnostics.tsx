@@ -141,7 +141,7 @@ export function VoiceDiagnostics() {
       clearInterval(timer);
     };
   }, [open]);
-  async function command(value: { action: 'enabled'; enabled: boolean } | { action: 'clear' }) {
+  async function command(value: { action: 'clear' }) {
     const epoch = ++operation.current;
     mutating.current = true;
     setSaving(true);
@@ -192,7 +192,7 @@ export function VoiceDiagnostics() {
         </header>
         <p>
           仅在内存保留最近 128 条、30
-          分钟的阶段记录。开关仅本次运行有效；退出清除，重启默认记录脱敏阶段。不含音频、转写正文、提示内容或令牌。
+          分钟的摘要阶段。应用运行时持续记录，退出清除；清空后继续记录。摘要不含音频、转写正文、提示内容或令牌，详细日志包含对话和项目内容。
         </p>
         {state && (
           <>
@@ -229,17 +229,6 @@ export function VoiceDiagnostics() {
               </div>
             </dl>
             <div className="live-actions">
-              <label>
-                <input
-                  type="checkbox"
-                  checked={state.enabled}
-                  disabled={saving}
-                  onChange={(event) =>
-                    void command({ action: 'enabled', enabled: event.target.checked })
-                  }
-                />
-                记录脱敏诊断
-              </label>
               <button
                 type="button"
                 disabled={saving}

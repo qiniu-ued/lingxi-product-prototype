@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { codexCheckSchema, setupInspectionSchema, setupStatusSchema } from '@lingxi/protocol';
@@ -340,7 +340,56 @@ it('returns every setup result even when individual diagnostics fail, without st
   });
 });
 
-it('exposes bounded voice metadata and session chat with guarded clear/pause controls', async () => {
+it('defaults missing preferences on even with an existing database, and preserves off across restart without creating bindings', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'lingxi-default-migration-'));
+  const make = () =>
+    buildApp({
+      databasePath: join(root, 'lingxi.db'),
+      desktop: {
+        async call() {
+          return null;
+        },
+      },
+    });
+  let app = make();
+  try {
+    await app.close();
+    expect(existsSync(join(root, 'lingxi.db'))).toBe(true);
+    for (const name of ['wake-preferences.v1.json', 'voice-connection-preferences.v1.json'])
+      rmSync(join(root, name));
+    app = make();
+    expect((await app.inject('/api/voice')).json()).toMatchObject({
+      allowVoiceSubmit: true,
+      wakePreference: { enabled: true, source: 'default' },
+      connectionPreference: { enabled: true, source: 'default' },
+    });
+    for (const action of ['wake-auto', 'connection-auto']) {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/voice/command',
+            headers: { origin: 'http://localhost:80' },
+            payload: { action, enabled: false },
+          })
+        ).statusCode,
+      ).toBe(200);
+    }
+    await app.close();
+    app = make();
+    expect((await app.inject('/api/voice')).json()).toMatchObject({
+      wakePreference: { enabled: false, source: 'user' },
+      connectionPreference: { enabled: false, source: 'user' },
+    });
+    expect(existsSync(join(root, 'voice-device.json'))).toBe(false);
+    expect(existsSync(join(root, 'voice-config.enc'))).toBe(false);
+  } finally {
+    await app.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('exposes always-on bounded voice metadata and session chat with guarded clear controls', async () => {
   const app = buildApp({
     databasePath: ':memory:',
     desktop: {
@@ -359,99 +408,28 @@ it('exposes bounded voice metadata and session chat with guarded clear/pause con
     snapshot: { projectSelected: false },
   });
   expect(result.headers['cache-control']).toBe('no-store');
-  const debug = await app.inject('/api/voice/debug');
-  expect(debug.headers['cache-control']).toBe('no-store');
-  expect(debug.json()).toMatchObject({ enabled: false, capacity: 64, events: [] });
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/debug',
-        payload: { action: 'enabled', enabled: true },
-      })
-    ).statusCode,
-  ).toBe(403);
-  const debugHeaders = { origin: 'http://localhost:80' };
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/debug',
-        headers: debugHeaders,
-        payload: { action: 'enabled', enabled: true, token: 'PRIVATE' },
-      })
-    ).statusCode,
-  ).toBe(400);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/debug',
-        headers: debugHeaders,
-        payload: { action: 'enabled', enabled: true },
-      })
-    ).json().enabled,
-  ).toBe(true);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/debug',
-        headers: debugHeaders,
-        payload: { action: 'clear' },
-      })
-    ).statusCode,
-  ).toBe(200);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/debug',
-        headers: debugHeaders,
-        payload: { action: 'enabled', enabled: false },
-      })
-    ).json().enabled,
-  ).toBe(false);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/diagnostics',
-        payload: { action: 'enabled', enabled: false },
-      })
-    ).statusCode,
-  ).toBe(403);
   const headers = { origin: 'http://localhost:80' };
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/diagnostics',
-        headers,
-        payload: { action: 'enabled', enabled: false, token: 'PRIVATE' },
-      })
-    ).statusCode,
-  ).toBe(400);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/diagnostics',
-        headers,
-        payload: { action: 'enabled', enabled: false },
-      })
-    ).json().enabled,
-  ).toBe(false);
-  expect(
-    (
-      await app.inject({
-        method: 'POST',
-        url: '/api/voice/diagnostics',
-        headers,
-        payload: { action: 'clear' },
-      })
-    ).statusCode,
-  ).toBe(200);
+  for (const [url, capacity] of [
+    ['/api/voice/debug', 64],
+    ['/api/voice/diagnostics', 128],
+  ] as const) {
+    expect((await app.inject(url)).json()).toMatchObject({ enabled: true, capacity, events: [] });
+    expect(
+      (await app.inject({ method: 'POST', url, payload: { action: 'clear' } })).statusCode,
+    ).toBe(403);
+    for (const payload of [
+      { action: 'enabled', enabled: false },
+      { action: 'enabled', enabled: true },
+      { action: 'clear', token: 'PRIVATE' },
+    ]) {
+      expect((await app.inject({ method: 'POST', url, headers, payload })).statusCode).toBe(400);
+      expect((await app.inject(url)).json().enabled).toBe(true);
+    }
+    expect(
+      (await app.inject({ method: 'POST', url, headers, payload: { action: 'clear' } })).json()
+        .enabled,
+    ).toBe(true);
+  }
   const chat = await app.inject('/api/voice/conversation');
   expect(chat.json()).toEqual({ revision: 0, turns: [] });
   expect(

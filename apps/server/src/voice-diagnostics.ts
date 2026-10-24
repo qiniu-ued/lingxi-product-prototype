@@ -4,7 +4,7 @@ type Entry = Omit<VoiceDiagnosticEvent, 'sequence' | 'at'>;
 
 // Ephemeral metadata only: the strict schema has no content, credentials or audio fields.
 export class VoiceDiagnostics {
-  private enabled = true;
+  private closed = false;
   private sequence = 0;
   private dropped = 0;
   private events: VoiceDiagnosticEvent[] = [];
@@ -15,7 +15,7 @@ export class VoiceDiagnostics {
     this.dropped += before - this.events.length;
   }
   record(input: Entry) {
-    if (!this.enabled) return;
+    if (this.closed) return;
     const value = voiceDiagnosticEventSchema.safeParse({
       ...input,
       sequence: this.sequence + 1,
@@ -33,7 +33,7 @@ export class VoiceDiagnostics {
   read() {
     this.prune();
     return {
-      enabled: this.enabled,
+      enabled: true as const,
       capacity: 128 as const,
       retentionMinutes: 30 as const,
       dropped: this.dropped,
@@ -44,11 +44,8 @@ export class VoiceDiagnostics {
     this.events = [];
     this.dropped = 0;
   }
-  setEnabled(enabled: boolean) {
-    this.enabled = enabled;
-    if (!enabled) this.clear();
-  }
   close() {
-    this.setEnabled(false);
+    this.closed = true;
+    this.clear();
   }
 }

@@ -6,16 +6,23 @@ import { type WakePreference, wakePreferenceSchema } from '@lingxi/protocol';
 // Non-secret, versioned user intent, independent of provider tokens and Task/v2.
 export class WakePreferences {
   private value: WakePreference;
-  constructor(
-    private file: string | null,
-    legacy = false,
-  ) {
-    this.value = { version: 1, enabled: !legacy, source: legacy ? 'legacy-review' : 'default' };
+  constructor(private file: string | null) {
+    this.value = { version: 1, enabled: true, source: 'default' };
     if (!file) return;
     try {
       const data = readFileSync(file, 'utf8');
       if (data.length > 2048) throw new Error('invalid_preference');
-      this.value = wakePreferenceSchema.parse(JSON.parse(data));
+      const stored = wakePreferenceSchema
+        .partial({ enabled: true, source: true })
+        .parse(JSON.parse(data));
+      this.value =
+        stored.source === 'unavailable'
+          ? { version: 1, enabled: false, source: 'unavailable' }
+          : stored.source === 'legacy-review' || stored.enabled === undefined
+            ? { version: 1, enabled: true, source: 'default' }
+            : { version: 1, enabled: stored.enabled, source: stored.source ?? 'user' };
+      if (stored.enabled !== this.value.enabled || stored.source !== this.value.source)
+        this.persist(this.value);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         try {

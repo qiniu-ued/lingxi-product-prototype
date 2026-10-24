@@ -74,7 +74,7 @@ export const setupStatusSchema = z.strictObject({
     nodeVersion: z.string(),
     nodeSupported: z.boolean(),
   }),
-  capabilities: z.strictObject({ codexTasks: z.boolean(), lingxiVoice: z.literal(false) }),
+  capabilities: z.strictObject({ codexTasks: z.boolean(), lingxiVoice: z.boolean() }),
 });
 
 export const codexCheckSchema = z.strictObject({
@@ -89,8 +89,14 @@ export const setupInspectionSchema = z.strictObject({
   codex: codexCheckSchema,
   lingxi: z.strictObject({
     checkedAt: z.string().datetime(),
-    status: z.literal('unavailable'),
-    reason: z.literal('adapter-not-connected'),
+    status: z.enum(['unavailable', 'configured', 'not-configured']),
+    reason: z.enum([
+      'adapter-not-connected',
+      'desktop-required',
+      'configuration-saved',
+      'device-binding-required',
+      'secure-storage-unavailable',
+    ]),
   }),
 });
 export type SetupInspection = z.infer<typeof setupInspectionSchema>;
@@ -178,4 +184,5 @@ export interface VoiceAdapter {
   speak(text: string, signal: AbortSignal): Promise<void>;
 }
 
+export * from './voice.js';
 export * from './workbench.js';

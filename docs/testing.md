@@ -61,10 +61,14 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 Codecov 上传失败会保留失败日志，并在 Actions 中显示 warning 和任务摘要，不阻断 Mac 运行包交付。报告缺失、单元覆盖率未达标等工程问题仍会导致 CI 失败。启用服务后应检查实际上传结果，不能把整体 CI 绿色等同于 Codecov 已接通。
 
-桌面与任务新增检查：`npm run test:desktop` 运行真实 Electron、独立 Node 服务和 `tests/fixtures/codex-task.mjs` App Server 协议替身。验证唯一作品页面、MCP 点击与请求重试不重复、输入、发布 localStorage 延续、退出关闭服务、重启恢复。服务端另测 task 请求去重、线程恢复、审批/问题、中断、超时、MCP 鉴权和 SSE。替身不调用真实模型，不作为真实 Codex 或灵矽验收证据。
+桌面与任务新增检查：`npm run test:desktop` 运行真实 Electron、独立 Node 服务和 `tests/fixtures/codex-task.mjs` App Server 协议替身。验证唯一静态/本机框架作品页面、MCP 点击重试不重复、输入、发布 localStorage 延续、交互终端界面、Diff 附件、OfflineAudioContext 中的真实 AudioWorklet PCM 帧、设备绑定向导入口、退出与重启。离线音频图不依赖 CI 声卡，不代表麦克风/扬声器真机通过。服务端另测 task 请求去重、线程恢复、审批/问题、中断、超时、MCP 鉴权和 SSE。替身不调用真实模型，不作为真实 Codex 或灵矽验收证据。
 
 Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 ZIP，再从实际 ZIP 解压启动集成检查；兼容终端 tar 也会解压验证。原生页面与生命周期由这套进程检查覆盖；纯静态资产冻结逻辑另有真实文件系统测试，覆盖 Mac 路径别名、隐藏文件、symlink 逃逸与配额，并计入单元覆盖率。没有降低原覆盖率门槛。
 
-后续补充：执行中追加要求、灵矽部分转写不执行、最终提交去重和两类停止；本地关键词与回声；真实 macOS 权限及系统投屏自动化。
+新增测试覆盖常驻连接的乱序 RPC/独立失败/断开，排队与 steer、多个问题请求、Sidechat/Fork、PTY 生命周期；Git 在真实临时仓库中区分 staged/unstaged/untracked。灵矽通过本机真实 WebSocket 替身验证鉴权/PCM/草稿/设备 MCP/两类停止/上下文变化；OTA 使用受控 HTTP 响应验证六位码、激活 202/success/异常、私密凭证保存、取消、超大响应和不受信 URL，不向真实云注册测试设备。
+
+后续补充：独立 worktree、区域截图、自动语音摘要、本地关键词与回声；真实 macOS 权限及系统投屏自动化。
 
 真机验收单独记录麦克风距离、回声、多人发言、AirPlay 重连与大屏可读性。CI 不需要供应商密钥、麦克风和电视，也不把这些算作已验证。
+
+当前受管环境的 CLI 0.163.0 可生成协议类型，但实际 App Server 因其默认 `/run/codex-environment/codex-home` 为只读而无法初始化 SQLite；未改写 HOME/CODEX_HOME 绕过。这里的真实执行证据仍限于受控 App Server 协议替身，实际 CLI 终端/模型需在 Mac 可写用户目录验收。

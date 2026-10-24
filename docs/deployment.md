@@ -113,3 +113,14 @@ PR、推送 main 或手动触发 CI 都执行静态/类型检查、覆盖率、�
 维护者本机可运行 `npm run release:pack`，产物位于 `artifacts/`，只针对执行机器的操作系统与架构。流程不需要 Codex、灵矽或部署密钥。检查细节见 [测试策略](testing.md)。
 
 维护者在目标 Mac 上执行 `npm run desktop:pack`，产物在 `artifacts/`，含兼容终端包和桌面 ZIP；不支持在 Linux 伪造 Mac 应用。桌面 ZIP 会先通过集成检查再交付。代码签名、公证、自动更新和发布到 GitHub Releases 均未自动执行。
+
+
+## 本分支工作区与语音数据
+
+分支 `feat/codex-workspace-voice` 包含常驻 Codex 工作区和灵矽绑定向导；从对应 CI 提交下载同架构 ZIP，运行和退出方式不变。Electron 会请求本机麦克风授权，包包含 `NSMicrophoneUsageDescription`；无需额外音频 helper/Homebrew。
+
+新增 `workspace_state_v2`、`workspace_turns_v2`，首次从旧版最近任务/回执导入，原表不改写。备份仍需停止服务并处理 SQLite WAL；降级版本不会读取 v2，也不会再次导入降级期间的旧表写入。不要用回退应用冒充数据库回滚。
+
+`voice-device.json` 保存稳定设备标识，`voice-config.enc` 用操作系统密钥加密令牌。常规升级保留二者；跨机器/系统账号迁移可能无法解密，重新在向导绑定。不要把凭证、数据库或录音加入发布包。Mac 真实绑定、PCM 协商和音频权限需用户验收；CI 协议替身成功不证明提供方可用。
+
+项目开发服务器由用户在集成终端启动，然后明确绑定本机 URL。终端、Codex 轮次和声音有独立停止入口；退出整个应用关闭它拥有的 App Server/PTY，停止任务不回滚文件。仍不支持公网部署整套执行环境。

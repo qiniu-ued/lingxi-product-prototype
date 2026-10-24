@@ -28,6 +28,15 @@ process.on('message', (message) => {
     message &&
     typeof message === 'object' &&
     'channel' in message &&
+    message.channel === 'desktop.audio' &&
+    'pcm' in message &&
+    typeof message.pcm === 'string'
+  )
+    app.voice.frame(message.pcm);
+  if (
+    message &&
+    typeof message === 'object' &&
+    'channel' in message &&
     message.channel === 'desktop.preview' &&
     'preview' in message
   ) {

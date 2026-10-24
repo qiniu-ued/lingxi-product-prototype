@@ -6,12 +6,16 @@ import {
   codexSetupRequestSchema,
   type Session,
   submitCommandSchema,
+  voiceCommandSchema,
+  voiceConfigSchema,
 } from '@lingxi/protocol';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { CodexSetup } from './codex-setup.js';
 import type { DesktopBridge } from './desktop-bridge.js';
 import { SessionStore, StoreConflict } from './store.js';
+import { VoiceService } from './voice.js';
+import { VoiceBinding } from './voice-binding.js';
 import { Workbench } from './workbench.js';
 import { workbenchRoutes } from './workbench-routes.js';
 
@@ -49,6 +53,64 @@ export function buildApp(options: AppOptions) {
     ...(options.taskExecutable ? { executable: options.taskExecutable } : {}),
     ...(options.taskPrefixArgs ? { prefixArgs: options.taskPrefixArgs } : {}),
   });
+  const voice = new VoiceService({
+    workbench,
+    ...(options.desktop ? { desktop: options.desktop } : {}),
+  });
+  const binding = new VoiceBinding({
+    save: (config) => voice.save(config),
+    ...(options.desktop ? { desktop: options.desktop } : {}),
+  });
+  app.get('/api/voice/binding', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return binding.read();
+  });
+  app.post('/api/voice/binding', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin || !options.desktop)
+      return reply.code(403).send({ error: 'desktop_required' });
+    const input = z
+      .strictObject({ action: z.enum(['start', 'check', 'cancel']) })
+      .safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
+    try {
+      await binding.action(input.data.action);
+      return binding.read();
+    } catch {
+      return reply.code(409).send({ error: 'binding_busy' });
+    }
+  });
+  app.addHook('preClose', async () => binding.close());
+  app.get('/api/voice', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return voice.read();
+  });
+  app.post('/api/voice/:operation', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin || !options.desktop)
+      return reply.code(403).send({ error: 'desktop_required' });
+    try {
+      const { operation } = z
+        .object({ operation: z.enum(['inspect', 'config', 'command', 'preferences']) })
+        .parse(request.params);
+      if (operation === 'preferences')
+        await voice.preferences(
+          z.strictObject({ allowVoiceSubmit: z.boolean() }).parse(request.body).allowVoiceSubmit,
+        );
+      else if (operation === 'config') await voice.save(voiceConfigSchema.parse(request.body));
+      else if (operation === 'command') await voice.command(voiceCommandSchema.parse(request.body));
+      else {
+        z.strictObject({}).parse(request.body);
+        await voice.inspect();
+      }
+      return voice.read();
+    } catch (error) {
+      return reply
+        .code(error instanceof z.ZodError ? 400 : 409)
+        .send({ error: 'voice_operation_unavailable' });
+    }
+  });
+  app.addHook('preClose', async () => voice.close());
   workbenchRoutes(app, workbench, options.desktop, options.mcpToken ?? '');
   app.addHook('onListen', async () => {
     workbench.setAddress(`http://127.0.0.1:${(app.server.address() as { port: number }).port}`);
@@ -86,7 +148,7 @@ export function buildApp(options: AppOptions) {
         nodeVersion: process.versions.node,
         nodeSupported: process.versions.node.split('.')[0] === '24',
       },
-      capabilities: { codexTasks: !!options.desktop, lingxiVoice: false },
+      capabilities: { codexTasks: !!options.desktop, lingxiVoice: !!options.desktop },
     };
   };
   app.get('/api/setup', async (_request, reply) => {
@@ -105,13 +167,25 @@ export function buildApp(options: AppOptions) {
     if (!z.strictObject({}).safeParse(request.body).success) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
-    // Check both integration boundaries in the same inspection. No Lingxi detector exists yet.
+    const [codex, voiceCheck] = await Promise.allSettled([
+      inspectCodex(),
+      options.desktop ? voice.inspect() : Promise.resolve(null),
+    ]);
+    const configured = voiceCheck.status === 'fulfilled' ? voiceCheck.value?.configured : undefined;
     const lingxi = {
       checkedAt: new Date().toISOString(),
-      status: 'unavailable',
-      reason: 'adapter-not-connected',
+      status:
+        configured === undefined ? 'unavailable' : configured ? 'configured' : 'not-configured',
+      reason: !options.desktop
+        ? 'desktop-required'
+        : configured === undefined
+          ? 'secure-storage-unavailable'
+          : configured
+            ? 'configuration-saved'
+            : 'device-binding-required',
     };
-    return { environment: environment(), codex: await inspectCodex(), lingxi };
+    if (codex.status === 'rejected') throw new Error('codex_check_failed');
+    return { environment: environment(), codex: codex.value, lingxi };
   });
   app.post('/api/setup/codex/check', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
@@ -205,5 +279,5 @@ export function buildApp(options: AppOptions) {
     subscribers.clear();
   });
   app.addHook('onClose', async () => store.close());
-  return Object.assign(app, { workbench });
+  return Object.assign(app, { workbench, voice });
 }

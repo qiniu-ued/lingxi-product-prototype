@@ -6,11 +6,14 @@ import {
   previewSnapshotSchema,
   startTaskSchema,
   taskDecisionSchema,
+  terminalCommandSchema,
+  workspaceCommandSchema,
 } from '@lingxi/protocol';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { DesktopBridge } from './desktop-bridge.js';
 import type { Workbench } from './workbench.js';
+import { inspectGit } from './workspace-git.js';
 
 // MCP requires an object at the schema root. Per-action requirements are checked
 // again by previewActionSchema, before anything reaches the native page.
@@ -69,20 +72,55 @@ export function workbenchRoutes(
     for (const end of streams) end();
     await workbench.close();
   });
-  app.post('/api/workbench/:operation', async (request, reply) => {
+  app.post('/api/workbench/:operation', { bodyLimit: 1024 * 1024 }, async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!request.headers.origin) return reply.code(403).send({ error: 'forbidden_origin' });
     const operation = z
-      .object({ operation: z.enum(['start', 'interrupt', 'decision', 'action']) })
+      .object({
+        operation: z.enum([
+          'start',
+          'interrupt',
+          'decision',
+          'action',
+          'workspace',
+          'terminal',
+          'preview-url',
+        ]),
+      })
       .safeParse(request.params);
     if (!operation.success) return reply.code(404).send({ error: 'not_found' });
     try {
       switch (operation.data.operation) {
         case 'start': {
           const input = startTaskSchema.parse(request.body);
-          workbench.start(input.requestId, input.text, input.selection ?? null);
+          if (input.mode === 'steer')
+            await workbench.steer(
+              input.requestId,
+              input.text,
+              input.selection ?? null,
+              input.attachments,
+            );
+          else
+            workbench.start(
+              input.requestId,
+              input.text,
+              input.selection ?? null,
+              input.attachments,
+              input.mode,
+            );
           break;
         }
+        case 'preview-url':
+          await workbench.connectPreview(
+            z.strictObject({ url: z.string().url().max(2000) }).parse(request.body).url,
+          );
+          break;
+        case 'workspace':
+          await workbench.command(workspaceCommandSchema.parse(request.body));
+          break;
+        case 'terminal':
+          await workbench.terminal(terminalCommandSchema.parse(request.body));
+          break;
         case 'interrupt':
           z.strictObject({}).parse(request.body);
           workbench.interrupt();
@@ -111,7 +149,42 @@ export function workbenchRoutes(
       return workbench.read();
     } catch (error) {
       if (error instanceof z.ZodError) return reply.code(400).send({ error: 'invalid_request' });
-      return reply.code(409).send({ error: 'operation_unavailable' });
+      const known = [
+        'selection_stale',
+        'task_running',
+        'steer_unconfirmed',
+        'request_conflict',
+        'readonly_sidechat',
+        'fork_unavailable',
+        'terminal_stale',
+        'project_required',
+        'thread_unavailable',
+        'invalid_project_url',
+      ];
+      return reply.code(409).send({
+        error:
+          error instanceof Error && known.includes(error.message)
+            ? error.message
+            : 'operation_unavailable',
+      });
+    }
+  });
+  app.get('/api/workbench/git', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const project = workbench.read().project;
+    if (!desktop || !project) return reply.code(409).send({ error: 'project_required' });
+    try {
+      return await inspectGit(project.path);
+    } catch {
+      return reply.code(409).send({ error: 'git_unavailable_or_diff_too_large' });
+    }
+  });
+  app.get('/api/workbench/catalog', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    try {
+      return await workbench.catalog();
+    } catch {
+      return reply.code(409).send({ error: 'catalog_unavailable' });
     }
   });
   // Dedicated, authenticated, stateless MCP endpoint. It cannot forward arbitrary browser RPC.

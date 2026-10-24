@@ -6,7 +6,7 @@
 
 用户安装使用稳定通道 `@latest`，检查报告实际版本并验证握手。本分支参照 CLI 0.163.0 生成的 App Server v2 类型，并通过子进程协议替身验证消息契约；真实模型调用另做验收。已实现初始化、线程创建/恢复、开始、审批与中断。真实文件变更、计划、命令及任务终结事件更新画面，询问和审批沿用 Codex 设置。任务完成与页面可用、测试通过分别验证。
 
-当前提供 `AgentAdapter` 接口与只读环境检查：`/setup` 先汇总 Codex 与灵矽的可检测状态，再展示配置步骤。Codex 可检测 CLI、App Server 握手和认证配置；检查后关闭进程，不创建线程或执行任务。用户另行点击才会在工作台工具目录安装 latest CLI 或通过官方网页登录。灵矽检测尚未实现，明确显示暂无法检测。桌面版已实现创建/恢复线程、提交、审批/问题、中断和事件展示，不自动接管 Codex 桌面应用已有会话。静态作品与专用 MCP 见 [ADR 0003](adr/0003-desktop-canonical-preview.md)。尚未实现执行中追加要求或任意项目 dev server。首次安装与检查限制见 [Mac 连接指南](mac-setup.md)。
+当前提供 `AgentAdapter` 接口与只读环境检查：`/setup` 先汇总 Codex 与灵矽的可检测状态，再展示配置步骤。Codex 可检测 CLI、App Server 握手和认证配置；检查后关闭进程，不创建线程或执行任务。用户另行点击才会在工作台工具目录安装 latest CLI 或通过官方网页登录。灵矽只读检查本机加密配置，注册/连接/收音需显式操作。桌面版已实现创建/恢复线程、提交、审批/问题、中断和事件展示，不自动接管 Codex 桌面应用已有会话。静态作品与专用 MCP 见 [ADR 0003](adr/0003-desktop-canonical-preview.md)。已支持执行中排队/补充、项目终端、明确绑定的 loopback dev server，见 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。首次安装与检查限制见 [Mac 连接指南](mac-setup.md)。
 
 参考：[App Server](https://developers.openai.com/codex/app-server/)。
 
@@ -16,7 +16,7 @@
 
 优先验证端侧工具通道：Mac 主动连接灵矽，注册提交、查询、停止工具，长任务先返回任务 ID 后异步执行。若使用第三方业务回调，需要云端可达服务及到 Mac 的连接；不能用本机 `localhost` 作为云端回调地址。
 
-当前 `VoiceAdapter` 只有边界接口，无采音、联网或密钥。首版从按键激活开始，唤醒词、远场麦克风、电视回声、重叠发言和异步播报均需真机验证。
+当前使用可信操作台 AudioWorklet + 私有 IPC + Node WSS，协商 PCM16LE/16kHz/单声道，手动激活并形成转写草稿。向导通过官方 OTA 申请激活码，官方控制台完成授权后自动获取并加密保存令牌。设备 MCP 可选提交/查询/停止，不把 STT 再执行一次；无 Opus 解码、自定义唤醒或自动进度播报。远场麦克风、回声、多人发言和 PCM 服务支持均需真机验证。
 
 参考：[macOS 客户端](https://linx.qiniu.com/docs/xrobot/guide/client-demo)、[端侧 MCP](https://linx.qiniu.com/docs/xrobot/mcp/hardware-mcp)、[业务接入](https://linx.qiniu.com/docs/xrobot/guide/third-app)。
 

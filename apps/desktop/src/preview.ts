@@ -12,11 +12,12 @@ import { freezePreview, inside, types } from './assets.js';
 
 const targetScript = `(() => {
  const state = globalThis.__lingxiTargets ??= {next:1, ids:new WeakMap(), nodes:new Map()};
+ for (const [ref,node] of state.nodes) if(!node.isConnected) state.nodes.delete(ref);
  const lines=[];
  for (const el of document.querySelectorAll('button,a[href],input,textarea,select,[role="button"],[contenteditable="true"]')) {
    if(lines.length>=250) break;
    const rect=el.getBoundingClientRect(); if(!rect.width || !rect.height) continue;
-   let ref=state.ids.get(el); if(!ref){ref='r'+state.next++;state.ids.set(el,ref);state.nodes.set(ref,el);}
+   let ref=state.ids.get(el); if(!ref){ref='r'+state.next++;state.ids.set(el,ref);state.nodes.set(ref,el);}state.nodes.set(ref,el);
    const name=el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('name') || el.tagName;
    lines.push(ref+' '+el.tagName.toLowerCase()+' '+name.slice(0,180));
  }
@@ -30,6 +31,11 @@ export class Preview {
   private partition = '';
   private sequence = 0;
   private digest = '';
+  private runtimeOrigin = '';
+  private serviceOrigin = '';
+  protectService(origin: string) {
+    this.serviceOrigin = origin;
+  }
   private queue: Promise<unknown> = Promise.resolve();
   private requests = new Map<string, { input: string; result: unknown }>();
   constructor(
@@ -49,74 +55,8 @@ export class Preview {
       return this.binding;
     }
     const root = frozen.root;
-    if (this.binding?.projectId !== project.id) {
-      this.dispose();
-      this.partition = `persist:lingxi-preview-${project.id}`;
-      const isolated = session.fromPartition(this.partition);
-      isolated.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-      isolated.setPermissionCheckHandler(() => false);
-      isolated.webRequest.onBeforeRequest((details, callback) => {
-        const url = new URL(details.url);
-        callback({
-          cancel: !(
-            (url.protocol === 'lingxi-preview:' && url.hostname === project.id) ||
-            url.protocol === 'data:'
-          ),
-        });
-      });
-      if (await isolated.protocol.isProtocolHandled('lingxi-preview'))
-        isolated.protocol.unhandle('lingxi-preview');
-      isolated.protocol.handle('lingxi-preview', async (request) => {
-        try {
-          const url = new URL(request.url);
-          if (url.hostname !== this.binding?.projectId || !this.root)
-            return new Response('Unavailable', { status: 404 });
-          const file = resolve(this.root, `.${decodeURIComponent(url.pathname)}`);
-          if (
-            !inside(this.root, file) ||
-            url.pathname.split('/').some((p) => p.startsWith('.')) ||
-            !types[extname(file)]
-          )
-            return new Response('Forbidden', { status: 403 });
-          const actual = await realpath(file);
-          if (!inside(this.root, actual)) return new Response('Forbidden', { status: 403 });
-          return new Response(await readFile(actual), {
-            headers: {
-              'Content-Type': types[extname(file)] ?? 'application/octet-stream',
-              'Cache-Control': 'no-store',
-              'Content-Security-Policy':
-                "default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'",
-            },
-          });
-        } catch {
-          return new Response('Not found', { status: 404 });
-        }
-      });
-      this.view = new WebContentsView({
-        webPreferences: {
-          partition: this.partition,
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
-      });
-      this.window.contentView.addChildView(this.view);
-      this.view.setBounds({ x: 24, y: 110, width: 800, height: 600 });
-      this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      this.view.webContents.on('will-navigate', (event, url) => {
-        if (!this.allowed(url)) event.preventDefault();
-      });
-      this.view.webContents.on('will-redirect', (event, url) => {
-        if (!this.allowed(url)) event.preventDefault();
-      });
-      this.view.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
-        if (isMainFrame && this.binding) {
-          this.binding = { ...this.binding, epoch: this.binding.epoch + 1 };
-          this.requests.clear();
-          this.changed();
-        }
-      });
-    }
+    await this.ensureView(project);
+    this.runtimeOrigin = '';
     this.root = root;
     this.digest = frozen.digest;
     this.binding = {
@@ -130,6 +70,113 @@ export class Preview {
     await this.view?.webContents.loadURL(this.binding.url);
     this.changed();
     return this.binding;
+  }
+  private async ensureView(project: Project) {
+    if (this.binding?.projectId === project.id && this.view) return;
+    this.dispose();
+    this.partition = `persist:lingxi-preview-${project.id}`;
+    const isolated = session.fromPartition(this.partition);
+    isolated.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+    isolated.setPermissionCheckHandler(() => false);
+    isolated.webRequest.onBeforeRequest((details, callback) => {
+      const url = new URL(details.url);
+      callback({
+        cancel: !(
+          (url.protocol === 'lingxi-preview:' && url.hostname === project.id) ||
+          url.protocol === 'data:' ||
+          this.runtimeAllowed(url)
+        ),
+      });
+    });
+    if (await isolated.protocol.isProtocolHandled('lingxi-preview'))
+      isolated.protocol.unhandle('lingxi-preview');
+    isolated.protocol.handle('lingxi-preview', async (request) => {
+      try {
+        const url = new URL(request.url);
+        if (url.hostname !== this.binding?.projectId || !this.root)
+          return new Response('Unavailable', { status: 404 });
+        const file = resolve(this.root, `.${decodeURIComponent(url.pathname)}`);
+        if (
+          !inside(this.root, file) ||
+          url.pathname.split('/').some((p) => p.startsWith('.')) ||
+          !types[extname(file)]
+        )
+          return new Response('Forbidden', { status: 403 });
+        const actual = await realpath(file);
+        if (!inside(this.root, actual)) return new Response('Forbidden', { status: 403 });
+        return new Response(await readFile(actual), {
+          headers: {
+            'Content-Type': types[extname(file)] ?? 'application/octet-stream',
+            'Cache-Control': 'no-store',
+            'Content-Security-Policy':
+              "default-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'",
+          },
+        });
+      } catch {
+        return new Response('Not found', { status: 404 });
+      }
+    });
+    this.view = new WebContentsView({
+      webPreferences: {
+        partition: this.partition,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    this.window.contentView.addChildView(this.view);
+    this.view.setBounds({ x: 24, y: 110, width: 800, height: 600 });
+    this.view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    this.view.webContents.on('will-navigate', (event, url) => {
+      if (!this.allowed(url)) event.preventDefault();
+    });
+    this.view.webContents.on('will-redirect', (event, url) => {
+      if (!this.allowed(url)) event.preventDefault();
+    });
+    this.view.webContents.on('did-navigate', (_event, url) => {
+      if (this.binding) {
+        this.binding = { ...this.binding, url };
+        this.changed();
+      }
+    });
+    this.view.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+      if (isMainFrame && this.binding) {
+        this.binding = { ...this.binding, epoch: this.binding.epoch + 1 };
+        this.requests.clear();
+        this.changed();
+      }
+    });
+  }
+  connect(project: Project, raw: string) {
+    const next = this.queue.then(async () => {
+      const url = new URL(raw);
+      if (
+        url.protocol !== 'http:' ||
+        !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) ||
+        !url.port ||
+        url.username ||
+        url.password ||
+        url.origin === this.serviceOrigin ||
+        url.port === new URL(this.serviceOrigin).port
+      )
+        throw new Error('invalid_project_url');
+      await this.ensureView(project);
+      this.runtimeOrigin = url.origin;
+      this.digest = '';
+      this.binding = {
+        id: this.binding?.id ?? randomUUID(),
+        projectId: project.id,
+        revision: ++this.sequence,
+        epoch: (this.binding?.epoch ?? 0) + 1,
+        url: url.href,
+        title: project.name,
+      };
+      await this.view?.webContents.loadURL(url.href);
+      this.changed();
+      return this.binding;
+    });
+    this.queue = next.catch(() => {});
+    return next;
   }
   async pick(input: { binding: PreviewBinding; x: number; y: number }) {
     if (
@@ -146,10 +193,22 @@ export class Preview {
     ]);
     return { binding: { ...this.binding }, ...selected };
   }
+  private runtimeAllowed(url: URL) {
+    if (!this.runtimeOrigin) return false;
+    return (
+      url.origin === this.runtimeOrigin ||
+      (url.protocol === 'ws:' && `http://${url.host}` === this.runtimeOrigin)
+    );
+  }
   private allowed(url: string) {
     try {
       const value = new URL(url);
-      return value.protocol === 'lingxi-preview:' && value.hostname === this.binding?.projectId;
+      return (
+        (value.protocol === 'lingxi-preview:' &&
+          value.hostname === this.binding?.projectId &&
+          !this.runtimeOrigin) ||
+        this.runtimeAllowed(value)
+      );
     } catch {
       return false;
     }
@@ -194,9 +253,14 @@ export class Preview {
       if (prior.input !== input) throw new Error('request_conflict');
       return prior.result;
     }
+    if (this.requests.size >= 1000) throw new Error('preview_action_limit');
     // Reserve before dispatch: a transport retry must never apply a click twice, even if capture fails.
     this.requests.set(action.requestId, { input, result: null });
-    if (this.requests.size > 100) this.requests.delete(this.requests.keys().next().value as string);
+    // Keep IDs until navigation/publish, even after evicting heavy screenshots.
+    if (this.requests.size > 10) {
+      const oldest = [...this.requests.values()].find((entry) => entry.result !== null);
+      if (oldest) oldest.result = null;
+    }
     const contents = this.view.webContents;
     if (action.action === 'scroll') {
       await contents.executeJavaScriptInIsolatedWorld(1001, [
@@ -231,6 +295,7 @@ export class Preview {
     this.view = undefined;
     this.binding = null;
     this.root = '';
+    this.runtimeOrigin = '';
     this.requests.clear();
   }
 }

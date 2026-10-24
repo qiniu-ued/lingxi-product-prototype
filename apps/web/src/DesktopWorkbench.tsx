@@ -3,6 +3,8 @@ import {
   type PreviewSelection,
   type PreviewSnapshot,
   previewSnapshotSchema,
+  type VoiceState,
+  voiceStateSchema,
   type WorkbenchState,
   workbenchSchema,
 } from '@lingxi/protocol';
@@ -27,9 +29,12 @@ export function DesktopWorkbench() {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [shot, setShot] = useState<PreviewSnapshot | null>(null),
-    [answers, setAnswers] = useState<Record<string, string>>({});
+    [answers, setAnswers] = useState<Record<string, string>>({}),
+    [displayVoice, setDisplayVoice] = useState<VoiceState | null>(null);
   const transcript = useRef<HTMLDivElement>(null),
-    followTranscript = useRef(true);
+    followTranscript = useRef(true),
+    workspaceMenu = useRef<HTMLDetailsElement>(null),
+    composer = useRef<HTMLDetailsElement>(null);
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
   const [picking, setPicking] = useState(false),
@@ -45,6 +50,7 @@ export function DesktopWorkbench() {
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
   const thread = state?.threads.find((t) => t.id === state.selectedThreadId);
   function attach(value: ContextAttachment) {
+    if (composer.current) composer.current.open = true;
     setAttachments((old) => (old.length < 20 ? [...old, value] : old));
     retry.current = null;
   }
@@ -62,6 +68,26 @@ export function DesktopWorkbench() {
     });
     return () => events.close();
   }, []);
+  useEffect(() => {
+    if (!display) return;
+    let active = true;
+    const update = async () => {
+      try {
+        const response = await fetch('/api/voice', { cache: 'no-store' });
+        if (!response.ok) throw new Error('voice_state_unavailable');
+        const value = voiceStateSchema.parse(await response.json());
+        if (active) setDisplayVoice(value);
+      } catch {
+        if (active) setDisplayVoice(null);
+      }
+    };
+    void update();
+    const timer = setInterval(() => void update(), 700);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [display]);
   useEffect(() => {
     const element = viewport.current;
     if (!display || !element || !bindingKey) return;
@@ -150,6 +176,7 @@ export function DesktopWorkbench() {
         mode: running ? mode : 'start',
       })
     ) {
+      if (composer.current) composer.current.open = false;
       setText('');
       setAttachments([]);
       setVoiceDraft(null);
@@ -161,165 +188,249 @@ export function DesktopWorkbench() {
     <div className={`live-workbench ${display ? 'live-display' : ''}`}>
       <header className="live-header">
         <a href="/" className="brand">
-          <span className="brand-mark">灵</span>
+          <span className="brand-mark" aria-hidden="true">
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4L12 3Z" />
+              <path d="M20 2v4M18 4h4" />
+            </svg>
+          </span>
           <span>
-            灵矽<small>{state?.project?.name ?? '共创工作台'}</small>
+            灵矽
+            <small role="status">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="3" width="18" height="13" rx="2" />
+                <path d="M8 21h8M12 16v5" />
+              </svg>
+              {connected ? '本机服务已连接' : '正在重连本机服务'}
+            </small>
           </span>
         </a>
         <div className="live-actions">
-          <span role="status">{connected ? '本机服务已连接' : '正在重连本机服务'}</span>
+          <span className={`task-state task-state-${task?.status ?? 'idle'}`}>
+            {task
+              ? {
+                  queued: '等待执行',
+                  starting: '正在准备',
+                  running: '正在开发',
+                  waiting: '等待确认',
+                  stopping: '正在停止',
+                  completed: '已完成',
+                  failed: '执行失败',
+                  interrupted: '已停止',
+                }[task.status]
+              : '等待需求'}
+          </span>
           {!display && (
-            <>
-              <button
-                type="button"
-                onClick={() => void operate('action', { action: 'open-display' })}
-              >
-                打开大屏
-              </button>
-              <a href="/setup">连接向导</a>
-            </>
+            <details className="workbench-menu" ref={workspaceMenu}>
+              <summary>工作区</summary>
+              <div className="workbench-menu-content">
+                <div className="live-actions">
+                  <button
+                    type="button"
+                    onClick={() => void operate('action', { action: 'open-display' })}
+                  >
+                    打开大屏
+                  </button>
+                  <a href="/setup">连接向导</a>
+                </div>
+                {!display && (
+                  <nav className="project-actions">
+                    <button
+                      type="button"
+                      disabled={running || busy}
+                      onClick={() => void operate('action', { action: 'new-project' })}
+                    >
+                      新建项目
+                    </button>
+                    <button
+                      type="button"
+                      disabled={running || busy}
+                      onClick={() => void operate('action', { action: 'select-project' })}
+                    >
+                      打开项目
+                    </button>
+                    <span title={state?.project?.path}>
+                      {state?.project?.name ?? '选择一个项目'}
+                    </span>
+                    {state?.project && (
+                      <button
+                        type="button"
+                        disabled={running || busy}
+                        onClick={() => void operate('action', { action: 'publish-preview' })}
+                      >
+                        刷新作品
+                      </button>
+                    )}
+                  </nav>
+                )}
+                {!display && state?.project && (
+                  <section className="conversation-bar">
+                    <input
+                      aria-label="搜索对话"
+                      placeholder="搜索对话"
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                    />
+                    <select
+                      aria-label="切换对话"
+                      disabled={running || busy}
+                      value={state.selectedThreadId ?? ''}
+                      onChange={(e) => {
+                        void operate('workspace', { action: 'select-thread', id: e.target.value });
+                      }}
+                    >
+                      <option value="" disabled>
+                        选择对话
+                      </option>
+                      {state.threads
+                        .filter(
+                          (t) =>
+                            t.projectId === state.project?.id &&
+                            !t.archived &&
+                            t.title.toLowerCase().includes(search.toLowerCase()),
+                        )
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.kind === 'sidechat'
+                              ? 'Sidechat · '
+                              : t.kind === 'fork'
+                                ? 'Fork · '
+                                : ''}
+                            {t.title}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={running || busy}
+                      onClick={() =>
+                        void operate('workspace', { action: 'new-thread', title: '新对话' })
+                      }
+                    >
+                      新对话
+                    </button>
+                    <input
+                      aria-label="对话名称"
+                      placeholder={thread?.title ?? '对话名称'}
+                      value={rename}
+                      onChange={(e) => setRename(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      disabled={!thread || !rename.trim() || running}
+                      onClick={() => {
+                        void operate('workspace', {
+                          action: 'rename-thread',
+                          id: thread?.id,
+                          title: rename.trim(),
+                        });
+                        setRename('');
+                      }}
+                    >
+                      重命名
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!thread || running}
+                      onClick={() =>
+                        void operate('workspace', {
+                          action: 'archive-thread',
+                          id: thread?.id,
+                          archived: !thread?.archived,
+                        })
+                      }
+                    >
+                      {thread?.archived ? '恢复对话' : '归档'}
+                    </button>
+                    <details>
+                      <summary>已归档</summary>
+                      {state.threads
+                        .filter((t) => t.projectId === state.project?.id && t.archived)
+                        .map((t) => (
+                          <button
+                            type="button"
+                            key={t.id}
+                            disabled={running}
+                            onClick={() =>
+                              void operate('workspace', { action: 'select-thread', id: t.id })
+                            }
+                          >
+                            {t.title}
+                          </button>
+                        ))}
+                    </details>
+                  </section>
+                )}
+                <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} />
+                {!display && (
+                  <nav className="workspace-tabs" aria-label="项目工作区">
+                    {[
+                      ['preview', '预览'],
+                      ['terminal', '终端'],
+                      ['diff', 'Diff'],
+                      ['tools', '工具与额度'],
+                    ].map(([value, label]) => (
+                      <button
+                        type="button"
+                        key={value}
+                        aria-pressed={tab === value}
+                        onClick={() => {
+                          setTab(value ?? 'preview');
+                          if (workspaceMenu.current) workspaceMenu.current.open = false;
+                        }}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </nav>
+                )}
+                {!display && tab === 'preview' && (
+                  <details>
+                    <summary>连接项目开发服务器</summary>
+                    <p>
+                      先在终端启动项目（如 npm run dev -- --port 5174），再连接其本机地址。大屏和
+                      Codex 会使用同一页面。
+                    </p>
+                    <input
+                      aria-label="项目预览地址"
+                      value={runtimeUrl}
+                      onChange={(e) => setRuntimeUrl(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (await operate('preview-url', { url: runtimeUrl })) {
+                          if (workspaceMenu.current) workspaceMenu.current.open = false;
+                        }
+                      }}
+                    >
+                      连接预览
+                    </button>
+                  </details>
+                )}
+              </div>
+            </details>
           )}
         </div>
       </header>
-      {!display && (
-        <nav className="project-actions">
-          <button
-            type="button"
-            disabled={running || busy}
-            onClick={() => void operate('action', { action: 'new-project' })}
-          >
-            新建项目
-          </button>
-          <button
-            type="button"
-            disabled={running || busy}
-            onClick={() => void operate('action', { action: 'select-project' })}
-          >
-            打开项目
-          </button>
-          <span>{state?.project?.path ?? '先选择一个允许 Codex 修改的文件夹'}</span>
-          {state?.project && (
-            <button
-              type="button"
-              disabled={running || busy}
-              onClick={() => void operate('action', { action: 'publish-preview' })}
-            >
-              刷新作品
-            </button>
-          )}
-        </nav>
-      )}
-      {!display && state?.project && (
-        <section className="conversation-bar">
-          <input
-            aria-label="搜索对话"
-            placeholder="搜索对话"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            aria-label="切换对话"
-            disabled={running || busy}
-            value={state.selectedThreadId ?? ''}
-            onChange={(e) => {
-              void operate('workspace', { action: 'select-thread', id: e.target.value });
-            }}
-          >
-            <option value="" disabled>
-              选择对话
-            </option>
-            {state.threads
-              .filter(
-                (t) =>
-                  t.projectId === state.project?.id &&
-                  !t.archived &&
-                  t.title.toLowerCase().includes(search.toLowerCase()),
-              )
-              .map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.kind === 'sidechat' ? 'Sidechat · ' : t.kind === 'fork' ? 'Fork · ' : ''}
-                  {t.title}
-                </option>
-              ))}
-          </select>
-          <button
-            type="button"
-            disabled={running || busy}
-            onClick={() => void operate('workspace', { action: 'new-thread', title: '新对话' })}
-          >
-            新对话
-          </button>
-          <input
-            aria-label="对话名称"
-            placeholder={thread?.title ?? '对话名称'}
-            value={rename}
-            onChange={(e) => setRename(e.target.value)}
-          />
-          <button
-            type="button"
-            disabled={!thread || !rename.trim() || running}
-            onClick={() => {
-              void operate('workspace', {
-                action: 'rename-thread',
-                id: thread?.id,
-                title: rename.trim(),
-              });
-              setRename('');
-            }}
-          >
-            重命名
-          </button>
-          <button
-            type="button"
-            disabled={!thread || running}
-            onClick={() =>
-              void operate('workspace', {
-                action: 'archive-thread',
-                id: thread?.id,
-                archived: !thread?.archived,
-              })
-            }
-          >
-            {thread?.archived ? '恢复对话' : '归档'}
-          </button>
-          <details>
-            <summary>已归档</summary>
-            {state.threads
-              .filter((t) => t.projectId === state.project?.id && t.archived)
-              .map((t) => (
-                <button
-                  type="button"
-                  key={t.id}
-                  disabled={running}
-                  onClick={() => void operate('workspace', { action: 'select-thread', id: t.id })}
-                >
-                  {t.title}
-                </button>
-              ))}
-          </details>
-        </section>
-      )}
       <main className="live-grid">
         <section className="live-preview live-panel">
-          {!display && (
-            <nav className="workspace-tabs" aria-label="项目工作区">
-              {[
-                ['preview', '预览'],
-                ['terminal', '终端'],
-                ['diff', 'Diff'],
-                ['tools', '工具与额度'],
-              ].map(([value, label]) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-pressed={tab === value}
-                  onClick={() => setTab(value ?? 'preview')}
-                >
-                  {label}
-                </button>
-              ))}
-            </nav>
-          )}
           {!display && state && tab === 'terminal' && (
             <Suspense fallback={<p>正在打开终端…</p>}>
               <TerminalPanel state={state} attach={attach} />
@@ -335,44 +446,18 @@ export function DesktopWorkbench() {
           {!display && state && tab === 'tools' && (
             <WorkspaceTools state={state} operate={operate} attach={attach} />
           )}
-          {!display && tab === 'preview' && (
-            <details>
-              <summary>连接项目开发服务器</summary>
-              <p>
-                先在终端启动项目（如 npm run dev -- --port 5174），再连接其本机地址。大屏和 Codex
-                会使用同一页面。
-              </p>
-              <input
-                aria-label="项目预览地址"
-                value={runtimeUrl}
-                onChange={(e) => setRuntimeUrl(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => void operate('preview-url', { url: runtimeUrl })}
-              >
-                连接预览
-              </button>
-            </details>
-          )}
           <div
             className="preview-surface"
             style={{ display: display || tab === 'preview' ? 'flex' : 'none' }}
           >
             <div className="live-heading">
               <h1>项目预览</h1>
-              <span>{state?.preview ? `版本 ${state.preview.revision}` : '等待作品'}</span>
             </div>
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
                 <div className="live-empty">
                   <span>✧</span>
                   <h2>聊聊你的想法吧。</h2>
-                  <p>
-                    {state?.project
-                      ? '写下需求，交给 Codex 完成这一轮开发。'
-                      : '打开或新建项目，再从一个具体的想法开始。'}
-                  </p>
                 </div>
               ) : !display && shot ? (
                 <button
@@ -392,6 +477,7 @@ export function DesktopWorkbench() {
                       });
                       if (value) {
                         setSelection(value);
+                        if (composer.current) composer.current.open = true;
                         setPicking(false);
                         retry.current = null;
                       }
@@ -420,9 +506,7 @@ export function DesktopWorkbench() {
                 >
                   {picking ? '取消点选' : '点选修改'}
                 </button>{' '}
-                {selection
-                  ? `已选：${selection.description.slice(0, 80)}`
-                  : '选中元素后，在右侧输入修改要求。体验作品可直接操作大屏窗口。'}
+                {selection && `已选：${selection.description.slice(0, 80)}`}
                 {selection && (
                   <button
                     type="button"
@@ -440,8 +524,21 @@ export function DesktopWorkbench() {
         </section>
         <aside className="live-discussion live-panel">
           <div className="live-heading">
-            <h2>与灵矽对话</h2>
-            <span>Codex</span>
+            <h2>
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" />
+              </svg>
+              与灵矽对话
+            </h2>
+            <span>发言人</span>
           </div>
           <div
             className="live-transcript"
@@ -455,131 +552,161 @@ export function DesktopWorkbench() {
             {state?.history.length ? (
               state.history.map((turn) => (
                 <article key={turn.id} className="conversation-turn">
-                  <div className="live-bubble user">{turn.prompt}</div>
-                  {turn.attachments?.length ? (
-                    <details>
-                      <summary>本轮上下文 · {turn.attachments.length}</summary>
-                      {turn.attachments.map((a) => (
-                        <pre key={a.id}>
-                          {a.title}\n{a.text}
-                        </pre>
-                      ))}
-                    </details>
-                  ) : null}
+                  <div className="chat-row user">
+                    <span className="chat-avatar" aria-hidden="true">
+                      发
+                    </span>
+                    <div className="chat-message">
+                      <span className="bubble-speaker">发言人</span>
+                      <div className="live-bubble">{turn.prompt}</div>
+                    </div>
+                  </div>
                   {turn.messages.map((message) => (
-                    <div className="live-bubble" key={message.id}>
-                      {message.text}
+                    <div className="chat-row" key={message.id}>
+                      <span className="chat-avatar" aria-hidden="true">
+                        灵
+                      </span>
+                      <div className="chat-message">
+                        <span className="bubble-speaker">灵矽</span>
+                        <div className="live-bubble">{message.text}</div>
+                      </div>
                     </div>
                   ))}
                   {turn.additions?.map((a) => (
-                    <div className="live-bubble user" key={a.id}>
-                      补充：{a.text}{' '}
-                      {a.status === 'unconfirmed' || a.status === 'pending'
-                        ? '（送达未确认，不会自动重复发送）'
-                        : ''}
+                    <div className="chat-row user" key={a.id}>
+                      <span className="chat-avatar" aria-hidden="true">
+                        发
+                      </span>
+                      <div className="chat-message">
+                        <span className="bubble-speaker">发言人</span>
+                        <div className="live-bubble">
+                          补充：{a.text}{' '}
+                          {a.status === 'unconfirmed' || a.status === 'pending'
+                            ? '（送达未确认，不会自动重复发送）'
+                            : ''}
+                        </div>
+                      </div>
                     </div>
                   ))}
-                  {!!turn.plan?.length && (
-                    <ol>
-                      {turn.plan.map((step) => (
-                        <li key={step.step}>
-                          {step.step} · {step.status}
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                  {!!turn.items?.length && (
-                    <details>
-                      <summary>执行记录 · {turn.items.length}</summary>
-                      {turn.items.map((item) => (
-                        <details key={item.id}>
-                          <summary>
-                            {item.type} · {item.status ?? '执行中'}
-                          </summary>
-                          <pre>{item.text}</pre>
+                  {!display && (
+                    <details className="turn-tools">
+                      <summary>本轮详情</summary>
+                      {turn.attachments?.length ? (
+                        <details>
+                          <summary>本轮上下文 · {turn.attachments.length}</summary>
+                          {turn.attachments.map((a) => (
+                            <pre key={a.id}>
+                              {a.title}\n{a.text}
+                            </pre>
+                          ))}
+                        </details>
+                      ) : null}
+                      {!!turn.plan?.length && (
+                        <details>
+                          <summary>执行步骤 · {turn.plan.length}</summary>
+                          <ol>
+                            {turn.plan.map((step) => (
+                              <li key={step.step}>
+                                {step.step} · {step.status}
+                              </li>
+                            ))}
+                          </ol>
+                        </details>
+                      )}
+                      {!!turn.items?.length && (
+                        <details>
+                          <summary>执行记录 · {turn.items.length}</summary>
+                          {turn.items.map((item) => (
+                            <details key={item.id}>
+                              <summary>
+                                {item.type} · {item.status ?? '执行中'}
+                              </summary>
+                              <pre>{item.text}</pre>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  attach({
+                                    id: crypto.randomUUID(),
+                                    kind: 'text',
+                                    title: item.type,
+                                    text: item.text.slice(0, 32000),
+                                  })
+                                }
+                              >
+                                添加到对话
+                              </button>
+                            </details>
+                          ))}
+                        </details>
+                      )}
+                      <small>
+                        {turn.status} · {new Date(turn.createdAt).toLocaleString()}
+                      </small>
+                      <TurnUsage
+                        usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
+                        status={turn.status}
+                        compact={false}
+                      />
+                      {!display && (
+                        <div className="live-actions">
                           <button
                             type="button"
                             onClick={() =>
                               attach({
                                 id: crypto.randomUUID(),
-                                kind: 'text',
-                                title: item.type,
-                                text: item.text.slice(0, 32000),
+                                kind: thread?.kind === 'sidechat' ? 'sidechat' : 'text',
+                                title: '对话摘录',
+                                text: turn.messages
+                                  .map((m) => m.text)
+                                  .join('\n')
+                                  .slice(0, 32000),
                               })
                             }
                           >
                             添加到对话
                           </button>
-                        </details>
-                      ))}
-                    </details>
-                  )}
-                  <small>
-                    {turn.status} · {new Date(turn.createdAt).toLocaleString()}
-                  </small>
-                  <TurnUsage
-                    usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
-                    status={turn.status}
-                    compact={display}
-                  />
-                  {!display && (
-                    <div className="live-actions">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          attach({
-                            id: crypto.randomUUID(),
-                            kind: thread?.kind === 'sidechat' ? 'sidechat' : 'text',
-                            title: '对话摘录',
-                            text: turn.messages
-                              .map((m) => m.text)
-                              .join('\n')
-                              .slice(0, 32000),
-                          })
-                        }
-                      >
-                        添加到对话
-                      </button>
-                      {turn.status === 'queued' ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            void operate('workspace', { action: 'cancel-queued', id: turn.id })
-                          }
-                        >
-                          取消排队
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            disabled={running || !turn.turnId}
-                            onClick={() =>
-                              void operate('workspace', {
-                                action: 'fork',
-                                taskId: turn.id,
-                                kind: 'sidechat',
-                              })
-                            }
-                          >
-                            Sidechat
-                          </button>
-                          <button
-                            type="button"
-                            disabled={running || !turn.turnId}
-                            onClick={() =>
-                              void operate('workspace', {
-                                action: 'fork',
-                                taskId: turn.id,
-                                kind: 'fork',
-                              })
-                            }
-                          >
-                            Fork 对话
-                          </button>
-                        </>
+                          {turn.status === 'queued' ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                void operate('workspace', { action: 'cancel-queued', id: turn.id })
+                              }
+                            >
+                              取消排队
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                disabled={running || !turn.turnId}
+                                onClick={() =>
+                                  void operate('workspace', {
+                                    action: 'fork',
+                                    taskId: turn.id,
+                                    kind: 'sidechat',
+                                  })
+                                }
+                              >
+                                Sidechat
+                              </button>
+                              <button
+                                type="button"
+                                disabled={running || !turn.turnId}
+                                onClick={() =>
+                                  void operate('workspace', {
+                                    action: 'fork',
+                                    taskId: turn.id,
+                                    kind: 'fork',
+                                  })
+                                }
+                              >
+                                Fork 对话
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
-                    </div>
+                    </details>
                   )}
                 </article>
               ))
@@ -616,16 +743,47 @@ export function DesktopWorkbench() {
             )}
           </div>
           {task && (
-            <section className="live-activity" aria-label="实际执行进度">
-              <h3>本轮执行</h3>
-              <p>
-                <span className={`activity-dot ${running ? 'active' : ''}`} /> Codex ·{' '}
-                {task.activity}
-              </p>
+            <details className="live-activity" aria-label="实际执行进度" key={task.id}>
+              <summary className="agent-identity">
+                <span className="agent-icon" aria-hidden="true">
+                  <svg aria-hidden="true" viewBox="0 0 32 32" fill="none">
+                    <path d="M5 5H21V21H5Z" fill="currentColor" fillOpacity=".08" />
+                    <path d="M11 11H27V27H11Z" fill="currentColor" fillOpacity=".14" />
+                    <g
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 8V5H5V21H21V14" />
+                      <path d="M11 18V11H27V27H11V24" />
+                    </g>
+                    <path d="M15 15H21V21H15Z" fill="currentColor" fillOpacity=".22" />
+                  </svg>
+                </span>
+                <strong>{task.threadId ? 'Codex' : '本轮任务'}</strong>
+                <span className={`agent-state task-state-${task.status}`}>
+                  {task.status === 'waiting'
+                    ? '等待确认'
+                    : task.status === 'queued'
+                      ? '排队中'
+                      : task.status === 'starting'
+                        ? '准备中'
+                        : task.status === 'stopping'
+                          ? '停止中'
+                          : task.status === 'running'
+                            ? '进行中'
+                            : task.status === 'completed'
+                              ? '✓ 已完成'
+                              : task.status === 'failed'
+                                ? '失败'
+                                : '已停止'}
+                </span>
+              </summary>
+              <p className="runtime-stage">{task.activity}</p>
               {task.error && <p role="alert">{task.error}</p>}
-            </section>
+            </details>
           )}
-          <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} compact={display} />
           {!display &&
             task &&
             (task.approvals ?? (task.approval ? [task.approval] : [])).map((approval) => (
@@ -711,48 +869,69 @@ export function DesktopWorkbench() {
                 </button>
               </section>
             ))}
-          {!display && (
-            <>
-              <VoiceControls
-                onDraft={receiveVoice}
-                prepare={async () => {
-                  if (
-                    !state?.project ||
-                    !(await operate('context', {
-                      projectId: state.project.id,
-                      conversationId: state.selectedThreadId,
-                      selection,
-                      attachments,
-                      text,
-                    }))
-                  )
-                    throw new Error('context_unavailable');
+          {!display && voiceDraft && (
+            <div className="voice-draft">
+              <p>语音转写：{voiceDraft.text}</p>
+              <button
+                type="button"
+                disabled={state?.task?.id === voiceDraft.id}
+                onClick={() => {
+                  if (composer.current) composer.current.open = true;
+                  setText((old) => {
+                    const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
+                    retry.current = { text, id: voiceDraft.id };
+                    return text;
+                  });
                 }}
-              />
-              {voiceDraft && (
-                <div className="voice-draft">
-                  <p>语音转写：{voiceDraft.text}</p>
-                  <button
-                    type="button"
-                    disabled={state?.task?.id === voiceDraft.id}
-                    onClick={() => {
-                      setText((old) => {
-                        const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
-                        retry.current = { text, id: voiceDraft.id };
-                        return text;
-                      });
-                    }}
-                  >
-                    使用转写草稿
-                  </button>
-                  <button type="button" onClick={() => setVoiceDraft(null)}>
-                    忽略转写
-                  </button>
-                </div>
-              )}
-            </>
+              >
+                使用转写草稿
+              </button>
+              <button type="button" onClick={() => setVoiceDraft(null)}>
+                忽略转写
+              </button>
+            </div>
           )}
-          {!display && (
+        </aside>
+      </main>
+      <footer className="live-footer">
+        {display && (
+          <div
+            className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : ''}`}
+          >
+            <span aria-hidden="true">{displayVoice?.status === 'listening' ? '●' : '○'}</span>
+            <strong>
+              {!connected || !displayVoice
+                ? '正在同步麦克风状态'
+                : displayVoice.status === 'listening'
+                  ? '收音中 · 麦克风已开启'
+                  : '麦克风已关闭'}
+            </strong>
+            {displayVoice?.status === 'listening' && (
+              <span>{displayVoice.draft || '正在听取本次指令…'}</span>
+            )}
+          </div>
+        )}
+        {!display && (
+          <VoiceControls
+            onDraft={receiveVoice}
+            prepare={async () => {
+              if (
+                !state?.project ||
+                !(await operate('context', {
+                  projectId: state.project.id,
+                  conversationId: state.selectedThreadId,
+                  selection,
+                  attachments,
+                  text,
+                }))
+              )
+                throw new Error('context_unavailable');
+            }}
+          />
+        )}
+        {!display && (
+          <details className="keyboard-composer" ref={composer}>
+            <summary>文字输入</summary>
             <form onSubmit={submit}>
               {state && (
                 <ModelControls state={state} busy={busy} connected={connected} operate={operate} />
@@ -827,11 +1006,6 @@ export function DesktopWorkbench() {
                   作品已更新，请移除过期标记并重新点选。输入已保留。
                 </p>
               )}
-              {error && (
-                <p className="error" role="alert">
-                  {error}
-                </p>
-              )}
               <div className="live-actions">
                 <button
                   className="send-task"
@@ -851,20 +1025,13 @@ export function DesktopWorkbench() {
                 )}
               </div>
             </form>
-          )}
-        </aside>
-      </main>
-      <footer className="live-footer">
-        <span>
-          {task?.status === 'waiting'
-            ? '等待操作台确认'
-            : running
-              ? task.activity
-              : '准备好后，提交下一轮指令'}
-        </span>
-        <span>
-          {thread?.kind === 'sidechat' ? '只读 Sidechat' : '本机项目 · AirPlay 请在 macOS 连接'}
-        </span>
+          </details>
+        )}
+        {!display && error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
       </footer>
     </div>
   );

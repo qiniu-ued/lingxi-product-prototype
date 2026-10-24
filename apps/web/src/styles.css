@@ -705,12 +705,6 @@ footer {
 .live-approval input {
   width: 100%;
 }
-.live-display .conversation-turn {
-  font-size: 22px;
-}
-.live-display .live-transcript {
-  max-height: 65vh;
-}
 
 .binding-code {
   font-size: 48px;

@@ -51,6 +51,14 @@ const launch = () =>
     },
     timeout: 25000,
   });
+async function expand(page, selector) {
+  const details = page.locator(selector);
+  if (!(await details.evaluate((element) => element.open))) {
+    await details.locator(':scope > summary').focus();
+    await details.locator(':scope > summary').press('Enter');
+  }
+  assert.equal(await details.evaluate((element) => element.open), true);
+}
 try {
   instance = await launch();
   const operator = await instance.firstWindow();
@@ -58,6 +66,12 @@ try {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
   });
   await operator.getByText('本机服务已连接').waitFor();
+  for (const selector of ['.workbench-menu', '.keyboard-composer'])
+    assert.equal(
+      await operator.locator(selector).evaluate((element) => element.open),
+      false,
+      `${selector} must start collapsed`,
+    );
   const address = new URL(operator.url()).origin;
   await operator.getByLabel('模型', { exact: true }).selectOption('test-model');
   await operator.getByLabel('Reasoning Effort', { exact: true }).selectOption('high');
@@ -83,14 +97,21 @@ try {
   }
   const before = await (await fetch(`${address}/api/workbench`)).json();
   assert.ok(before.preview);
-  const previews = await instance.evaluate(({ webContents }) =>
-    webContents
-      .getAllWebContents()
-      .filter((w) => w.getURL().startsWith('lingxi-preview:'))
-      .map((w) => ({ id: w.id, url: w.getURL() })),
-  );
+  let previews = [];
+  for (let attempt = 0; attempt < 100; attempt++) {
+    previews = await instance.evaluate(({ webContents }) =>
+      webContents
+        .getAllWebContents()
+        .filter((w) => w.getURL().startsWith('lingxi-preview:'))
+        .map((w) => ({ id: w.id, url: w.getURL(), loading: w.isLoadingMainFrame() })),
+    );
+    if (previews.length === 1 && previews[0].url === before.preview.url && !previews[0].loading)
+      break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
   assert.equal(previews.length, 1);
   assert.equal(previews[0].url, before.preview.url);
+  assert.equal(previews[0].loading, false);
   const isolation = await instance.evaluate(async ({ webContents }) => {
     const page = webContents
       .getAllWebContents()
@@ -103,6 +124,7 @@ try {
     .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
     .click({ position: { x: 150, y: 65 } });
   await operator.getByRole('button', { name: '清除选择' }).waitFor();
+  await expand(operator, '.keyboard-composer');
   await operator.getByLabel('给 Codex 的本轮指令').fill('vote and type');
   await operator.getByRole('button', { name: '提交给 Codex' }).click();
   let after;
@@ -162,13 +184,16 @@ try {
   // Publish a new revision and prove localStorage continuity across a real document reload.
   const file = join(projectPath, 'preview/index.html');
   await writeFile(file, (await readFile(file, 'utf8')).replace('周末，一起去哪里？', '周末出发'));
+  await expand(operator, '.workbench-menu');
   await operator.getByRole('button', { name: '刷新作品' }).click();
+  await operator.locator('.workbench-menu > summary').press('Enter');
   for (let i = 0; i < 100; i++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
     if (current.preview?.revision > before.preview.revision) break;
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
   assert.equal((await inspect()).count, '1');
+  await expand(operator, '.keyboard-composer');
   await operator.getByLabel('给 Codex 的本轮指令').fill('stale binding check');
   await operator.getByRole('button', { name: '提交给 Codex' }).click();
   for (let i = 0; i < 100; i++) {
@@ -217,6 +242,7 @@ try {
   assert.equal((await inspect()).count, '1');
   // Exercise the new workspace in the actual renderer, not only API fixtures.
   const reopenedAddress = new URL(reopened.url()).origin;
+  await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: '终端', exact: true }).click();
   await reopened.getByRole('button', { name: '打开终端', exact: true }).click();
   await reopened.getByText('项目终端 · running', { exact: false }).waitFor();
@@ -224,6 +250,7 @@ try {
   await reopened.locator('.xterm-helper-textarea').press('Enter');
   await reopened.getByRole('button', { name: '结束终端', exact: true }).click();
   await reopened.getByText('项目终端 · exited', { exact: false }).waitFor();
+  await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: 'Diff', exact: true }).click();
   await reopened.locator('.diff-lines button').filter({ hasText: '+new' }).click();
   await reopened.getByLabel('Diff 评论').fill('请调整这一行');
@@ -233,6 +260,8 @@ try {
     .click();
   await reopened.locator('.context-attachments').getByText('Codex 本轮变更').waitFor();
   await reopened.locator('.context-attachments').getByRole('button', { name: '移除' }).click();
+  await reopened.locator('.keyboard-composer > summary').press('Enter');
+  await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: '预览', exact: true }).click();
   const audioFrame = await reopened.evaluate(async () => {
     const context = new OfflineAudioContext(1, 960, 16000);
@@ -273,6 +302,7 @@ try {
     });
   assert.equal((await connectLive(`${reopenedAddress}/`)).status, 409);
   assert.equal((await connectLive('https://example.com/')).status, 409);
+  await expand(reopened, '.workbench-menu');
   await reopened.getByText('连接项目开发服务器', { exact: true }).click();
   await reopened.getByLabel('项目预览地址').fill(liveUrl);
   await reopened.getByRole('button', { name: '连接预览', exact: true }).click();
@@ -296,6 +326,7 @@ try {
     desktop: 'undefined',
     node: 'undefined',
   });
+  await expand(reopened, '.keyboard-composer');
   await reopened.getByLabel('给 Codex 的本轮指令').fill('vote in live project');
   await reopened.getByRole('button', { name: '提交给 Codex', exact: true }).click();
   for (let attempt = 0; attempt < 150; attempt++) {
@@ -317,6 +348,12 @@ try {
     '1',
     `MCP must act on the exact live project page: ${JSON.stringify(liveState.task)}`,
   );
+  for (const selector of ['.workbench-menu', '.keyboard-composer'])
+    assert.equal(
+      await reopened.locator(selector).evaluate((element) => element.open),
+      false,
+      `${selector} must be collapsed after submission`,
+    );
   const layout = await reopened.evaluate(() => ({
     preview: document.querySelector('.live-viewport').getBoundingClientRect().bottom,
     footer: document.querySelector('.live-footer').getBoundingClientRect().top,
@@ -326,6 +363,125 @@ try {
     layout.preview <= layout.footer,
     `Preview must stay inside its panel: ${JSON.stringify(layout)}`,
   );
+  const agent = await reopened.locator('.live-activity').evaluate((element) => ({
+    open: element.open,
+    height: element.querySelector('summary').getBoundingClientRect().height,
+  }));
+  assert.equal(agent.open, false, 'Actual Agent details must start collapsed');
+  assert.ok(agent.height <= 36, `Agent summary must remain compact: ${JSON.stringify(agent)}`);
+  const steps = await reopened
+    .locator('.conversation-turn details')
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => element.querySelector('summary')?.textContent.startsWith('执行步骤'))
+        .map((element) => element.open),
+    );
+  assert.ok(steps.length > 0, 'Fixture execution steps must be present');
+  assert.ok(
+    steps.every((open) => !open),
+    'Execution steps must start collapsed',
+  );
+  const displayPage = (await instance.windows()).find(
+    (page) => new URL(page.url()).pathname === '/display',
+  );
+  assert.ok(displayPage);
+  for (const [width, height] of [
+    [1440, 940],
+    [998, 767],
+    [907, 683],
+  ]) {
+    await instance.evaluate(
+      ({ BrowserWindow }, size) => {
+        for (const window of BrowserWindow.getAllWindows()) window.setContentSize(...size);
+      },
+      [width, height],
+    );
+    await displayPage.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    const expectedBounds = await displayPage.locator('.live-viewport').evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: Math.floor(bounds.width),
+        height: Math.floor(bounds.height),
+      };
+    });
+    const expectedImage = await reopened.evaluate(async () => {
+      const snapshot = await window.lingxiDesktop.snapshot();
+      const image = new Image();
+      image.src = `data:image/png;base64,${snapshot.image}`;
+      await image.decode();
+      return {
+        width: snapshot.width,
+        height: snapshot.height,
+        pixelWidth: image.naturalWidth,
+        pixelHeight: image.naturalHeight,
+      };
+    });
+    const pixelRatio = await displayPage.evaluate(() => devicePixelRatio);
+    assert.equal(expectedImage.width, Math.round(expectedBounds.width * pixelRatio));
+    assert.equal(expectedImage.height, Math.round(expectedBounds.height * pixelRatio));
+    await reopened.waitForFunction(
+      ({ pixelWidth, pixelHeight }) => {
+        const image = document.querySelector('.preview-pick img');
+        return image?.naturalWidth === pixelWidth && image?.naturalHeight === pixelHeight;
+      },
+      expectedImage,
+      { timeout: 5000 },
+    );
+    for (const [name, page] of [
+      ['operator', reopened],
+      ['display', displayPage],
+    ]) {
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      const current = await page.evaluate(() => ({
+        width: innerWidth,
+        height: innerHeight,
+        bodyWidth: document.body.scrollWidth,
+        bodyHeight: document.body.scrollHeight,
+        preview: document.querySelector('.live-viewport').getBoundingClientRect().bottom,
+        footer: document.querySelector('.live-footer').getBoundingClientRect().top,
+        imageWidth: document.querySelector('.preview-pick img')?.naturalWidth,
+        imageHeight: document.querySelector('.preview-pick img')?.naturalHeight,
+      }));
+      assert.ok(
+        current.preview <= current.footer &&
+          current.bodyWidth <= current.width &&
+          current.bodyHeight <= current.height,
+        `Desktop ${name} must fit one screen: ${JSON.stringify(current)}`,
+      );
+      const screenshotPath = join(root, `.local/desktop-${name}-${width}x${height}.png`);
+      await page.screenshot({ path: screenshotPath });
+      if (name === 'display') {
+        const native = await instance.evaluate(async ({ BrowserWindow }, url) => {
+          const window = BrowserWindow.getAllWindows().find(
+            (value) => new URL(value.webContents.getURL()).pathname === '/display',
+          );
+          const view = window.contentView.children.find(
+            (value) => value.webContents?.getURL() === url,
+          );
+          return {
+            bounds: view.getBounds(),
+            image: (await view.webContents.capturePage()).toPNG().toString('base64'),
+          };
+        }, liveUrl);
+        assert.deepEqual(
+          native.bounds,
+          expectedBounds,
+          'Native preview must match its visible panel',
+        );
+        await writeFile(
+          join(root, `.local/desktop-preview-${width}x${height}.png`),
+          Buffer.from(native.image, 'base64'),
+        );
+      }
+      console.log(`Desktop ${name} ${width}x${height}: ${JSON.stringify(current)}`);
+    }
+  }
   await reopened.goto(`${reopenedAddress}/setup`);
   await reopened
     .getByRole('button', { name: /配置灵矽/ })

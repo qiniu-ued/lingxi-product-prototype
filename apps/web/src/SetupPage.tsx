@@ -8,11 +8,13 @@ import {
   type SetupInspection,
   type SetupStatus,
   setupInspectionSchema,
+  setupIssues,
+  type VoiceState,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { VoiceControls } from './VoiceControls';
 
-const steps = ['配置 Codex', '配置灵矽'];
+const steps = ['配置 Codex', '配置灵矽', '配置唤醒模型'];
 const finished = (action: CodexSetupAction) =>
   ['succeeded', 'failed', 'cancelled'].includes(action.state);
 const codexMessages: Record<CodexCheck['status'], { title: string; detail: string }> = {
@@ -100,7 +102,17 @@ async function readCheck(signal?: AbortSignal) {
   return codexCheckSchema.parse(await response.json());
 }
 
-export function SetupPage() {
+export function SetupPage({
+  initialInspection = null,
+  onContinue,
+}: {
+  initialInspection?: SetupInspection | null;
+  onContinue: () => void;
+}) {
+  const seeded = useRef(initialInspection);
+  const [wake, setWake] = useState<SetupInspection['wake']>(null);
+  const [microphone, setMicrophone] = useState<SetupInspection['microphone']>('unknown');
+  const modelObserved = useRef(false);
   const [step, setStep] = useState(0);
   const [desktopInfo, setDesktopInfo] = useState<{
     platform: string;
@@ -123,33 +135,70 @@ export function SetupPage() {
   const openedUrl = useRef('');
   const busy = submitting || !!(action && !finished(action));
 
-  const inspectEnvironment = useCallback(async (signal?: AbortSignal) => {
+  const inspectEnvironment = useCallback(async (signal?: AbortSignal, selectStep = true) => {
     setLoading(true);
     setError('');
     try {
-      const [hostResponse, actionResponse] = await Promise.all([
-        fetch('/api/setup/check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-          signal: signal ?? AbortSignal.timeout(25000),
-        }),
+      const [inspection, actionResponse] = await Promise.all([
+        seeded.current
+          ? Promise.resolve(seeded.current)
+          : fetch('/api/setup/check', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: '{}',
+              signal: signal ?? AbortSignal.timeout(25000),
+            }).then(async (response) => {
+              if (!response.ok) throw new Error('setup unavailable');
+              return setupInspectionSchema.parse(await response.json());
+            }),
         fetch('/api/setup/codex/action', { cache: 'no-store', ...(signal ? { signal } : {}) }),
       ]);
-      if (!hostResponse.ok || !actionResponse.ok) throw new Error('setup unavailable');
-      const inspection = setupInspectionSchema.parse(await hostResponse.json());
+      if (!actionResponse.ok) throw new Error('setup unavailable');
+      if (signal?.aborted) return;
+      seeded.current = null;
       const current = codexSetupStateSchema.parse(await actionResponse.json()).action;
       setRuntime(inspection.environment);
       setLingxi(inspection.lingxi);
+      setWake(inspection.wake);
+      setMicrophone(inspection.microphone);
       setCheck(inspection.codex);
       setAction(current && !finished(current) ? current : null);
-      setStep(inspection.codex.status === 'ready' ? 1 : 0);
+      if (selectStep)
+        setStep(
+          inspection.codex.status !== 'ready'
+            ? 0
+            : inspection.lingxi.status !== 'configured'
+              ? 1
+              : 2,
+        );
     } catch {
       if (!signal?.aborted) setError('未收到检测结果，请确认本地服务仍在运行后重试。');
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
   }, []);
+  const voiceChanged = useCallback(
+    (value: VoiceState) => {
+      if (value.wake.installed && !modelObserved.current) {
+        modelObserved.current = true;
+        void inspectEnvironment(undefined, false);
+      }
+    },
+    [inspectEnvironment],
+  );
+  const allReady =
+    runtime &&
+    check &&
+    lingxi &&
+    !setupIssues({ environment: runtime, codex: check, lingxi, wake, microphone }).length;
+  async function requestMicrophone() {
+    try {
+      if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission denied');
+      await inspectEnvironment(undefined, false);
+    } catch {
+      setError('系统尚未允许麦克风，请在系统设置 → 隐私与安全性 → 麦克风中检查 Lingxi。');
+    }
+  }
   useEffect(() => {
     const controller = new AbortController();
     void inspectEnvironment(controller.signal);
@@ -287,25 +336,34 @@ export function SetupPage() {
   return (
     <div className="workbench setup">
       <header className="topbar">
-        <a className="brand" href="/">
+        <a
+          className="brand"
+          href="/"
+          onClick={(event) => {
+            event.preventDefault();
+            onContinue();
+          }}
+        >
           <span className="brand-mark">灵</span>
           <span>
             灵矽 <span className="brand-detail">/ 连接向导</span>
           </span>
         </a>
-        <a className="button secondary" href="/">
-          返回工作台
-        </a>
+        <button className="button secondary" type="button" onClick={onContinue}>
+          {allReady ? '进入工作台' : '暂时用文字进入工作台'}
+        </button>
       </header>
       <section className="intro">
         <p className="eyebrow">连接你的工具</p>
         <h1>先检查，再配置。</h1>
-        <p className="intro-detail">根据这台电脑的实际状态，准备 Codex 和灵矽。</p>
+        <p className="intro-detail">
+          根据这台电脑的实际状态，准备 Codex、灵矽、唤醒模型与麦克风权限。
+        </p>
       </section>
       {loading ? (
         <div className="panel setup-result" role="status">
-          <strong>正在检查 Codex 和灵矽…</strong>
-          <p>检查本地环境与两项集成的可检测状态，不安装软件或发起登录。</p>
+          <strong>正在检查 Codex、灵矽和语音唤醒…</strong>
+          <p>检查本地配置、模型文件和原生检测库，不自动下载、登录、连接语音或打开麦克风。</p>
         </div>
       ) : !runtime || (!check && (!action || finished(action))) ? (
         <div className="panel setup-result">
@@ -336,8 +394,8 @@ export function SetupPage() {
             )}
             <p>
               {runtime.capabilities.codexTasks
-                ? '桌面版已提供 Codex 任务与共享预览。灵矽语音控制待接入。'
-                : '当前浏览器入口可保存建议和同步大屏。执行 Codex 任务请使用桌面版；灵矽语音待接入。'}
+                ? '桌面版支持 Codex、共享预览与灵矽语音；检查通过后仍需明确开启收音或唤醒。'
+                : '当前浏览器入口可保存建议和同步大屏。执行任务、语音和本地唤醒请使用桌面版。'}
             </p>
           </div>
           <section className="setup-overview" aria-label="环境检查结果">
@@ -353,11 +411,34 @@ export function SetupPage() {
                   ? '灵矽配置已保存'
                   : lingxi?.status === 'not-configured'
                     ? '需要绑定灵矽设备'
-                    : '需在桌面版检测灵矽'}
+                    : lingxi?.reason === 'secure-storage-unavailable'
+                      ? '无法读取灵矽本机配置'
+                      : '需在桌面版检测灵矽'}
               </h2>
               <p>检查仅读取本机配置，不上传声音、不申请绑定码。连接服务与收音都需要主动点击。</p>
             </div>
+            <div className="panel">
+              <p className="eyebrow">语音唤醒</p>
+              <h2>
+                {wake?.status === 'ready'
+                  ? '唤醒模型检查通过'
+                  : wake?.reason === 'native-unavailable'
+                    ? '唤醒检测库不可用'
+                    : wake?.reason === 'desktop-required'
+                      ? '需在桌面版检测唤醒'
+                      : '需要下载唤醒模型'}
+              </h2>
+              <p>约 33 MB，下载一次后在本机检测“丽塔同学”；检查本身不下载模型、不打开麦克风。</p>
+            </div>
           </section>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={busy}
+            onClick={() => void inspectEnvironment(undefined, false)}
+          >
+            重新检查全部配置
+          </button>
           <main className="setup-layout">
             <nav className="setup-steps" aria-label="连接步骤">
               {steps.map((title, index) => (
@@ -373,7 +454,9 @@ export function SetupPage() {
               ))}
             </nav>
             <section className="panel setup-content" aria-labelledby="setup-step-title">
-              <p className="eyebrow">步骤 {step + 1} / 2</p>
+              <p className="eyebrow">
+                步骤 {step + 1} / {steps.length}
+              </p>
               <h2 id="setup-step-title">{steps[step]}</h2>
               {step === 0 ? (
                 <>
@@ -497,9 +580,9 @@ export function SetupPage() {
                     Codex 官方接入说明
                   </ExternalLink>
                 </>
-              ) : (
+              ) : step === 1 ? (
                 <>
-                  <VoiceControls configuration />
+                  <VoiceControls configuration variant="connection" />
                   <p>
                     首次使用先完成官方账号与智能体配置，再按向导申请激活码。不需要单独安装音频客户端。
                   </p>
@@ -507,21 +590,63 @@ export function SetupPage() {
                     官方设备绑定协议
                   </ExternalLink>
                 </>
+              ) : (
+                <>
+                  <p>
+                    先下载本地模型，再确认麦克风权限。不会自动开启待唤醒；完成后回工作台主动开启。
+                  </p>
+                  {wake?.reason === 'native-unavailable' && (
+                    <p role="alert">
+                      模型文件存在，但本机检测库未能加载。请重新安装对应架构的桌面包；从源码运行时重新执行
+                      npm ci 后重启，再复查。
+                    </p>
+                  )}
+                  <VoiceControls configuration variant="wake" onState={voiceChanged} />
+                  <h3>麦克风权限</h3>
+                  <p role="status">
+                    {microphone === 'granted'
+                      ? '麦克风权限已允许，当前不会自动收音。'
+                      : microphone === 'not-determined'
+                        ? '尚未请求麦克风权限；可现在授权，也可首次收音时授权。'
+                        : ['denied', 'restricted'].includes(microphone)
+                          ? '麦克风权限被系统阻止，请在系统设置 → 隐私与安全性 → 麦克风中允许 Lingxi。'
+                          : '尚未确认麦克风权限，请在桌面版检查。'}
+                  </p>
+                  {window.lingxiDesktop && microphone !== 'granted' && (
+                    <button
+                      className="button secondary"
+                      type="button"
+                      onClick={() => void requestMicrophone()}
+                    >
+                      授权麦克风
+                    </button>
+                  )}
+                  {error && <p role="alert">{error}</p>}
+                </>
               )}
               <div className="setup-pagination">
-                {step === 0 ? (
-                  <button className="button secondary" type="button" onClick={() => setStep(1)}>
-                    下一步：配置灵矽
+                {step > 0 && (
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setStep(step - 1)}
+                  >
+                    上一步
                   </button>
-                ) : (
-                  <>
-                    <button className="button secondary" type="button" onClick={() => setStep(0)}>
-                      上一步
-                    </button>
-                    <a className="button secondary" href="/">
-                      回到工作台
-                    </a>
-                  </>
+                )}
+                {step < steps.length - 1 && (
+                  <button
+                    className="button secondary"
+                    type="button"
+                    onClick={() => setStep(step + 1)}
+                  >
+                    下一步：{steps[step + 1]}
+                  </button>
+                )}
+                {step === steps.length - 1 && (
+                  <button className="button secondary" type="button" onClick={onContinue}>
+                    {allReady ? '进入工作台' : '暂时用文字进入工作台'}
+                  </button>
                 )}
               </div>
             </section>

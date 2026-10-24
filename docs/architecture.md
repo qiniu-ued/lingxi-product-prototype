@@ -34,7 +34,7 @@ Codex 使用常驻 App Server 连接的线程/任务接口，默认 Manual（`wo
 | `POST /mcp/preview`                                           | 独立 Bearer 认证的有限 MCP；令牌每次启动生成，不给网页 |
 | `GET /api/session`、`POST /api/commands`                      | 原浏览器基础模式建议保存、去重与版本冲突               |
 | `GET /api/events`                                             | 基础模式 `session.snapshot` SSE                        |
-| `GET /api/setup`、`POST /api/setup/check`                     | 环境与两项集成的只读检查；灵矽只读检查本机加密配置     |
+| `GET /api/setup`、`POST /api/setup/check`                     | Codex/灵矽/唤醒/麦克风只读配置检查                     |
 | `GET/POST /api/setup/codex/action`                            | 查询或显式 install/latest、官方 login 动作             |
 | `POST /api/setup/codex/cancel`、`POST /api/setup/codex/check` | 有界取消与独立只读 Codex 检查                          |
 
@@ -73,3 +73,5 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 历史选段作为现有 text 附件进入草稿，不扩展持久 Task。选段 Sidechat 的 fork 请求额外携带来源任务、消息与原文，服务端核对当前项目/对话，连接取得后再次检查上下文；仅创建截至来源轮次的只读对话，不自动执行模型。各项目/对话的草稿只保存在页面内存，异步操作写入原定目标。详见 [ADR 0008](adr/0008-history-quotes-and-drafts.md)。
 
 本地检测 Worker、固定模型下载、麦克风生命周期与双端上下文详情命令见 [ADR 0009](adr/0009-local-wake-and-context-controls.md)。模型按需存于用户数据目录，启用状态不持久化；公开 VoiceState 增加默认值，旧 VoiceConfig 与工作区持久格式不变。
+
+桌面启动门控、三步向导、显式继续与只读原生/权限检查见 [ADR 0010](adr/0010-startup-configuration-checks.md)。OpenCode / DeepSeek Harness 的后续适配边界见[多引擎评估](multi-engine-options.md)，当前尚未实现这些后端。

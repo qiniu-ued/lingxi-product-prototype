@@ -120,6 +120,30 @@ async function open(
     },
     { snapshot: JSON.stringify(state) },
   );
+  await page.route('**/api/setup/check', (route) =>
+    route.fulfill({
+      json: {
+        environment: {
+          checkedAt: new Date().toISOString(),
+          host: { platform: 'darwin', arch: 'arm64', nodeVersion: '24.11.0', nodeSupported: true },
+          capabilities: { codexTasks: true, lingxiVoice: true },
+        },
+        codex: {
+          checkedAt: new Date().toISOString(),
+          status: 'ready',
+          cliVersion: '0.999.0',
+          authentication: 'chatgpt',
+        },
+        lingxi: {
+          checkedAt: new Date().toISOString(),
+          status: 'configured',
+          reason: 'configuration-saved',
+        },
+        wake: { checkedAt: new Date().toISOString(), status: 'ready', reason: 'model-ready' },
+        microphone: 'granted',
+      },
+    }),
+  );
   await page.route('**/api/workbench/models', (route) => {
     return route.fulfill(
       failModels ? { status: 503, json: { error: 'unavailable' } } : { json: models },

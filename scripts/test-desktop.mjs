@@ -83,6 +83,9 @@ try {
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
   });
+  await operator.getByRole('heading', { name: '先检查，再配置。', exact: true }).waitFor();
+  assert.equal(new URL(operator.url()).pathname, '/setup');
+  await operator.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await operator.getByText('本机服务已连接').waitFor();
   for (const selector of ['.workbench-menu', '.keyboard-composer'])
     assert.equal(
@@ -283,7 +286,11 @@ try {
   const persistent = records.filter((r) => r.pid && r.cwd === canonicalProject);
   const probes = records.filter((r) => r.pid && r.cwd !== canonicalProject);
   assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
-  assert.equal(probes.length, 1, 'Explicit verification must use its own temporary connection');
+  assert.equal(
+    probes.length,
+    2,
+    'Startup diagnostics and explicit verification must use separate temporary connections',
+  );
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)
     assert.throws(() => process.kill(item.pid, 0), 'Verification peer must already be stopped');
@@ -296,6 +303,7 @@ try {
   );
   instance = await launch();
   const reopened = await instance.firstWindow();
+  await reopened.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await reopened.getByText('本机服务已连接').waitFor();
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
@@ -552,6 +560,14 @@ try {
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
+  await reopened
+    .getByRole('navigation', { name: '连接步骤' })
+    .getByRole('button', { name: /配置唤醒模型/ })
+    .click();
+  await reopened
+    .getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true })
+    .waitFor();
+  await reopened.screenshot({ path: join(root, '.local/wake-setup-smoke.png') });
   console.log(
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, shutdown and restart. Screenshot: ${screenshot}`,
   );

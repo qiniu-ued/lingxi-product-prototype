@@ -55,7 +55,7 @@ test('one inspection reports both tools before offering only the missing steps',
   });
   await page.goto('/');
   await page.getByRole('link', { name: '连接向导', exact: true }).click();
-  await expect(page.getByText('正在检查 Codex 和灵矽…', { exact: true })).toBeVisible();
+  await expect(page.getByText('正在检查 Codex、灵矽和语音唤醒…', { exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: '连接步骤' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toHaveCount(0);
   release();
@@ -65,7 +65,7 @@ test('one inspection reports both tools before offering only the missing steps',
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: '连接步骤' }).getByRole('button')).toHaveCount(
-    2,
+    3,
   );
   await expect(page.getByText('git clone', { exact: false })).toHaveCount(0);
   await page.getByText('使用终端配置或排查问题', { exact: true }).click();
@@ -146,7 +146,7 @@ test('opens only the official OAuth URL and reports verified login completion', 
   current = { ...fixtureAction('login', 'succeeded'), check: check('ready') };
   await expect(page.getByText('官方授权已完成，认证配置复查通过。')).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
-  await page.getByRole('link', { name: '返回工作台', exact: true }).click();
+  await page.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await expect(page.getByText('Codex 待连接', { exact: true })).toBeVisible();
 });
 

@@ -26,11 +26,20 @@ it('converts Chinese wake phrases to validated model phonemes and rejects unsupp
 it('requires the pinned model marker and all assets, and reuses an installed model offline', async () => {
   const model = await setup();
   expect(await model.installed()).toBe(false);
+  expect((await model.check()).reason).toBe('model-missing');
   await mkdir(join(model.root, modelName));
   await writeFile(join(model.root, 'installed'), modelDigest);
   expect(await model.installed()).toBe(false);
   for (const file of modelFiles) await writeFile(join(model.root, modelName, file), 'test');
   expect(await model.installed()).toBe(true);
+  expect(await new WakeModel(model.root, async () => true).check()).toMatchObject({
+    status: 'ready',
+    reason: 'model-ready',
+  });
+  expect(await new WakeModel(model.root, async () => false).check()).toMatchObject({
+    status: 'unavailable',
+    reason: 'native-unavailable',
+  });
   const fetcher = vi.fn();
   vi.stubGlobal('fetch', fetcher);
   await model.install();

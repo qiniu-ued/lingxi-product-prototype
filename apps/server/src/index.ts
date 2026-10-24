@@ -35,6 +35,13 @@ process.on('message', (message) => {
     message &&
     typeof message === 'object' &&
     'channel' in message &&
+    message.channel === 'desktop.voice-resume'
+  )
+    void app.voice.startAutoConnection(true);
+  if (
+    message &&
+    typeof message === 'object' &&
+    'channel' in message &&
     message.channel === 'desktop.audio' &&
     'pcm' in message &&
     typeof message.pcm === 'string'
@@ -72,4 +79,5 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   });
 }
 await app.listen({ host: '127.0.0.1', port: Number(process.env.PORT ?? 4310) });
+if (desktop) void app.voice.startAutoConnection();
 process.send?.({ channel: 'desktop.ready', port: (app.server.address() as { port: number }).port });

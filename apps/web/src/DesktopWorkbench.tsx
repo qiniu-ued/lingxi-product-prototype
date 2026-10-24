@@ -18,7 +18,7 @@ import { ModelControls } from './ModelControls';
 import { SettingsLink, SetupLink } from './Navigation';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
-import { VoiceControls, voicePresentation } from './VoiceControls';
+import { VoiceControls, voiceConnectionLabel, voicePresentation } from './VoiceControls';
 import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -1140,6 +1140,9 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
             <strong>
               {!connected || !displayVoice ? '正在同步麦克风状态' : displayVoiceStatus.label}
             </strong>
+            <small role="status" aria-label="语音服务连接状态">
+              {voiceConnectionLabel(displayVoice)}
+            </small>
             {displayVoice?.status === 'listening' && (
               <span>{displayVoice.draft || '正在听取本次指令…'}</span>
             )}

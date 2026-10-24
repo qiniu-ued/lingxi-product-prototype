@@ -84,6 +84,7 @@ function windowOptions() {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required' as const,
     },
   };
 }
@@ -417,6 +418,10 @@ else {
           ? systemPreferences.askForMediaAccess('microphone')
           : true;
       });
+      ipcMain.handle('desktop.microphone-status', (event) => {
+        trusted(event);
+        return desktopCall('microphone-status', {});
+      });
       ipcMain.handle('desktop.copy', (event, input) => {
         trusted(event);
         if (event.sender !== operator?.webContents) throw new Error('operator_required');
@@ -524,6 +529,7 @@ else {
       operator.show();
       operator.focus();
       powerMonitor.on('suspend', () => child?.send?.({ channel: 'desktop.voice-stop' }));
+      powerMonitor.on('resume', () => child?.send?.({ channel: 'desktop.voice-resume' }));
       const state = (await (await fetch(`${address}/api/workbench`)).json()) as {
         project: unknown;
       };

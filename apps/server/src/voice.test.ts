@@ -9,6 +9,7 @@ import {
 import { afterEach, expect, it, vi } from 'vitest';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { VoiceService } from './voice.js';
+import { WakePreferences } from './wake-preferences.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -20,15 +21,37 @@ async function create(
   allowed = true,
   wake?: NonNullable<ConstructorParameters<typeof VoiceService>[0]['wake']>,
   reset?: () => Promise<void>,
+  preferences?: WakePreferences,
+  permission = 'granted',
+  connectionPreferences?: WakePreferences,
 ) {
-  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
+  let deniedAuthentication = false,
+    connections = 0;
+  const server = new WebSocketServer({
+    host: '127.0.0.1',
+    port: 0,
+    verifyClient: (_info, done) => {
+      if (deniedAuthentication) done(false, 401);
+      else done(true);
+    },
+  });
   await new Promise<void>((resolve) => server.once('listening', resolve));
   let peer: WebSocket | undefined;
+  let accepting = true,
+    pings = 0;
   const frames: unknown[] = [],
     audio: unknown[] = [];
   let headers: Record<string, unknown> = {};
   server.on('connection', (socket, request) => {
+    connections++;
+    if (!accepting) {
+      socket.terminate();
+      return;
+    }
     peer = socket;
+    socket.on('ping', () => {
+      pings++;
+    });
     headers = request.headers;
     socket.on('message', (data, binary) => {
       if (binary) {
@@ -77,6 +100,8 @@ async function create(
       state = { ...state, settings: { ...state.settings, plan: input.mode === 'plan' } };
   });
   const voice = new VoiceService({
+    ...(preferences ? { wakePreferences: preferences } : {}),
+    ...(connectionPreferences ? { connectionPreferences } : {}),
     ...(wake ? { wake } : {}),
     testEndpoint: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
     workbench: {
@@ -101,6 +126,7 @@ async function create(
     desktop: {
       async call(method, params) {
         native.push({ method, params });
+        if (method === 'microphone-status') return permission;
         if (method === 'voice-config-read') return config ?? null;
         if (method === 'voice-config-save') config = params as VoiceConfig;
         if (method === 'voice-audio' && (params as { reset?: boolean })?.reset) await reset?.();
@@ -109,7 +135,7 @@ async function create(
     },
   });
   cleanup.push(async () => {
-    voice.disconnect();
+    voice.close();
     for (const socket of server.clients) socket.terminate();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
@@ -132,6 +158,18 @@ async function create(
   };
   return {
     voice,
+    drop: () => peer?.terminate(),
+    connections: () => connections,
+    denyAuthentication: () => {
+      deniedAuthentication = true;
+    },
+    removeConfiguration: () => {
+      config = undefined;
+    },
+    setAccepting: (accept: boolean) => {
+      accepting = accept;
+    },
+    pingCount: () => pings,
     send,
     sendBinary: (value: Buffer) => peer?.send(value),
     call,
@@ -637,7 +675,7 @@ it('allows an explicit spoken close without task permission and never reopens af
   expect(f.start).not.toHaveBeenCalled();
   f.send({ type: 'tts', state: 'start' });
   await new Promise((resolve) => setImmediate(resolve));
-  expect(f.voice.read().status).toBe('ready');
+  expect(f.voice.read().status).toBe('disconnected');
   await f.voice.command({ action: 'disconnect' });
   await f.voice.command({ action: 'connect' });
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
@@ -668,8 +706,220 @@ it('does not reopen a capture whose audio setup finishes after an explicit close
   await Promise.all([rejected, stopping]);
   expect(f.voice.read()).toMatchObject({
     conversationActive: false,
-    status: 'ready',
+    status: 'disconnected',
     captureId: null,
   });
   expect(f.start).not.toHaveBeenCalled();
+});
+it('starts local default wake without connecting or uploading and requires existing microphone authorization', async () => {
+  const wake = wakePeer(),
+    prefs = new WakePreferences(null),
+    f = await create('pcm', false, wake, undefined, prefs);
+  await f.voice.inspect();
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+  expect(f.voice.read()).toMatchObject({
+    status: 'disconnected',
+    wake: { status: 'armed', keyword: '丽塔同学' },
+  });
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.frames).toHaveLength(0);
+  expect(f.audio).toHaveLength(0);
+  expect(f.start).not.toHaveBeenCalled();
+  wake.detect();
+  expect(f.voice.read().wake.status).toBe('detected');
+  expect(f.frames).toHaveLength(0);
+  await f.voice.command({ action: 'dismiss-wake' });
+  expect(f.voice.read().wake.status).toBe('armed');
+  await f.voice.command({ action: 'pause-voice', suspend: false });
+  expect(prefs.read().enabled).toBe(true);
+  await f.voice.command({ action: 'stop-wake' });
+  expect(prefs.read()).toMatchObject({ enabled: false, source: 'user' });
+  await expect(
+    f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true }),
+  ).rejects.toThrow('wake_auto_not_ready');
+});
+it('refuses automatic wake for denied permission, legacy intent or suspended audio without creating a provider session', async () => {
+  for (const [prefs, permission] of [
+    [new WakePreferences(null), 'denied'],
+    [new WakePreferences(null, true), 'granted'],
+  ] as const) {
+    const wake = wakePeer(),
+      f = await create('pcm', true, wake, undefined, prefs, permission);
+    await expect(
+      f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true }),
+    ).rejects.toThrow('wake_auto_not_ready');
+    expect(wake.start).not.toHaveBeenCalled();
+    expect(f.frames).toHaveLength(0);
+  }
+  const prefs = new WakePreferences(null),
+    wake = wakePeer(),
+    f = await create('pcm', true, wake, undefined, prefs);
+  await f.voice.command({ action: 'pause-voice' });
+  await expect(
+    f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true }),
+  ).rejects.toThrow('wake_auto_not_ready');
+  await f.voice.command({ action: 'wake-auto', enabled: true });
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+  expect(f.voice.read().wake.status).toBe('armed');
+});
+it('connects a configured device on startup and keeps quiet sessions alive using ping, without PCM upload', async () => {
+  const f = await create(
+    'pcm',
+    false,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  vi.useFakeTimers();
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  for (let i = 0; i < 3; i++) {
+    await vi.advanceTimersByTimeAsync(20000);
+    await vi.waitFor(() => expect(f.pingCount()).toBeGreaterThan(i));
+  }
+  expect(f.voice.read().status).toBe('ready');
+  expect(f.audio).toHaveLength(0);
+  expect(f.start).not.toHaveBeenCalled();
+  f.voice.close();
+  await vi.advanceTimersByTimeAsync(120000);
+  await f.voice.startAutoConnection();
+  expect(f.connections()).toBe(1);
+});
+it('backs off after an unexpected drop and cancels retries after the user disconnects', async () => {
+  const prefs = new WakePreferences(null),
+    f = await create('pcm', true, undefined, undefined, undefined, 'granted', prefs);
+  vi.useFakeTimers();
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.drop();
+  await vi.waitFor(() => expect(f.voice.read().connection.nextRetryAt).not.toBeNull());
+  expect(f.voice.read().connection.attempt).toBe(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.connections()).toBe(2);
+  await f.voice.command({ action: 'disconnect' });
+  expect(prefs.read().enabled).toBe(false);
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.connections()).toBe(2);
+  expect(f.voice.read().status).toBe('disconnected');
+  expect(f.audio).toHaveLength(0);
+});
+it('limits consecutive failures and requires explicit recovery instead of retrying densely forever', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  f.setAccepting(false);
+  vi.useFakeTimers();
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().connection.attempt).toBe(1));
+  for (const [index, delay] of [1000, 2000, 4000, 8000, 16000, 30000].entries()) {
+    await vi.advanceTimersByTimeAsync(delay);
+    await vi.waitFor(() => expect(f.voice.read().connection.attempt).toBe(Math.min(index + 2, 6)));
+  }
+  await vi.waitFor(() => expect(f.voice.read().connection.exhausted).toBe(true));
+  expect(f.connections()).toBe(7);
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.connections()).toBe(7);
+  f.setAccepting(true);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().connection.exhausted).toBe(false);
+});
+it('does not retry authentication failure or manufacture a binding for a missing configuration', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  f.denyAuthentication();
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read().error).toContain('认证未通过');
+  expect(f.voice.read().connection.nextRetryAt).toBeNull();
+  const missing = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  missing.removeConfiguration();
+  await missing.voice.startAutoConnection();
+  expect(missing.voice.read()).toMatchObject({ configured: false, status: 'disconnected' });
+  expect(missing.connections()).toBe(0);
+});
+it('a transport failure or explicit service disconnect does not upload idle wake audio or replay a capture', async () => {
+  const wake = wakePeer(),
+    prefs = new WakePreferences(null),
+    connectionPrefs = new WakePreferences(null);
+  const f = await create('pcm', true, wake, undefined, prefs, 'granted', connectionPrefs);
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+  f.drop();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read().wake.status).toBe('armed');
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.audio).toHaveLength(0);
+  expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'retry-connection' });
+  expect(f.voice.read()).toMatchObject({ status: 'disconnected', wake: { status: 'armed' } });
+  expect(connectionPrefs.read().enabled).toBe(false);
+  expect(prefs.read().enabled).toBe(true);
+  await f.voice.command({ action: 'stop-session' });
+  expect(prefs.read().enabled).toBe(false);
+  expect(f.voice.read().wake.status).toBe('off');
+});
+
+it('coalesces simultaneous startup connection requests without closing the owned socket', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  await Promise.all([f.voice.startAutoConnection(), f.voice.startAutoConnection()]);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.connections()).toBe(1);
+  expect(f.audio).toHaveLength(0);
+});
+it('closes capture and service even when saving the wake off choice fails', async () => {
+  const prefs = new WakePreferences(null),
+    connection = new WakePreferences(null);
+  const f = await create('pcm', true, wakePeer(), undefined, prefs, 'granted', connection);
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+  vi.spyOn(prefs, 'save').mockImplementation(() => {
+    throw new Error('unwritable');
+  });
+  await expect(f.voice.command({ action: 'stop-session' })).rejects.toThrow();
+  expect(f.voice.read()).toMatchObject({
+    status: 'disconnected',
+    wake: { status: 'off' },
+    wakeAutoSuspended: true,
+    connectionPreference: { enabled: false },
+  });
+  await f.voice.startAutoConnection();
+  expect(f.connections()).toBe(1);
 });

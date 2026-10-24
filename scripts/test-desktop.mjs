@@ -688,13 +688,13 @@ try {
     transcript: document.querySelector('.live-transcript').getBoundingClientRect().height,
     viewport: innerHeight,
   }));
+  await recovery.screenshot({ path: join(root, '.local/desktop-questions.png') });
   assert.ok(
     questionLayout.approvals <= questionLayout.viewport * 0.4 + 1 &&
       questionLayout.transcript >= 80,
     `Parallel questions must leave readable conversation space: ${JSON.stringify(questionLayout)}`,
   );
   // Controlled App Server peer states, not evidence of real model/provider execution.
-  await recovery.screenshot({ path: join(root, '.local/desktop-questions.png') });
   await questions.nth(0).getByRole('button', { name: '提交回答' }).click();
   await recovery.waitForFunction(() => document.querySelectorAll('.live-approval').length === 1);
   assert.equal(
@@ -845,6 +845,16 @@ try {
   const empty = await instance.firstWindow();
   await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
+  const freshAddress = new URL(empty.url()).origin;
+  const freshVoice = await (await fetch(`${freshAddress}/api/voice`)).json();
+  assert.deepEqual(freshVoice.wakePreference, { version: 1, enabled: true, source: 'default' });
+  assert.equal(freshVoice.wake.keyword, '丽塔同学');
+  assert.equal(freshVoice.wake.status, 'off', 'A missing model must prevent automatic capture');
+  assert.ok(
+    ['granted', 'denied', 'restricted', 'not-determined', 'unknown'].includes(
+      await empty.evaluate(() => window.lingxiDesktop.microphoneStatus()),
+    ),
+  );
   await empty.waitForLoadState('load');
   await empty.route('**/api/voice', (route) =>
     route.fulfill({
@@ -876,6 +886,27 @@ try {
   assert.ok(
     (await instance.windows()).some((page) => page.url().endsWith('/display')),
     'A fresh installation must open the display without a project or AirPlay',
+  );
+  const off = await fetch(`${freshAddress}/api/voice/command`, {
+    method: 'POST',
+    headers: { Origin: freshAddress, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'wake-auto', enabled: false }),
+  });
+  assert.equal(off.status, 200);
+  await instance.close();
+  instance = await launch('rich', emptyData);
+  const restartedPreference = await instance.firstWindow();
+  await restartedPreference
+    .getByRole('heading', { name: '先检查，再配置。', exact: true })
+    .waitFor();
+  const restartedVoice = await (
+    await fetch(`${new URL(restartedPreference.url()).origin}/api/voice`)
+  ).json();
+  assert.deepEqual(restartedVoice.wakePreference, { version: 1, enabled: false, source: 'user' });
+  assert.equal(restartedVoice.wake.status, 'off');
+  await assert.rejects(
+    readFile(join(emptyData, 'voice-config.enc')),
+    'Preference setup must not create provider credentials',
   );
   console.log(
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,

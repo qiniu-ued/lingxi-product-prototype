@@ -30,6 +30,7 @@ export class CodexClient {
     }
   >();
   private stopped = false;
+  private threadSettings = new Map<string, unknown>();
   private settingsWaiters = new Map<
     string,
     {
@@ -115,7 +116,16 @@ export class CodexClient {
     });
     try {
       await this.request('thread/settings/update', params);
-      if (!(await confirmed)) throw new Error('execution_unconfirmed');
+      // Codex omits the notification for a no-op. Recheck the latest server
+      // snapshot after the acknowledgement; requested settings are not evidence.
+      if (
+        !accept(this.threadSettings.get(params.threadId)) &&
+        (!(await confirmed) || !accept(this.threadSettings.get(params.threadId)))
+      )
+        throw new Error('execution_unconfirmed');
+    } catch (error) {
+      this.threadSettings.delete(params.threadId);
+      throw error;
     } finally {
       const waiter = this.settingsWaiters.get(params.threadId);
       clearTimeout(waiter?.timer);
@@ -157,6 +167,7 @@ export class CodexClient {
               .object({ threadId: z.string(), threadSettings: z.unknown() })
               .safeParse(message.params);
             if (event.success) {
+              this.threadSettings.set(event.data.threadId, event.data.threadSettings);
               const waiter = this.settingsWaiters.get(event.data.threadId);
               if (waiter?.accept(event.data.threadSettings)) waiter.resolve(true);
             }
@@ -172,6 +183,7 @@ export class CodexClient {
   private disconnect() {
     if (this.stopped) return;
     this.stopped = true;
+    this.threadSettings.clear();
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
       entry.reject(new Error('codex_disconnected'));

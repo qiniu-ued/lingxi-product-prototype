@@ -458,6 +458,20 @@ footer {
 .setup .setup-content .error {
   color: #a33e31;
 }
+.setup .voice-config-summary,
+.setup .setup-content .voice-setup-help {
+  color: #34332d;
+}
+.setup .voice-config-summary {
+  font-weight: 550;
+}
+.setup .voice-disconnected .voice-status,
+.setup .voice-failed .voice-status {
+  color: #a33e31;
+}
+.setup :is(.voice-ready, .voice-listening, .voice-speaking) .voice-status {
+  color: #23734a;
+}
 .setup-result {
   background: #f6f1e8;
   border: 1px solid #e7ddce;

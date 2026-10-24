@@ -437,6 +437,7 @@ export class Workbench {
         ? 'This is a read-only side discussion. Explain and research the supplied context. Do not modify files, run mutating commands, use network tools, or operate the preview.'
         : 'The user may ask to modify code OR interact with the visible product. Use lingxi_preview for interactions; it operates the exact shared display page.',
       'For a simple static project use preview/index.html. For an existing framework project preserve its architecture. The user can launch its development server in the integrated terminal and bind a loopback URL in the UI.',
+      'When the user supplies a reference prototype, match its typography, spacing, colors, imagery and flat surfaces. Do not invent gradients, image shadows, explanatory copy or extra navigation that are absent from the reference.',
       'Preserve browser localStorage. Report only tests and operations actually performed. Publishing a static preview is attempted after the turn.',
     ].join('\n');
   }

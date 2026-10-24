@@ -12,6 +12,7 @@ import {
   type VoiceState,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SparklesIcon } from './DesktopWorkbench';
 import { SettingsLink, SetupLink } from './Navigation';
 import { VoiceControls } from './VoiceControls';
 
@@ -350,7 +351,9 @@ export function SetupPage({
             onContinue();
           }}
         >
-          <span className="brand-mark">丽</span>
+          <span className="brand-mark">
+            <SparklesIcon />
+          </span>
           <span>
             丽塔同学{' '}
             <span className="brand-detail">/ {mode === 'settings' ? '设置' : '连接向导'}</span>
@@ -368,7 +371,7 @@ export function SetupPage({
           根据这台电脑的实际状态，准备 Codex、丽塔同学、唤醒模型与麦克风权限。
         </p>
       </section>
-      {loading ? (
+      {loading && !runtime ? (
         <div className="panel setup-result" role="status">
           <strong>正在检查 Codex、丽塔同学和语音唤醒…</strong>
           <p>检查本地配置、模型文件和原生检测库，不自动下载、登录、连接语音或打开麦克风。</p>

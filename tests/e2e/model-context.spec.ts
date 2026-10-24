@@ -797,7 +797,7 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
     .poll(() => fixture.voiceCommands.filter((command) => command.action === 'stop-wake').length)
     .toBe(2);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '麦克风关闭' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '待唤醒 · 麦克风已关闭' })).toBeVisible();
   expect(fixture.voiceCommands.filter((command) => command.action === 'arm-wake')).toHaveLength(
     arms,
   );
@@ -829,9 +829,14 @@ test('an explicit voice conversation keeps its microphone through responses and 
   await page.getByLabel('给 Codex 的本轮指令').fill('第一句话的草稿');
   await page.getByRole('button', { name: '开始收音', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
-  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.contexts).toHaveLength(1);
+  expect(fixture.contexts[0]).toMatchObject({
+    projectId,
+    conversationId,
+    text: '第一句话的草稿',
+  });
   fixture.publishVoice({ speechId: randomUUID() });
-  await expect.poll(() => fixture.contexts.length).toBe(1);
+  await expect.poll(() => fixture.contexts.length).toBe(2);
   fixture.publishVoice({ status: 'processing' });
   await expect(page.getByRole('status').filter({ hasText: '会话保持开启' })).toBeVisible();
   expect(
@@ -847,8 +852,8 @@ test('an explicit voice conversation keeps its microphone through responses and 
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
   await page.getByLabel('给 Codex 的本轮指令').fill('第二句话的新草稿');
   fixture.publishVoice({ speechId: randomUUID() });
-  await expect.poll(() => fixture.contexts.length).toBe(2);
-  expect(fixture.contexts[1]).toMatchObject({ text: '第二句话的新草稿' });
+  await expect.poll(() => fixture.contexts.length).toBe(3);
+  expect(fixture.contexts[2]).toMatchObject({ text: '第二句话的新草稿' });
   await page.getByRole('button', { name: '关闭语音', exact: true }).click();
   await expect
     .poll(() =>
@@ -914,8 +919,11 @@ test('opening settings while microphone acquisition is pending releases the late
       ),
     )
     .toBe(true);
-  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.contexts).toEqual([
+    { projectId, conversationId: null, text: '', attachments: [], selection: null },
+  ]);
   expect(fixture.voiceCommands.some((command) => command.action === 'listen')).toBe(false);
+  expect(fixture.commands).toHaveLength(0);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeEnabled();
 });
@@ -990,6 +998,7 @@ test('permanent settings keep the active composer and manage voice consent and t
       ),
     )
     .toBe(true);
+  await expect(page.getByLabel('本次运行的唤醒词')).toHaveValue('你好同学');
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
@@ -1034,7 +1043,7 @@ test('voice connection failure can be retried and disconnected in settings witho
   await expect(page.getByRole('alert')).toContainText('操作未完成');
   await expect(page.getByRole('alert')).not.toContainText('PRIVATE_PROVIDER_ERROR');
   await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '丽塔同学已连接' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '待唤醒 · 麦克风已关闭' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page

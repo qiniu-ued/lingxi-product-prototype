@@ -18,7 +18,7 @@ import { ModelControls } from './ModelControls';
 import { SettingsLink, SetupLink } from './Navigation';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
-import { VoiceControls } from './VoiceControls';
+import { VoiceControls, voicePresentation } from './VoiceControls';
 import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -27,11 +27,13 @@ const TerminalPanel = lazy(() =>
 );
 
 // The prototype uses Lucide Sparkles; its license is retained in public/licenses/LUCIDE-LICENSE.
-function SparklesIcon() {
+export function SparklesIcon() {
   return (
     <svg
       aria-hidden="true"
       viewBox="0 0 24 24"
+      width="21"
+      height="21"
       fill="none"
       stroke="currentColor"
       strokeWidth="2"
@@ -51,7 +53,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [shot, setShot] = useState<PreviewSnapshot | null>(null),
-    [answers, setAnswers] = useState<Record<string, string>>({}),
+    [answers, setAnswers] = useState<Record<string, Record<string, string>>>({}),
     [displayVoice, setDisplayVoice] = useState<VoiceState | null>(null);
   const transcript = useRef<HTMLDivElement>(null),
     followTranscript = useRef(true),
@@ -271,6 +273,39 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     );
   const task = state?.task,
     running = !!task && !['completed', 'failed', 'interrupted'].includes(task.status);
+  const displayVoiceStatus = voicePresentation(displayVoice, task ?? null);
+  const previewStatus = task
+    ? {
+        queued: '等待执行',
+        starting: '正在准备',
+        running: '正在执行',
+        waiting: '等待确认',
+        stopping: '正在停止',
+        completed: '本轮已完成',
+        failed: '本轮未完成',
+        interrupted: '本轮已停止',
+      }[task.status]
+    : state?.preview
+      ? '当前版本'
+      : '';
+  const emptyPreviewTitle = !state
+    ? '正在准备工作台'
+    : !state.project
+      ? display
+        ? '等待创建项目'
+        : '先选择一个项目'
+      : task
+        ? {
+            queued: '等待开始制作',
+            starting: '正在准备你的项目',
+            running: '正在制作你的项目',
+            waiting: '等待你的确认',
+            stopping: '正在停止本次任务',
+            completed: '项目预览尚未就绪',
+            failed: '本次制作未完成',
+            interrupted: '本次任务已停止',
+          }[task.status]
+        : '聊聊你的想法吧。';
   async function operate(operation: string, body: unknown, after?: (next: WorkbenchState) => void) {
     setBusy(true);
     setError('');
@@ -603,6 +638,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           >
             <div className="live-heading">
               <h1>项目预览</h1>
+              {previewStatus && <span role="status">{previewStatus}</span>}
               {!display && state?.preview && (
                 <button
                   type="button"
@@ -623,7 +659,25 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               {!state?.preview ? (
                 <div className="live-empty">
                   <SparklesIcon />
-                  <h2>聊聊你的想法吧。</h2>
+                  <h2>{emptyPreviewTitle}</h2>
+                  {!display && state && !state.project && (
+                    <div className="live-actions">
+                      <button
+                        type="button"
+                        disabled={busy || running}
+                        onClick={() => void operate('action', { action: 'new-project' })}
+                      >
+                        新建项目
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || running}
+                        onClick={() => void operate('action', { action: 'select-project' })}
+                      >
+                        打开项目
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : !display && shot ? (
                 <button
@@ -946,115 +1000,110 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   </span>
                 </summary>
                 <p className="runtime-stage">{task.activity}</p>
-                {task.error && <p role="alert">{task.error}</p>}
               </details>
+              {task.status === 'failed' && (
+                <p className="task-recovery" role="alert">
+                  {task.error || '请检查连接，核对项目修改后重试。'}
+                </p>
+              )}
+              {task.status === 'interrupted' && (
+                <p className="task-recovery" role="status">
+                  已产生的文件修改仍保留，核对后可继续提出需求。
+                </p>
+              )}
             </section>
           )}
-          {!display &&
-            task &&
-            (task.approvals ?? (task.approval ? [task.approval] : [])).map((approval) => (
-              <section className="live-approval" key={approval.id}>
-                <h3>{approval.title}</h3>
-                <pre>{approval.detail}</pre>
-                {approval.questions?.map((question) => (
-                  <label key={question.id} htmlFor={`question-${approval.id}-${question.id}`}>
-                    {question.header && <strong>{question.header} · </strong>}
-                    {question.question}
-                    {question.options?.map((option) => (
-                      <button
-                        type="button"
-                        key={option.label}
-                        title={option.description}
-                        onClick={() =>
-                          setAnswers((old) => ({ ...old, [question.id]: option.label }))
-                        }
-                      >
-                        {option.label}
-                        <small>{option.description}</small>
-                      </button>
+          {!display && task && (
+            <div className="pending-approvals">
+              {(task.approvals ?? (task.approval ? [task.approval] : [])).map((approval) => {
+                const answerScope = `${task.id}:${approval.id}`;
+                const approvalAnswers = answers[answerScope] ?? {};
+                const answer = (id: string, value: string) =>
+                  setAnswers((old) => ({
+                    ...old,
+                    [answerScope]: { ...old[answerScope], [id]: value },
+                  }));
+                return (
+                  <section className="live-approval" key={answerScope}>
+                    <h3>{approval.title}</h3>
+                    <pre>{approval.detail}</pre>
+                    {approval.questions?.map((question) => (
+                      <label key={question.id} htmlFor={`question-${approval.id}-${question.id}`}>
+                        {question.header && <strong>{question.header} · </strong>}
+                        {question.question}
+                        {question.options?.map((option) => (
+                          <button
+                            type="button"
+                            key={option.label}
+                            title={option.description}
+                            onClick={() => answer(question.id, option.label)}
+                          >
+                            {option.label}
+                            <small>{option.description}</small>
+                          </button>
+                        ))}
+                        {question.isSecret ? (
+                          <input
+                            type="password"
+                            id={`question-${approval.id}-${question.id}`}
+                            value={approvalAnswers[question.id] ?? ''}
+                            onChange={(e) => answer(question.id, e.target.value)}
+                            autoComplete="off"
+                          />
+                        ) : (
+                          <textarea
+                            id={`question-${approval.id}-${question.id}`}
+                            value={approvalAnswers[question.id] ?? ''}
+                            onChange={(e) => answer(question.id, e.target.value)}
+                          />
+                        )}
+                        {!question.isSecret && voiceDraft && (
+                          <button
+                            type="button"
+                            onClick={() => answer(question.id, voiceDraft.text)}
+                          >
+                            使用语音转写
+                          </button>
+                        )}
+                      </label>
                     ))}
-                    {question.isSecret ? (
-                      <input
-                        type="password"
-                        id={`question-${approval.id}-${question.id}`}
-                        value={answers[question.id] ?? ''}
-                        onChange={(e) =>
-                          setAnswers((old) => ({ ...old, [question.id]: e.target.value }))
-                        }
-                        autoComplete="off"
-                      />
-                    ) : (
-                      <textarea
-                        id={`question-${approval.id}-${question.id}`}
-                        value={answers[question.id] ?? ''}
-                        onChange={(e) =>
-                          setAnswers((old) => ({ ...old, [question.id]: e.target.value }))
-                        }
-                      />
-                    )}
-                    {!question.isSecret && voiceDraft && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setAnswers((old) => ({ ...old, [question.id]: voiceDraft.text }))
-                        }
-                      >
-                        使用语音转写
-                      </button>
-                    )}
-                  </label>
-                ))}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    void operate('decision', {
-                      taskId: task.id,
-                      approvalId: approval.id,
-                      decision: 'accept',
-                      ...(approval.kind === 'question' ? { answers } : {}),
-                    }).then((ok) => {
-                      if (ok) setAnswers({});
-                    });
-                  }}
-                >
-                  {approval.kind === 'question' ? '提交回答' : '批准并继续'}
-                </button>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() =>
-                    void operate('decision', {
-                      taskId: task.id,
-                      approvalId: approval.id,
-                      decision: 'decline',
-                    })
-                  }
-                >
-                  {approval.kind === 'question' ? '停止任务' : '拒绝'}
-                </button>
-              </section>
-            ))}
-          {!display && voiceDraft && (
-            <div className="voice-draft">
-              <p>语音转写：{voiceDraft.text}</p>
-              <button
-                type="button"
-                disabled={state?.task?.id === voiceDraft.id}
-                onClick={() => {
-                  if (composer.current) composer.current.open = true;
-                  setText((old) => {
-                    const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
-                    retry.current = { text, id: voiceDraft.id };
-                    return text;
-                  });
-                }}
-              >
-                使用转写草稿
-              </button>
-              <button type="button" onClick={() => setVoiceDraft(null)}>
-                忽略转写
-              </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        void operate('decision', {
+                          taskId: task.id,
+                          approvalId: approval.id,
+                          decision: 'accept',
+                          ...(approval.kind === 'question' ? { answers: approvalAnswers } : {}),
+                        }).then((ok) => {
+                          if (ok)
+                            setAnswers((old) => {
+                              const next = { ...old };
+                              delete next[answerScope];
+                              return next;
+                            });
+                        });
+                      }}
+                    >
+                      {approval.kind === 'question' ? '提交回答' : '批准并继续'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        void operate('decision', {
+                          taskId: task.id,
+                          approvalId: approval.id,
+                          decision: 'decline',
+                        })
+                      }
+                    >
+                      {approval.kind === 'question' ? '停止任务' : '拒绝'}
+                    </button>
+                  </section>
+                );
+              })}
             </div>
           )}
         </aside>
@@ -1079,7 +1128,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       <footer className="live-footer">
         {display && (
           <div
-            className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : ''}`}
+            className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : connected && displayVoiceStatus.submitted ? 'submitted' : ''}`}
           >
             <MicrophoneIcon
               muted={
@@ -1089,25 +1138,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               }
             />
             <strong>
-              {!connected || !displayVoice
-                ? '正在同步麦克风状态'
-                : displayVoice.conversationActive
-                  ? displayVoice.status === 'ready'
-                    ? '语音会话开启 · 本机待说话 · 麦克风已开启'
-                    : displayVoice.status === 'processing'
-                      ? '正在处理这句话 · 语音会话保持开启'
-                      : displayVoice.status === 'speaking'
-                        ? '播报中 · 语音会话保持开启'
-                        : '收音中 · 语音会话保持开启'
-                  : ['armed', 'detected'].includes(displayVoice.wake.status) &&
-                      displayVoice.status === 'ready'
-                    ? `本地待唤醒 · 麦克风已开启 · ${displayVoice.wake.keyword}`
-                    : displayVoice.status === 'speaking' &&
-                        ['armed', 'detected'].includes(displayVoice.wake.status)
-                      ? '播报中 · 本地麦克风开启，暂停唤醒'
-                      : displayVoice.status === 'listening'
-                        ? '收音中 · 麦克风已开启'
-                        : '麦克风已关闭'}
+              {!connected || !displayVoice ? '正在同步麦克风状态' : displayVoiceStatus.label}
             </strong>
             {displayVoice?.status === 'listening' && (
               <span>{displayVoice.draft || '正在听取本次指令…'}</span>
@@ -1117,6 +1148,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
         {!display && active && (
           <VoiceControls
             onDraft={receiveVoice}
+            task={task}
+            listenUnavailable={!state?.project ? '请先新建或打开项目，再开始收音。' : undefined}
             onState={setDisplayVoice}
             prepare={async () => {
               if (
@@ -1137,6 +1170,28 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           <details className="keyboard-composer" ref={composer}>
             <summary>文字输入</summary>
             <form onSubmit={submit}>
+              {voiceDraft && (
+                <div className="voice-draft">
+                  <p>语音转写：{voiceDraft.text}</p>
+                  <button
+                    type="button"
+                    disabled={state?.task?.id === voiceDraft.id}
+                    onClick={() => {
+                      if (composer.current) composer.current.open = true;
+                      setText((old) => {
+                        const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
+                        retry.current = { text, id: voiceDraft.id };
+                        return text;
+                      });
+                    }}
+                  >
+                    使用转写草稿
+                  </button>
+                  <button type="button" onClick={() => setVoiceDraft(null)}>
+                    忽略转写
+                  </button>
+                </div>
+              )}
               {state && (
                 <ModelControls state={state} busy={busy} connected={connected} operate={operate} />
               )}

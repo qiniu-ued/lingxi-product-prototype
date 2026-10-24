@@ -29,8 +29,8 @@ await cp(join(root, 'tests/fixtures/codex-task.mjs'), fixture);
 await chmod(fixture, 0o755);
 const record = join(temporary, 'peer.jsonl');
 let instance, liveServer;
-const launch = (directory = dataRoot) =>
-  _electron.launch({
+const launch = async (mode = 'browser', directory = dataRoot) => {
+  const application = await _electron.launch({
     executablePath: process.env.LINGXI_DESKTOP_BUNDLE
       ? join(process.env.LINGXI_DESKTOP_BUNDLE, 'Contents/MacOS/Lingxi')
       : electronBinary(),
@@ -45,12 +45,22 @@ const launch = (directory = dataRoot) =>
       LINGXI_NODE_BIN: process.execPath,
       LINGXI_DESKTOP_DATA: directory,
       LINGXI_CODEX_BIN: fixture,
-      LINGXI_TASK_FIXTURE_MODE: 'browser',
+      LINGXI_TASK_FIXTURE_MODE: mode,
       LINGXI_TASK_FIXTURE_RECORD: record,
       XDG_CACHE_HOME: join(temporary, 'cache'),
     },
     timeout: 25000,
   });
+  await application.evaluate(({ app, BrowserWindow }) => {
+    const identify = (window) => {
+      window.setTitle('灵矽 · 自动化检查（临时数据）');
+      window.on('page-title-updated', (event) => event.preventDefault());
+    };
+    for (const window of BrowserWindow.getAllWindows()) identify(window);
+    app.on('browser-window-created', (_event, window) => identify(window));
+  });
+  return application;
+};
 async function expand(page, selector) {
   const details = page.locator(selector);
   if (!(await details.evaluate((element) => element.open))) {
@@ -76,6 +86,20 @@ async function assertAgentDensity(page) {
     agent.height <= agentLimit + 1,
     `Agent summary must match the prototype density: ${JSON.stringify(agent)}`,
   );
+}
+async function waitForTask(page, prompt, status) {
+  await page.waitForFunction(
+    async ({ prompt, status }) => {
+      const state = await (await fetch('/api/workbench')).json();
+      return state.task?.prompt === prompt && state.task.status === status;
+    },
+    { prompt, status },
+  );
+}
+async function submitTask(page, prompt) {
+  await expand(page, '.keyboard-composer');
+  await page.getByLabel('给 Codex 的本轮指令').fill(prompt);
+  await page.getByRole('button', { name: '提交给 Codex', exact: true }).click();
 }
 try {
   instance = await launch();
@@ -142,6 +166,59 @@ try {
     return page.executeJavaScript(`({desktop:typeof window.lingxiDesktop,node:typeof process})`);
   });
   assert.deepEqual(isolation, { desktop: 'undefined', node: 'undefined' });
+  await expand(operator, '.workbench-menu');
+  for (const visible of [true, false]) {
+    await instance.evaluate(({ app, BrowserWindow }, visible) => {
+      const windows = BrowserWindow.getAllWindows();
+      const screen = windows.find(
+        (window) => new URL(window.webContents.getURL()).pathname === '/display',
+      );
+      const control = windows.find(
+        (window) => new URL(window.webContents.getURL()).pathname === '/',
+      );
+      if (visible) screen.show();
+      else screen.hide();
+      app.focus({ steal: true });
+      control.show();
+      control.focus();
+    }, visible);
+    const published = operator.waitForResponse(
+      (response) =>
+        response.url().endsWith('/api/workbench/action') && response.request().method() === 'POST',
+    );
+    await operator.getByRole('button', { name: '刷新作品', exact: true }).click();
+    assert.equal((await published).status(), 200);
+    const windows = await instance.evaluate(({ BrowserWindow }) => ({
+      visible: BrowserWindow.getAllWindows()
+        .find((window) => new URL(window.webContents.getURL()).pathname === '/display')
+        .isVisible(),
+      focused: BrowserWindow.getFocusedWindow()?.webContents.getURL(),
+    }));
+    assert.equal(windows.visible, visible, 'Publishing must preserve display visibility');
+    if (process.platform === 'darwin')
+      assert.equal(
+        new URL(windows.focused).pathname,
+        '/',
+        'Publishing must preserve operator focus',
+      );
+  }
+  const openedDisplay = operator.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/workbench/action') && response.request().method() === 'POST',
+  );
+  await operator.getByRole('button', { name: '打开大屏', exact: true }).click();
+  assert.equal((await openedDisplay).status(), 200);
+  assert.equal(
+    await instance.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((window) => new URL(window.webContents.getURL()).pathname === '/display')
+        .isVisible(),
+    ),
+    true,
+    'The explicit display action must reopen the display',
+  );
+  if (await operator.locator('.workbench-menu').evaluate((element) => element.open))
+    await operator.locator('.workbench-menu > summary').press('Enter');
   await operator.getByRole('button', { name: '批注修改', exact: true }).click();
   await operator
     .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
@@ -595,26 +672,213 @@ try {
     .waitFor();
   await reopened.screenshot({ path: join(root, '.local/wake-setup-smoke.png') });
   await instance.close();
-  instance = undefined;
+  instance = await launch('rich');
+  const recovery = await instance.firstWindow();
+  await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await recovery.getByText('本机服务已连接').waitFor();
+  const recoveryAddress = new URL(recovery.url()).origin;
+  await submitTask(recovery, 'ask-repeated');
+  const questions = recovery.locator('.live-approval');
+  await questions.nth(1).waitFor();
+  await questions.nth(0).getByRole('textbox').fill('暖色');
+  await questions.nth(1).getByRole('textbox').fill('两栏');
+  assert.equal(await questions.nth(0).getByRole('textbox').inputValue(), '暖色');
+  const questionLayout = await recovery.evaluate(() => ({
+    approvals: document.querySelector('.pending-approvals').getBoundingClientRect().height,
+    transcript: document.querySelector('.live-transcript').getBoundingClientRect().height,
+    viewport: innerHeight,
+  }));
+  assert.ok(
+    questionLayout.approvals <= questionLayout.viewport * 0.4 + 1 &&
+      questionLayout.transcript >= 80,
+    `Parallel questions must leave readable conversation space: ${JSON.stringify(questionLayout)}`,
+  );
+  // Controlled App Server peer states, not evidence of real model/provider execution.
+  await recovery.screenshot({ path: join(root, '.local/desktop-questions.png') });
+  await questions.nth(0).getByRole('button', { name: '提交回答' }).click();
+  await recovery.waitForFunction(() => document.querySelectorAll('.live-approval').length === 1);
+  assert.equal(
+    await questions.getByRole('textbox').inputValue(),
+    '两栏',
+    'Submitting one question must retain another request with the same question ID',
+  );
+  await questions.getByRole('button', { name: '提交回答' }).click();
+  await waitForTask(recovery, 'ask-repeated', 'completed');
+  const answers = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+    .filter((message) => [71, 72].includes(message.id) && message.result?.answers);
+  assert.deepEqual(
+    answers.slice(-2).map((message) => message.result.answers),
+    [{ color: { answers: ['暖色'] } }, { color: { answers: ['两栏'] } }],
+    'Each question response must contain its own answer',
+  );
+  await submitTask(recovery, 'ask-repeated draft-task');
+  await questions.nth(1).waitFor();
+  await questions.nth(0).getByRole('textbox').fill('上一轮未提交的答案');
+  await questions.nth(0).getByRole('button', { name: '停止任务' }).click();
+  await waitForTask(recovery, 'ask-repeated draft-task', 'interrupted');
+  await submitTask(recovery, 'ask-repeated fresh-task');
+  await questions.nth(1).waitFor();
+  for (const question of await questions.getByRole('textbox').all())
+    assert.equal(await question.inputValue(), '', 'A new task must not inherit an old answer');
+  await questions.nth(0).getByRole('button', { name: '停止任务' }).click();
+  await waitForTask(recovery, 'ask-repeated fresh-task', 'interrupted');
+  const previousPreview = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).preview;
+  assert.ok(previousPreview);
+  const recoveryDisplay = (await instance.windows()).find(
+    (page) => new URL(page.url()).pathname === '/display',
+  );
+  assert.ok(recoveryDisplay);
+  let presentationCaptureId = randomUUID();
+  let presentationStatus = 'ready';
+  let presentationConversation = false;
+  const presentationWake = {
+    status: 'off',
+    keyword: '丽塔同学',
+    installed: true,
+    detectionId: null,
+    error: null,
+  };
+  // Controlled voice snapshots exercise presentation without connecting a provider or capturing audio.
+  await recovery.context().route('**/api/voice', (route) =>
+    route.fulfill({
+      json: {
+        configured: true,
+        status: presentationStatus,
+        conversationActive: presentationConversation,
+        draft: '普通转写草稿',
+        captureId: presentationCaptureId,
+        subtitle: '',
+        error: null,
+        allowVoiceSubmit: true,
+        wake: presentationWake,
+      },
+    }),
+  );
+  for (const [prompt, status, role] of [
+    ['fail-task', 'failed', 'alert'],
+    ['hold for interruption', 'interrupted', 'status'],
+  ]) {
+    await submitTask(recovery, prompt);
+    if (status === 'interrupted') {
+      await waitForTask(recovery, prompt, 'running');
+      for (const page of [recovery, recoveryDisplay]) {
+        await page.getByText('正在制作 · 麦克风已关闭', { exact: true }).waitFor();
+        assert.equal(
+          await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+          0,
+          'An unrelated transcription must not appear submitted',
+        );
+      }
+      presentationCaptureId = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).task
+        .id;
+      for (const page of [recovery, recoveryDisplay]) {
+        await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
+        assert.equal(await page.locator('.voice-submitted, .live-mic-state.submitted').count(), 1);
+      }
+      for (const [wakeStatus, status, label] of [
+        ['armed', 'ready', '本地待唤醒 · 麦克风已开启 · 丽塔同学'],
+        ['detected', 'ready', '本地待唤醒 · 麦克风已开启 · 丽塔同学'],
+        ['armed', 'speaking', '播报中 · 本地麦克风开启，暂停唤醒'],
+      ]) {
+        presentationWake.status = wakeStatus;
+        presentationStatus = status;
+        for (const page of [recovery, recoveryDisplay]) {
+          await page.getByText(label, { exact: true }).waitFor();
+          assert.equal(
+            await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+            0,
+            'Local wake capture must not appear as a submitted task with the microphone closed',
+          );
+        }
+      }
+      presentationWake.status = 'off';
+      presentationConversation = true;
+      for (const [status, label] of [
+        ['ready', '语音会话开启 · 本机待说话 · 麦克风已开启'],
+        ['processing', '正在处理这句话 · 语音会话保持开启'],
+        ['speaking', '丽塔同学正在播报 · 语音会话保持开启'],
+      ]) {
+        presentationStatus = status;
+        for (const page of [recovery, recoveryDisplay]) {
+          await page.getByText(label, { exact: true }).waitFor();
+          assert.equal(
+            await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+            0,
+          );
+        }
+      }
+      presentationConversation = false;
+      presentationStatus = 'ready';
+      for (const page of [recovery, recoveryDisplay])
+        await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
+      await expand(recovery, '.keyboard-composer');
+      await recovery.getByRole('button', { name: '停止任务', exact: true }).click();
+    }
+    await waitForTask(recovery, prompt, status);
+    for (const page of [recovery, recoveryDisplay]) {
+      assert.equal(await page.locator('.live-activity').evaluate((element) => element.open), false);
+      const notice = page.locator(`.live-agents > .task-recovery[role="${role}"]`);
+      await notice.waitFor({ state: 'visible' });
+      assert.match(await notice.textContent(), status === 'failed' ? /重试/ : /修改仍保留/);
+      await page.getByText('待唤醒 · 麦克风已关闭', { exact: true }).waitFor();
+      assert.equal(
+        await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+        0,
+        'An ended task must return to idle without a submitted marker',
+      );
+    }
+    if (status === 'failed')
+      await recovery.screenshot({ path: join(root, '.local/desktop-recovery.png') });
+    assert.deepEqual(
+      (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).preview,
+      previousPreview,
+      'Failure or interruption must retain the previous preview binding',
+    );
+  }
+  await instance.close();
   const emptyData = join(temporary, 'empty-data');
   await mkdir(emptyData);
-  instance = await launch(emptyData);
-  const emptyOperator = await instance.firstWindow();
-  await emptyOperator.getByRole('heading', { name: '先检查，再配置。', exact: true }).waitFor();
-  await emptyOperator.waitForFunction(async () => {
-    const state = await (await fetch('/api/workbench')).json();
-    return state.project === null;
-  });
-  const defaultDisplay = await instance
-    .waitForEvent('window', { predicate: (page) => page.url().endsWith('/display'), timeout: 3000 })
-    .catch(() => null);
-  const windows = await instance.windows();
+  instance = await launch('rich', emptyData);
+  const empty = await instance.firstWindow();
+  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
+  await empty.waitForLoadState('load');
+  await empty.route('**/api/voice', (route) =>
+    route.fulfill({
+      json: {
+        configured: true,
+        status: 'ready',
+        draft: '',
+        captureId: null,
+        subtitle: '',
+        error: null,
+        allowVoiceSubmit: true,
+      },
+    }),
+  );
+  await empty.reload();
+  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
+  for (const name of ['新建项目', '打开项目'])
+    assert.equal(
+      await empty.locator('.live-empty').getByRole('button', { name }).isEnabled(),
+      true,
+    );
+  const wake = empty.getByRole('button', { name: '开始收音', exact: true });
+  await wake.waitFor();
+  assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');
+  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
+  assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
+  await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
   assert.ok(
-    defaultDisplay || windows.some((page) => page.url().endsWith('/display')),
+    (await instance.windows()).some((page) => page.url().endsWith('/display')),
     'A fresh installation must open the display without a project or AirPlay',
   );
   console.log(
-    `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, shutdown and restart. Screenshot: ${screenshot}`,
+    `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );
 } finally {
   if (instance) await instance.close();

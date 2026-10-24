@@ -1,4 +1,9 @@
-import { LINGXI_WORKBENCH_ROLE, type VoiceState, voiceStateSchema } from '@lingxi/protocol';
+import {
+  LINGXI_WORKBENCH_ROLE,
+  type VoiceState,
+  voiceStateSchema,
+  type WorkbenchState,
+} from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { MicrophoneIcon } from './MicrophoneIcon';
@@ -23,18 +28,72 @@ const labels: Record<VoiceState['status'], string> = {
   speaking: '丽塔同学正在播报 · 麦克风已关闭',
   failed: '语音连接失败 · 麦克风已关闭',
 };
+export function voicePresentation(state: VoiceState | null, task: WorkbenchState['task']) {
+  if (!state) return { label: '正在读取语音状态', submitted: false };
+  if (state.conversationActive)
+    return {
+      label:
+        state.status === 'ready'
+          ? '语音会话开启 · 本机待说话 · 麦克风已开启'
+          : state.status === 'processing'
+            ? '正在处理这句话 · 语音会话保持开启'
+            : state.status === 'speaking'
+              ? '丽塔同学正在播报 · 语音会话保持开启'
+              : '收音中 · 语音会话保持开启',
+      submitted: false,
+    };
+  if (
+    ['armed', 'detected'].includes(state.wake.status) &&
+    ['ready', 'speaking'].includes(state.status)
+  )
+    return {
+      label:
+        state.status === 'speaking'
+          ? '播报中 · 本地麦克风开启，暂停唤醒'
+          : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`,
+      submitted: false,
+    };
+  const working = task && !['completed', 'failed', 'interrupted'].includes(task.status);
+  const submitted = !!working && state.status === 'ready' && state.captureId === task.id;
+  const activity =
+    task?.status === 'waiting'
+      ? '等待确认'
+      : task?.status === 'queued'
+        ? '等待执行'
+        : task?.status === 'stopping'
+          ? '正在停止'
+          : '正在制作';
+  if (state.status === 'ready')
+    return {
+      label: working
+        ? `${submitted ? '已提交 · ' : ''}${activity} · 麦克风已关闭`
+        : '待唤醒 · 麦克风已关闭',
+      submitted,
+    };
+  return {
+    label:
+      state.status === 'disconnected' && working
+        ? `${activity} · ${labels.disconnected}`
+        : labels[state.status],
+    submitted: false,
+  };
+}
 export function VoiceControls({
   configuration = false,
   onDraft,
   prepare,
   onState,
   variant = 'all',
+  listenUnavailable,
+  task = null,
 }: {
   configuration?: boolean;
   prepare?: () => Promise<void>;
   onDraft?: (text: string, id: string) => void;
   onState?: (value: VoiceState) => void;
   variant?: 'all' | 'connection' | 'wake';
+  listenUnavailable?: string | undefined;
+  task?: WorkbenchState['task'] | undefined;
 }) {
   const [state, setState] = useState<VoiceState | null>(null),
     [error, setError] = useState('');
@@ -74,7 +133,7 @@ export function VoiceControls({
     [deviceId, setDeviceId] = useState(''),
     [allow, setAllow] = useState(false);
   const [keyword, setKeyword] = useState('丽塔同学');
-  const [keywordEdited, setKeywordEdited] = useState(false);
+  const keywordEdited = useRef(false);
   const [roleNotice, setRoleNotice] = useState('');
   const [operating, setOperating] = useState(false);
   const inOperation = useRef(false),
@@ -177,8 +236,8 @@ export function VoiceControls({
     };
   }, [stopMic, resetPlayback]);
   useEffect(() => {
-    if (state && !keywordEdited) setKeyword(state.wake.keyword);
-  }, [state, keywordEdited]);
+    if (state && !keywordEdited.current) setKeyword(state.wake.keyword);
+  }, [state]);
   useEffect(() => {
     if (state) onState?.(state);
     if (!inOperation.current && state) {
@@ -245,6 +304,19 @@ export function VoiceControls({
     setOperating(true);
     try {
       setError('');
+      if (action === 'listen' || action === 'start-session') {
+        if (listenUnavailable) {
+          setError(listenUnavailable);
+          return;
+        }
+        try {
+          await prepare?.();
+        } catch {
+          setError('项目尚未准备好，请确认项目与连接后重试。');
+          return;
+        }
+        ensureActive();
+      }
       if (['connect', 'speak', 'listen', 'start-session', 'arm-wake'].includes(action)) {
         playback.current ??= new AudioContext();
         await playback.current.resume();
@@ -284,7 +356,6 @@ export function VoiceControls({
           context.createMediaStreamSource(media).connect(worklet);
           worklet.connect(context.destination);
         }
-        if (action === 'listen') await prepare?.();
         ensureActive();
         const value = await command(
           action,
@@ -360,10 +431,11 @@ export function VoiceControls({
       setError('未能保存。请核对 MAC 地址和令牌；桌面系统须支持加密存储。');
     }
   }
+  const presentation = voicePresentation(state, task);
   const WakePanel = configuration ? 'section' : 'details';
   return (
     <section
-      className={`voice-controls voice-${state?.status ?? 'disconnected'}`}
+      className={`voice-controls voice-${state?.status ?? 'disconnected'}${!configuration && presentation.submitted ? ' voice-submitted' : ''}`}
       aria-label="丽塔同学语音"
     >
       {variant !== 'wake' && (
@@ -536,23 +608,12 @@ export function VoiceControls({
                 !['armed', 'detected'].includes(state?.wake.status ?? '')
               }
             />
-            {state?.conversationActive
-              ? state.status === 'ready'
-                ? '语音会话开启 · 本机待说话 · 麦克风已开启'
-                : state.status === 'processing'
-                  ? '正在处理这句话 · 语音会话保持开启'
-                  : state.status === 'speaking'
-                    ? '丽塔同学正在播报 · 语音会话保持开启'
-                    : '收音中 · 语音会话保持开启'
-              : state &&
-                  ['armed', 'detected'].includes(state.wake.status) &&
-                  ['ready', 'speaking'].includes(state.status)
-                ? state.status === 'speaking'
-                  ? '播报中 · 本地麦克风开启，暂停唤醒'
-                  : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`
-                : state
-                  ? labels[state.status]
-                  : '正在读取语音状态'}
+            {configuration &&
+            state &&
+            !state.conversationActive &&
+            !['armed', 'detected'].includes(state.wake.status)
+              ? labels[state.status]
+              : presentation.label}
           </p>
           <div className="live-actions">
             {(configuration ||
@@ -571,7 +632,8 @@ export function VoiceControls({
             {state && !state.conversationActive && state.status === 'ready' && (
               <button
                 type="button"
-                disabled={operating}
+                disabled={operating || !!listenUnavailable}
+                title={listenUnavailable}
                 onClick={() => void operate('start-session')}
               >
                 开始收音
@@ -662,7 +724,7 @@ export function VoiceControls({
                   maxLength={12}
                   disabled={operating}
                   onChange={(event) => {
-                    setKeywordEdited(true);
+                    keywordEdited.current = true;
                     setKeyword(event.target.value);
                   }}
                 />
@@ -674,7 +736,7 @@ export function VoiceControls({
                 onClick={async () => {
                   try {
                     setState(await command('wake-keyword', { keyword }));
-                    setKeywordEdited(false);
+                    keywordEdited.current = false;
                     setError('');
                   } catch {
                     setError('未能修改唤醒词，请先关闭正在运行的语音唤醒后重试。');

@@ -490,7 +490,7 @@ export function VoiceControls({
           <p role="status" className="voice-status">
             <MicrophoneIcon
               muted={
-                state?.status !== 'listening' &&
+                !['ready', 'listening', 'speaking'].includes(state?.status ?? '') &&
                 !['armed', 'detected'].includes(state?.wake.status ?? '')
               }
             />

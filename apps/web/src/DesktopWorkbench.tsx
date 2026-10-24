@@ -1074,7 +1074,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           >
             <MicrophoneIcon
               muted={
-                displayVoice?.status !== 'listening' &&
+                !['ready', 'listening', 'speaking'].includes(displayVoice?.status ?? '') &&
                 !['armed', 'detected'].includes(displayVoice?.wake.status ?? '')
               }
             />

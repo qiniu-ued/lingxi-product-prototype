@@ -168,6 +168,10 @@ async function chooseProject(create: boolean): Promise<Project | null> {
   return { id, name: path.split(/[\\/]/).at(-1) ?? 'Project', path };
 }
 async function desktopCall(method: string, params: unknown) {
+  if (method === 'microphone-status')
+    return process.platform === 'darwin'
+      ? systemPreferences.getMediaAccessStatus('microphone')
+      : 'unknown';
   if (method === 'voice-identity') {
     const file = join(dataRoot, 'voice-device.json');
     try {

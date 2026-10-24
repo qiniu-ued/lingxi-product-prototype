@@ -253,7 +253,8 @@ describe('desktop voice configuration boundary', () => {
       });
     const check = await json('/api/setup/check', {});
     expect(check.json().lingxi.status).toBe('not-configured');
-    expect(native).toEqual(['voice-config-read']);
+    expect(native).toEqual(['voice-config-read', 'microphone-status']);
+    expect(check.json().wake.status).toBe('not-installed');
     expect((await json('/api/voice/config', { token: 'bad' })).statusCode).toBe(400);
     expect((await json('/api/voice/command', { action: 'listen' })).statusCode).toBe(409);
     expect((await post('/api/voice/config', {})).statusCode).toBe(415);
@@ -302,5 +303,39 @@ describe('desktop voice configuration boundary', () => {
           })
         ).statusCode,
       ).toBe(403);
+  });
+});
+
+it('returns every setup result even when individual diagnostics fail, without starting voice or exposing errors', async () => {
+  const native: string[] = [];
+  const app = buildApp({
+    databasePath: ':memory:',
+    checkCodex: async () => {
+      throw new Error('PRIVATE_CODEX_ERROR');
+    },
+    checkWake: async () => {
+      throw new Error('PRIVATE_NATIVE_ERROR');
+    },
+    desktop: {
+      async call(method) {
+        native.push(method);
+        if (method === 'microphone-status') return 'denied';
+        throw new Error('PRIVATE_KEYCHAIN_ERROR');
+      },
+    },
+  });
+  apps.push(app);
+  const response = await app.inject({ method: 'POST', url: '/api/setup/check', payload: {} });
+  expect(response.statusCode).toBe(200);
+  const result = setupInspectionSchema.parse(response.json());
+  expect(result.codex.status).toBe('failed');
+  expect(result.lingxi.reason).toBe('secure-storage-unavailable');
+  expect(result.wake?.reason).toBe('native-unavailable');
+  expect(result.microphone).toBe('denied');
+  expect(native).toEqual(['voice-config-read', 'microphone-status']);
+  expect(response.body).not.toContain('PRIVATE');
+  expect((await app.inject('/api/voice')).json()).toMatchObject({
+    status: 'disconnected',
+    wake: { status: 'off' },
   });
 });

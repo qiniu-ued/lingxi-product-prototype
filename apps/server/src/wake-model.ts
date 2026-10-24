@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { Worker } from 'node:worker_threads';
-import { wakeKeywordSchema } from '@lingxi/protocol';
+import { type WakeCheck, wakeKeywordSchema } from '@lingxi/protocol';
 import { pinyin } from 'pinyin-pro';
 
 const run = promisify(execFile);
@@ -44,7 +44,43 @@ export class WakeModel {
   private abort: AbortController | undefined;
   private worker: Worker | undefined;
   private pending = 0;
-  constructor(readonly root: string) {}
+  private probes = new Set<Worker>();
+  private inspection: Promise<boolean> | undefined;
+  constructor(
+    readonly root: string,
+    private testProbe?: () => Promise<boolean>,
+  ) {}
+  private probe() {
+    this.inspection ??= new Promise<boolean>((resolve) => {
+      const worker = new Worker(new URL('./wake-probe.js', import.meta.url));
+      this.probes.add(worker);
+      const finish = (ready: boolean) => {
+        clearTimeout(timer);
+        this.probes.delete(worker);
+        void worker.terminate();
+        resolve(ready);
+      };
+      const timer = setTimeout(() => finish(false), 8000);
+      worker.once('message', (value) => finish(value === true));
+      worker.once('error', () => finish(false));
+      worker.once('exit', () => finish(false));
+    }).finally(() => {
+      this.inspection = undefined;
+    });
+    return this.inspection;
+  }
+  async check(): Promise<WakeCheck> {
+    const checkedAt = new Date().toISOString();
+    if (!(await this.installed()))
+      return { checkedAt, status: 'not-installed', reason: 'model-missing' };
+    try {
+      if (await (this.testProbe?.() ?? this.probe()))
+        return { checkedAt, status: 'ready', reason: 'model-ready' };
+    } catch {
+      /* Keep native paths and errors private. */
+    }
+    return { checkedAt, status: 'unavailable', reason: 'native-unavailable' };
+  }
   async installed() {
     try {
       return (
@@ -153,6 +189,7 @@ export class WakeModel {
   }
   close() {
     this.abort?.abort();
+    for (const probe of this.probes) void probe.terminate();
     this.stop();
   }
 }

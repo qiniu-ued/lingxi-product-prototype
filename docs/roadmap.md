@@ -5,7 +5,7 @@
 ## 已实现
 
 - [x] React/TypeScript/Node 基础工程、SQLite、版本冲突、重试与 SSE 恢复。
-- [x] 环境向导同时汇总 Codex/灵矽状态，按需安装 latest 和官方网页登录；灵矽读取本机配置，注册/连接/收音由显式动作触发。
+- [x] 环境向导同时汇总 Codex/灵矽/唤醒/麦克风状态，启动缺项自动进入三步向导，按需安装 latest 和官方网页登录；灵矽读取本机配置，注册/连接/收音由显式动作触发。
 - [x] Electron 单实例、原生项目选择、内置 Node/npm、菜单退出与受控进程清理。
 - [x] Codex App Server 线程、任务、真实事件、询问/审批、中断、异常重启状态与持久请求去重。
 - [x] 静态作品 `preview/index.html` 冻结发布、隔离页面、稳定项目来源。
@@ -40,3 +40,5 @@
 ## 后续增强
 
 区域截图标记、独立 Git worktree、并发 Sidechat、官方 Skills 调用/MCP 配置管理、真实子 Agent 树、源码定位/高亮、成果回退/快照清理、Developer ID 签名与公证、自动更新。Plan/权限需完成用户 Mac 的真实 CLI 和模型验收。AirPlay 自动连接需原生固定操作、系统授权和兼容性矩阵；A2UI 可后续用于确认卡片，不代替预览和系统能力。详见 [设计对齐计划](desktop-voice-plan.md)。
+
+多执行引擎：已完成 OpenCode / DeepSeek Harness 官方协议静态评估，适配器、能力声明与各引擎验收尚未实现，见[提案](multi-engine-options.md)。

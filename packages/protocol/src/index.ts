@@ -84,6 +84,20 @@ export const codexCheckSchema = z.strictObject({
   authentication: z.enum(['chatgpt', 'api-key', 'provider']).nullable(),
 });
 
+export const wakeCheckSchema = z.strictObject({
+  checkedAt: z.string().datetime(),
+  status: z.enum(['ready', 'not-installed', 'unavailable']),
+  reason: z.enum(['model-ready', 'model-missing', 'native-unavailable', 'desktop-required']),
+});
+export type WakeCheck = z.infer<typeof wakeCheckSchema>;
+export const microphoneStatusSchema = z.enum([
+  'not-determined',
+  'granted',
+  'denied',
+  'restricted',
+  'unknown',
+  'unavailable',
+]);
 export const setupInspectionSchema = z.strictObject({
   environment: setupStatusSchema,
   codex: codexCheckSchema,
@@ -98,8 +112,20 @@ export const setupInspectionSchema = z.strictObject({
       'secure-storage-unavailable',
     ]),
   }),
+  wake: wakeCheckSchema.nullable().default(null),
+  microphone: microphoneStatusSchema.default('unknown'),
 });
 export type SetupInspection = z.infer<typeof setupInspectionSchema>;
+export function setupIssues(inspection: SetupInspection) {
+  const issues: Array<'runtime' | 'codex' | 'lingxi' | 'wake' | 'microphone'> = [];
+  if (!inspection.environment.host.nodeSupported) issues.push('runtime');
+  if (inspection.codex.status !== 'ready') issues.push('codex');
+  if (inspection.lingxi.status !== 'configured') issues.push('lingxi');
+  if (inspection.wake?.status !== 'ready') issues.push('wake');
+  if (['denied', 'restricted', 'unavailable'].includes(inspection.microphone))
+    issues.push('microphone');
+  return issues;
+}
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
 export type CodexCheck = z.infer<typeof codexCheckSchema>;

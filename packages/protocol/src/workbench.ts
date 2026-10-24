@@ -239,6 +239,7 @@ export interface DesktopApi {
   pick(input: { binding: PreviewBinding; x: number; y: number }): Promise<PreviewSelection>;
   info(): Promise<{ platform: string; arch: string; systemVersion: string }>;
   microphone(): Promise<boolean>;
+  copy(text: string): Promise<void>;
   audioFrame(pcm: ArrayBuffer): void;
   onAudio(
     listener: (value: { reset?: boolean; pcm?: string; sampleRate?: number }) => void,

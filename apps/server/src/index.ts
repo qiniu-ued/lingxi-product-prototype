@@ -28,6 +28,13 @@ process.on('message', (message) => {
     message &&
     typeof message === 'object' &&
     'channel' in message &&
+    message.channel === 'desktop.voice-stop'
+  )
+    app.voice.disconnect();
+  if (
+    message &&
+    typeof message === 'object' &&
+    'channel' in message &&
     message.channel === 'desktop.audio' &&
     'pcm' in message &&
     typeof message.pcm === 'string'

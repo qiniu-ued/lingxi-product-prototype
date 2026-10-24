@@ -12,9 +12,11 @@ import {
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
+  powerMonitor,
   protocol,
   safeStorage,
   screen,
@@ -407,6 +409,16 @@ else {
           ? systemPreferences.askForMediaAccess('microphone')
           : true;
       });
+      ipcMain.handle('desktop.copy', (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents) throw new Error('operator_required');
+        clipboard.writeText(
+          z
+            .string()
+            .max(1024 * 1024)
+            .parse(input),
+        );
+      });
       ipcMain.on('voice.frame', (event, input) => {
         try {
           trusted(event);
@@ -500,6 +512,7 @@ else {
         ]),
       );
       await operator.loadURL(address);
+      powerMonitor.on('suspend', () => child?.send?.({ channel: 'desktop.voice-stop' }));
       const state = (await (await fetch(`${address}/api/workbench`)).json()) as {
         project: unknown;
       };

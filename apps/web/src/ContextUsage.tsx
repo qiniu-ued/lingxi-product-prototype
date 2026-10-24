@@ -13,51 +13,67 @@ const labels = [
 export function ContextUsage({
   runtime,
   turnId,
-  compact = false,
+  expanded = false,
+  onExpand,
 }: {
   runtime: ThreadRuntime | null;
   turnId: string | null | undefined;
-  compact?: boolean;
+  expanded?: boolean;
+  onExpand: (open: boolean) => void;
 }) {
   const usage = runtime?.usage,
     capacity = usage?.modelContextWindow,
     used = usage?.last.totalTokens;
   const known = capacity !== null && capacity !== undefined && capacity > 0 && used !== undefined;
   const percent = known ? (used / capacity) * 100 : null;
+  const tooltip = usage
+    ? `Context Window: ${format(used ?? null)}/${format(capacity ?? null)} used.`
+    : 'Context Window: not reported.';
   return (
-    <section
-      className={`context-usage ${compact ? 'compact' : ''}`}
-      aria-label={compact ? '当前上下文摘要' : '上下文用量'}
-    >
-      <div className="context-summary">
-        <strong>上下文{percent === null ? '' : ` · ${percent.toFixed(1)}%`}</strong>
-        <span>
-          {usage
-            ? `${format(used ?? null)} / ${capacity ? format(capacity) : '容量未报告'} tokens`
-            : '等待 Codex 报告用量'}
+    <section className="context-usage" aria-label="上下文用量">
+      <div className="context-control">
+        <button
+          type="button"
+          className="context-toggle"
+          aria-label="上下文使用详情"
+          aria-expanded={expanded}
+          onClick={() => onExpand(!expanded)}
+        >
+          {known ? (
+            <meter
+              aria-label="当前上下文占用"
+              min={0}
+              max={capacity}
+              value={Math.min(used, capacity)}
+              high={capacity * 0.85}
+              low={capacity * 0.65}
+              optimum={0}
+              aria-valuetext={`${percent?.toFixed(1)}% 已使用`}
+            />
+          ) : (
+            <progress aria-label="上下文用量尚未报告" />
+          )}
+        </button>
+        <span className="context-tooltip" role="tooltip">
+          {tooltip}
         </span>
       </div>
-      {known && (
-        <meter
-          aria-label={compact ? '当前上下文占用' : '上下文窗口占用'}
-          min={0}
-          max={capacity}
-          value={Math.min(used, capacity)}
-          high={capacity * 0.85}
-          low={capacity * 0.65}
-          optimum={0}
-          aria-valuetext={`${percent?.toFixed(1)}% 已使用`}
-        />
-      )}
-      {usage && (
-        <small>
-          {runtime?.usageTurnId === turnId ? '本轮最近报告' : '上次报告'}
-          {known ? ` · 剩余 ${format(Math.max(0, capacity - used))} tokens` : ' · 窗口容量未知'}
-        </small>
-      )}
-      {!compact && (
-        <details>
-          <summary>上下文使用详情</summary>
+      {expanded && (
+        <div className="context-details">
+          <div className="context-summary">
+            <strong>上下文{percent === null ? '' : ` · ${percent.toFixed(1)}%`}</strong>
+            <span>
+              {usage
+                ? `${format(used ?? null)} / ${capacity ? format(capacity) : '容量未报告'} tokens`
+                : '等待 Codex 报告用量'}
+            </span>
+          </div>
+          {usage && (
+            <small>
+              {runtime?.usageTurnId === turnId ? '本轮最近报告' : '上次报告'}
+              {known ? ` · 剩余 ${format(Math.max(0, capacity - used))} tokens` : ' · 窗口容量未知'}
+            </small>
+          )}
           {usage ? (
             <>
               <table>
@@ -94,7 +110,7 @@ export function ContextUsage({
           ) : (
             <p>模型执行后才可能报告数据；缺少报告时不估算窗口容量或显示虚假的 0%。</p>
           )}
-        </details>
+        </div>
       )}
     </section>
   );

@@ -16,6 +16,7 @@ import type { DesktopBridge } from './desktop-bridge.js';
 import { SessionStore, StoreConflict } from './store.js';
 import { VoiceService } from './voice.js';
 import { VoiceBinding } from './voice-binding.js';
+import { WakeModel } from './wake-model.js';
 import { Workbench } from './workbench.js';
 import { workbenchRoutes } from './workbench-routes.js';
 
@@ -55,6 +56,7 @@ export function buildApp(options: AppOptions) {
   });
   const voice = new VoiceService({
     workbench,
+    wake: new WakeModel(join(dirname(options.databasePath), 'wake')),
     ...(options.desktop ? { desktop: options.desktop } : {}),
   });
   const binding = new VoiceBinding({

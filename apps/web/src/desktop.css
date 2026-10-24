@@ -370,3 +370,52 @@
 .turn-usage.compact {
   font-size: 18px;
 }
+.execution-controls {
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.execution-controls fieldset {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 10px;
+  border: 1px solid #5b5144;
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin: 0 0 6px;
+}
+.execution-controls select {
+  min-width: 0;
+  width: 100%;
+}
+.execution-controls small,
+.catalog-card small {
+  display: block;
+  color: #b6ad9e;
+}
+.execution-controls button {
+  font-size: 11px;
+  padding: 4px 8px;
+  margin-top: 6px;
+}
+.catalog-card {
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid #514a3f;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.catalog-card h4 {
+  margin: 0 0 6px;
+}
+.workspace-tool .catalog-card p {
+  margin: 6px 0;
+}
+.quota-window {
+  margin: 8px 0;
+}
+.quota-window progress {
+  display: block;
+  width: 100%;
+  margin: 4px 0;
+  accent-color: #efaf91;
+}

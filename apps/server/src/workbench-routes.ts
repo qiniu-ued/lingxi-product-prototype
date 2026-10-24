@@ -203,6 +203,25 @@ export function workbenchRoutes(
       return reply.code(409).send({ error: 'models_unavailable' });
     }
   });
+  app.get('/api/workbench/execution-options', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    try {
+      return await workbench.executionOptions();
+    } catch {
+      return reply.code(409).send({ error: 'execution_unavailable' });
+    }
+  });
+  app.post('/api/workbench/verify-execution', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin) return reply.code(403).send({ error: 'forbidden_origin' });
+    if (!z.strictObject({}).safeParse(request.body).success)
+      return reply.code(400).send({ error: 'invalid_request' });
+    try {
+      return await workbench.verifyExecution();
+    } catch {
+      return reply.code(409).send({ error: 'execution_verification_failed' });
+    }
+  });
   app.get('/api/workbench/catalog', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store');
     try {

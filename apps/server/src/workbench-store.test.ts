@@ -102,11 +102,14 @@ it('stores runtime telemetry separately and keeps v2 snapshots readable by old s
       usageUpdatedAt: null,
     };
     store.writeRuntime(state.runtime);
+    state.permission = 'full-access';
     store.write(state);
+    expect(store.read().permission).toBe('full-access');
     expect(store.read().runtime).toEqual(state.runtime);
     const row = db.prepare('SELECT value FROM workspace_state_v2').get() as { value: string };
     expect(JSON.parse(row.value)).not.toHaveProperty('runtime');
     expect(JSON.parse(row.value)).not.toHaveProperty('turnUsage');
+    expect(JSON.parse(row.value)).not.toHaveProperty('permission');
     state.threads = state.threads.map((thread) => ({
       ...thread,
       codexId: 'different-provider-thread',

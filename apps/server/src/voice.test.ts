@@ -3,6 +3,7 @@ import {
   type Task,
   type VoiceConfig,
   type WorkbenchState,
+  type WorkspaceCommand,
   workbenchSchema,
 } from '@lingxi/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -64,6 +65,11 @@ async function create(format = 'pcm', allowed = true) {
         ({ id, prompt: text, status: 'starting' }) as Task,
     ),
     interrupt = vi.fn();
+  const command = vi.fn(async (input: WorkspaceCommand, guard?: () => boolean) => {
+    if (guard && !guard()) throw new Error('stale');
+    if (input.action === 'set-mode')
+      state = { ...state, settings: { ...state.settings, plan: input.mode === 'plan' } };
+  });
   const voice = new VoiceService({
     testEndpoint: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
     workbench: {
@@ -75,6 +81,7 @@ async function create(format = 'pcm', allowed = true) {
       }),
       read: () => state,
       start,
+      command,
       interrupt,
       decide() {},
       subscribe(callback) {
@@ -125,6 +132,7 @@ async function create(format = 'pcm', allowed = true) {
     native,
     start,
     interrupt,
+    command,
     config: () => config,
     headers: () => headers,
     state: (value: Partial<WorkbenchState>) => {
@@ -213,6 +221,27 @@ it('routes encapsulated device MCP once per capture, rejects changed contexts an
   await f.voice.command({ action: 'disconnect' });
   expect(f.voice.read().status).toBe('disconnected');
 });
+it('switches modes only through armed device MCP and never lets speech elevate permissions', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect((await f.call(30, 'workbench_set_mode', { mode: 'plan' })).isError).toBe(true);
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '切换到计划模式' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('切换到计划模式'));
+  expect(f.command).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'stop-listening' });
+  expect((await f.call(31, 'workbench_set_mode', { mode: 'plan' })).isError).toBeUndefined();
+  await f.call(31, 'workbench_set_mode', { mode: 'plan' });
+  expect(f.command).toHaveBeenCalledTimes(1);
+  expect(f.command.mock.calls[0]?.[0]).toEqual({ action: 'set-mode', mode: 'plan' });
+  expect(f.start).not.toHaveBeenCalled();
+  expect((await f.call(32, 'workbench_set_mode', { mode: 'full-access' })).isError).toBe(true);
+  expect((await f.call(33, 'workbench_set_mode', { mode: 'default' })).isError).toBe(true);
+  await f.voice.command({ action: 'listen' });
+  expect((await f.call(34, 'workbench_set_mode', { mode: 'default' })).isError).toBeUndefined();
+  expect(f.command).toHaveBeenCalledTimes(2);
+});
 it('requires explicit permission for voice submission and can save preferences without exposing the token', async () => {
   const f = await create('pcm', false);
   await f.voice.inspect();
@@ -243,6 +272,7 @@ it('rejects untrusted events without disclosing raw payloads', async () => {
   expect(f.voice.read().error).not.toContain('PRIVATE');
   const bare = new VoiceService({
     workbench: {
+      async command() {},
       voiceContext: () => ({ selection: null, attachments: [] }),
       read: () =>
         workbenchSchema.parse({

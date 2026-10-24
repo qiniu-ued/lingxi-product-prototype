@@ -18,6 +18,7 @@ const rpc = z.object({
   params: z.unknown().optional(),
 });
 const textInput = z.strictObject({ text: z.string().trim().min(1).max(4000) });
+const modeInput = z.strictObject({ mode: z.enum(['plan', 'default']) });
 
 // Lingxi is the MCP client; this Mac is its device MCP server, encapsulated in
 // the outbound WSS. It is separate from Codex's authenticated preview MCP.
@@ -40,6 +41,8 @@ export class VoiceService {
   };
   private target = '';
   private submittedCapture: string | null = null;
+  private modeInCapture: 'plan' | 'default' | null = null;
+  private modePending = false;
   private responses = new Map<string, { input: string; value: unknown }>();
   private state: VoiceState = {
     configured: false,
@@ -55,7 +58,7 @@ export class VoiceService {
       desktop?: DesktopBridge;
       workbench: Pick<
         Workbench,
-        'read' | 'start' | 'interrupt' | 'decide' | 'subscribe' | 'voiceContext'
+        'read' | 'start' | 'interrupt' | 'decide' | 'subscribe' | 'voiceContext' | 'command'
       >;
       testEndpoint?: string;
     },
@@ -166,6 +169,7 @@ export class VoiceService {
       this.capturedContext = context;
       this.armedUntil = Date.now() + 90_000;
       this.submittedCapture = null;
+      this.modeInCapture = null;
       this.send({ type: 'listen', state: 'start', mode: 'manual' });
       clearTimeout(this.captureDeadline);
       this.captureDeadline = setTimeout(() => {
@@ -347,6 +351,12 @@ export class VoiceService {
             inputSchema: z.toJSONSchema(textInput),
           },
           {
+            name: 'workbench_set_mode',
+            description:
+              '用户明确说切换到计划模式或执行模式时调用，只影响新提交任务。仅在主动收音并允许语音控制时可用。不修改权限，不提交开发任务。',
+            inputSchema: z.toJSONSchema(modeInput),
+          },
+          {
             name: 'workbench_interrupt',
             description: '用户明确要求停止当前 Codex 任务时调用。不会回退代码。',
             inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -357,7 +367,12 @@ export class VoiceService {
       try {
         const call = z
           .object({
-            name: z.enum(['workbench_status', 'workbench_submit', 'workbench_interrupt']),
+            name: z.enum([
+              'workbench_status',
+              'workbench_submit',
+              'workbench_interrupt',
+              'workbench_set_mode',
+            ]),
             arguments: z.unknown(),
           })
           .parse(request.params);
@@ -388,7 +403,37 @@ export class VoiceService {
           )
             throw new Error('not_armed');
           if (this.target !== this.context()) throw new Error('voice_context_changed');
-          if (call.name === 'workbench_submit') {
+          if (call.name === 'workbench_set_mode') {
+            const { mode } = modeInput.parse(call.arguments);
+            if (
+              this.submittedCapture ||
+              this.modePending ||
+              (this.modeInCapture && this.modeInCapture !== mode)
+            )
+              throw new Error('capture_already_used');
+            const captureId = this.state.captureId;
+            this.modePending = true;
+            try {
+              await this.options.workbench.command(
+                { action: 'set-mode', mode },
+                () =>
+                  this.state.captureId === captureId &&
+                  this.target === this.context() &&
+                  Date.now() <= this.armedUntil &&
+                  !!this.config?.allowVoiceSubmit,
+              );
+              this.modeInCapture = mode;
+            } finally {
+              this.modePending = false;
+            }
+            const label = mode === 'plan' ? '计划模式' : '执行模式';
+            this.pendingSpeech = `已切换到${label}，用于新提交的任务。`;
+            this.flushSpeech();
+            result = {
+              content: [{ type: 'text', text: this.pendingSpeech || `已切换到${label}。` }],
+            };
+          } else if (call.name === 'workbench_submit') {
+            if (this.modePending) throw new Error('mode_change_pending');
             const { text } = textInput.parse(call.arguments);
             if (this.submittedCapture && this.submittedCapture !== text)
               throw new Error('capture_already_submitted');

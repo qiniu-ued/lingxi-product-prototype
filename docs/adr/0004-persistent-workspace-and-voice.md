@@ -38,4 +38,6 @@ Node 主动建立官方 WSS，携带 Device-Id、Client-Id、Protocol-Version �
 
 RPC 契约参考本地 CLI 0.163.0 生成的 v2 类型。安装仍使用 stable latest；不将官方桌面全部 UI 功能视为现成的 CLI API。模型、Skills、MCP 和额度按独立能力读取，失败不掩盖其他结果；“先给计划并请求确认”目前是指令约束，非官方 collaboration Plan mode。
 
+后续更新：上述 Plan 指令临时方案已由 [ADR 0007](0007-official-modes-and-readable-tools.md) 的正式协议选择器替换；本段保留原实施时的决定。
+
 单元/API/真实子进程替身、Electron 页面与音频帧测试验证实现契约。真实账户激活、PCM 协商、听说质量、模型调用、macOS 麦克风与 AirPlay 均必须另记真机证据。

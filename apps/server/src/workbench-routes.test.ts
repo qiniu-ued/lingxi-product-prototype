@@ -176,6 +176,13 @@ it('supports validated workspace commands and refuses runtime URLs without a sel
   );
   expect((await post('preview-url', { url: 'http://127.0.0.1:5555' })).statusCode).toBe(409);
   expect((await app.inject('/api/workbench/catalog')).statusCode).toBe(409);
+  expect((await app.inject('/api/workbench/execution-options')).statusCode).toBe(409);
+  expect((await post('verify-execution', {})).statusCode).toBe(409);
+  expect((await post('verify-execution', { shell: 'arbitrary' })).statusCode).toBe(400);
+  expect(
+    (await app.inject({ method: 'POST', url: '/api/workbench/verify-execution', payload: {} }))
+      .statusCode,
+  ).toBe(403);
   expect((await app.inject('/api/workbench/git')).statusCode).toBe(409);
   await post('action', { action: 'select-project' });
   expect((await post('workspace', { action: 'new-thread', title: 'A new chat' })).statusCode).toBe(

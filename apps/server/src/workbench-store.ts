@@ -1,4 +1,6 @@
 import {
+  type PermissionMode,
+  permissionModeSchema,
   type ThreadRuntime,
   taskSchema,
   threadRuntimeSchema,
@@ -9,7 +11,12 @@ import Database from 'better-sqlite3';
 import { summarizeTurnUsage, type TurnUsageRecord, turnUsageRecordSchema } from './turn-usage.js';
 
 function legacySnapshot(state: WorkbenchState) {
-  const { runtime: _runtime, turnUsage: _turnUsage, ...snapshot } = workbenchSchema.parse(state);
+  const {
+    runtime: _runtime,
+    turnUsage: _turnUsage,
+    permission: _permission,
+    ...snapshot
+  } = workbenchSchema.parse(state);
   return { ...snapshot, terminal: null };
 }
 
@@ -25,6 +32,7 @@ export class WorkbenchStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS workspace_thread_runtime_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_turn_usage_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workspace_permissions_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_requests (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_state_v2 (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
@@ -94,10 +102,12 @@ export class WorkbenchStore {
       ...state,
       runtime: runtime && runtime.codexId === selected?.codexId ? runtime : null,
       turnUsage: this.turnUsage(state.history),
+      permission: this.permission('preferences'),
     };
   }
   write(state: WorkbenchState) {
     this.db.transaction(() => {
+      this.writePermission('preferences', state.permission);
       this.db
         .prepare('UPDATE workspace_state_v2 SET value=? WHERE id=1')
         .run(JSON.stringify(legacySnapshot(state)));
@@ -128,6 +138,19 @@ export class WorkbenchStore {
       .prepare('SELECT value FROM workspace_turn_usage_v1 WHERE id=?')
       .get(taskId) as { value: string } | undefined;
     return row ? turnUsageRecordSchema.parse(JSON.parse(row.value)) : null;
+  }
+  permission(id: string): PermissionMode {
+    const row = this.db.prepare('SELECT value FROM workspace_permissions_v1 WHERE id=?').get(id) as
+      | { value: string }
+      | undefined;
+    return row ? permissionModeSchema.parse(JSON.parse(row.value)) : 'manual';
+  }
+  writePermission(id: string, value: PermissionMode) {
+    this.db
+      .prepare(
+        'INSERT INTO workspace_permissions_v1(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',
+      )
+      .run(id, JSON.stringify(permissionModeSchema.parse(value)));
   }
   writeUsageRecord(value: TurnUsageRecord) {
     const record = turnUsageRecordSchema.parse(value);

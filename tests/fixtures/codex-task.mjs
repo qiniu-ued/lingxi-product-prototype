@@ -7,7 +7,7 @@ import { createInterface } from 'node:readline';
 const [argMode, argRecord] = process.argv.slice(2);
 const mode = process.env.LINGXI_TASK_FIXTURE_MODE ?? argMode;
 const record = process.env.LINGXI_TASK_FIXTURE_RECORD ?? argRecord;
-if (record) appendFileSync(record, `${JSON.stringify({ pid: process.pid })}\n`);
+if (record) appendFileSync(record, `${JSON.stringify({ pid: process.pid, cwd: process.cwd() })}\n`);
 const emit = (value) => console.log(JSON.stringify(value));
 let currentThread = 'thread-1',
   currentTurn = 'turn-1',
@@ -212,7 +212,54 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       });
   } else if (message.method === 'thread/fork') {
     currentThread = `fork-${++threadSequence}`;
-    emit({ id: message.id, result: { thread: { id: currentThread } } });
+    emit({
+      id: message.id,
+      result: { thread: { id: currentThread }, model: 'test-model', reasoningEffort: 'medium' },
+    });
+  } else if (message.method === 'collaborationMode/list') {
+    if (mode === 'no-modes') emit({ id: message.id, error: { message: 'Unsupported' } });
+    else
+      emit({
+        id: message.id,
+        result: {
+          data: [
+            ...(mode === 'default-only' ? [] : [{ name: 'Plan', mode: 'plan' }]),
+            { name: 'Default', mode: 'default' },
+          ],
+        },
+      });
+  } else if (message.method === 'config/requirements/read') {
+    emit({
+      id: message.id,
+      result: {
+        requirements:
+          mode === 'restricted'
+            ? {
+                allowedApprovalPolicies: ['on-request'],
+                allowedApprovalsReviewers: ['user'],
+                allowedSandboxModes: ['workspace-write'],
+              }
+            : null,
+      },
+    });
+  } else if (message.method === 'thread/settings/update') {
+    if (mode === 'settings-error')
+      emit({ id: message.id, error: { message: 'PRIVATE SETTINGS ERROR' } });
+    else {
+      emit({ id: message.id, result: {} });
+      emit({
+        method: 'thread/settings/updated',
+        params: {
+          threadId: message.params.threadId,
+          threadSettings: {
+            ...message.params,
+            model: message.params.collaborationMode.settings.model,
+            effort: message.params.collaborationMode.settings.reasoning_effort,
+            ...(mode === 'settings-mismatch' ? { approvalsReviewer: 'wrong-reviewer' } : {}),
+          },
+        },
+      });
+    }
   } else if (message.method === 'turn/start') {
     currentThread = message.params.threadId;
     currentTurn = `turn-${++turnSequence}`;
@@ -227,6 +274,18 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         },
       },
     });
+    if (message.params.approvalsReviewer === 'auto_review') {
+      for (const status of ['inProgress', mode === 'review-denied' ? 'denied' : 'approved'])
+        emit({
+          method: `item/autoApprovalReview/${status === 'inProgress' ? 'started' : 'completed'}`,
+          params: {
+            threadId: currentThread,
+            turnId: currentTurn,
+            reviewId: 'review-1',
+            review: { status },
+          },
+        });
+    }
     if (mode === 'approval' || mode === 'file')
       emit({
         id: 70,

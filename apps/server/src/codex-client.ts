@@ -30,6 +30,14 @@ export class CodexClient {
     }
   >();
   private stopped = false;
+  private settingsWaiters = new Map<
+    string,
+    {
+      accept: (value: unknown) => boolean;
+      resolve: (value: boolean) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   private force: ReturnType<typeof setTimeout> | undefined;
   private buffer = '';
   private exited: Promise<void>;
@@ -96,6 +104,24 @@ export class CodexClient {
   respond(id: string | number, result: unknown) {
     this.send({ id, result });
   }
+  async updateSettings(
+    params: { threadId: string; [key: string]: unknown },
+    accept: (value: unknown) => boolean,
+  ) {
+    if (this.settingsWaiters.has(params.threadId)) throw new Error('settings_busy');
+    const confirmed = new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), this.options.timeoutMs ?? 15000);
+      this.settingsWaiters.set(params.threadId, { accept, resolve, timer });
+    });
+    try {
+      await this.request('thread/settings/update', params);
+      if (!(await confirmed)) throw new Error('execution_unconfirmed');
+    } finally {
+      const waiter = this.settingsWaiters.get(params.threadId);
+      clearTimeout(waiter?.timer);
+      this.settingsWaiters.delete(params.threadId);
+    }
+  }
   reject(id: string | number) {
     this.send({ id, error: { code: -32601, message: 'Unsupported operation' } });
   }
@@ -125,7 +151,18 @@ export class CodexClient {
             if (message.error) entry.reject(new Error('codex_request_failed'));
             else entry.resolve(message.result);
           }
-        } else this.options.onMessage(message);
+        } else {
+          if (message.method === 'thread/settings/updated') {
+            const event = z
+              .object({ threadId: z.string(), threadSettings: z.unknown() })
+              .safeParse(message.params);
+            if (event.success) {
+              const waiter = this.settingsWaiters.get(event.data.threadId);
+              if (waiter?.accept(event.data.threadSettings)) waiter.resolve(true);
+            }
+          }
+          this.options.onMessage(message);
+        }
       } catch {
         this.disconnect();
         return;
@@ -140,6 +177,7 @@ export class CodexClient {
       entry.reject(new Error('codex_disconnected'));
     }
     this.pending.clear();
+    for (const waiter of this.settingsWaiters.values()) waiter.resolve(false);
     this.kill('SIGTERM');
     this.force = setTimeout(() => this.kill('SIGKILL'), 500);
     this.options.onDisconnect();

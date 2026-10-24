@@ -18,7 +18,7 @@ Electron 启动和停止独立 Node 24 子进程，随机回环端口，内置 N
 
 保留发布静态 `preview/index.html`，冻结允许的 public 资产后切换版本；用户可在交互终端启动项目 dev server，再明确绑定 loopback URL，放行精确项目 origin 与 HMR WebSocket，仍禁止访问本机工作台服务。相同内容不刷新页面，更新保留项目来源和 localStorage。生成页面不能访问本地服务或外部网络，不支持 CDN/API。页面 uuid、项目 id、revision、导航 epoch 和元素 ref 共同约束动作；只提供 snapshot/click/type/scroll，没有任意 JS、RPC 或 shell 转发。
 
-Codex 使用常驻 App Server 连接的线程/任务接口，`workspace-write` 和 `on-request`，显示实际消息、命令/文件/工具进度、询问和批准。会话不等同 Codex 桌面应用已有会话。重复 task requestId 从数据库回执判断，不重放；异常重启标记未完成任务为 interrupted，等待用户核对已有文件修改。停止不会回退文件。
+Codex 使用常驻 App Server 连接的线程/任务接口，默认 Manual（`workspace-write` / `on-request` / 用户审批）；可显式选择自动审查或完整访问。每轮提交前确认官方执行/计划模式与权限设置，Sidechat 固定只读。显示实际消息、命令/文件/工具进度、询问和批准。会话不等同 Codex 桌面应用已有会话。重复 task requestId 从数据库回执判断，不重放；异常重启标记未完成任务为 interrupted，等待用户核对已有文件修改。停止不会回退文件。
 
 ## 接口
 
@@ -56,6 +56,7 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 - `POST /api/workbench/terminal`：应用固定 shell 的打开、stdin、resize、terminate。仅桌面、合法 Origin；无 executable/argv 参数。
 - `POST /api/workbench/preview-url`：显式绑定项目 loopback URL。
 - `GET /api/workbench/models`：完整可见模型分页目录；只查询，不创建线程或执行任务。
+- `GET /api/workbench/execution-options`：只读模式与组织权限策略能力；`POST /api/workbench/verify-execution`：显式、独立临时会话验证，等待官方设置通知，不执行模型任务。
 - `GET /api/workbench/git` / `catalog`：固定只读 Git 与模型/Skills/MCP/额度查询。
 - `GET /api/voice` / `binding`：无秘密状态。
 - `POST /api/voice/binding`：显式 start/check/cancel；官方 OTA 网关请求，不代理任意 URL。
@@ -66,3 +67,5 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 输入区模型选择器、上下文最近/累计统计及独立元数据表兼容见 [ADR 0005](adr/0005-model-controls-and-context-usage.md)。快照 runtime 字段来自当前对话对应的真实通知；旧 v2 状态 JSON 不写入该新字段。
 
 每轮消耗由累计值前后差计算，在结束回复下方展示总量、输入/输出、缓存命中率。`workspace_turn_usage_v1` 独立保存基线、前驱轮次和原始累计报告，快照 `turnUsage` 按当前历史派生，旧 v2 JSON 不增加字段。已知历史轮次的迟到报告只修正对应轮次及下一轮基线，不能覆盖更新的窗口占用。数据缺失和计数重置不估算。见 [ADR 0006](adr/0006-turn-token-consumption.md)。
+
+模式与权限映射、独立验证进程、只读能力发现、结构化目录及语音切换见 [ADR 0007](adr/0007-official-modes-and-readable-tools.md)。权限偏好与排队时捕获的选择存入 `workspace_permissions_v1`，旧 v2 状态与任务 JSON 格式不增加属性。

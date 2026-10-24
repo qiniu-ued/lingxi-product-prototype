@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { permissionModeSchema } from './execution.js';
 import { reasoningEffortSchema, threadRuntimeSchema, turnUsageSchema } from './model-usage.js';
 
 export const projectSchema = z.strictObject({ id: z.uuid(), name: z.string(), path: z.string() });
@@ -160,6 +161,7 @@ export const workbenchSchema = z.strictObject({
   terminal: terminalStateSchema.nullable().default(null),
   runtime: threadRuntimeSchema.nullable().default(null),
   turnUsage: z.array(turnUsageSchema).default([]),
+  permission: permissionModeSchema.default('manual'),
 });
 export const startTaskSchema = z.strictObject({
   requestId: z.uuid(),
@@ -189,6 +191,8 @@ export const workspaceCommandSchema = z.discriminatedUnion('action', [
     kind: z.enum(['fork', 'sidechat']),
   }),
   z.strictObject({ action: z.literal('settings'), settings: threadSettingsSchema }),
+  z.strictObject({ action: z.literal('set-mode'), mode: z.enum(['plan', 'default']) }),
+  z.strictObject({ action: z.literal('set-permission'), permission: permissionModeSchema }),
   z.strictObject({ action: z.literal('cancel-queued'), id: z.uuid() }),
 ]);
 export const terminalCommandSchema = z.discriminatedUnion('action', [

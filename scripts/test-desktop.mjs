@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -63,6 +63,18 @@ try {
   await operator.getByLabel('Reasoning Effort', { exact: true }).selectOption('high');
   const beforeTasks = await readFile(record, 'utf8');
   assert.ok(!beforeTasks.includes('thread/start'), 'Loading model choices must not start a thread');
+  await operator.getByLabel('工作模式', { exact: true }).selectOption('plan');
+  await operator.waitForFunction(
+    () => document.querySelector('#collaboration-mode').value === 'plan',
+  );
+  await operator.getByLabel('工作模式', { exact: true }).selectOption('default');
+  await operator.waitForFunction(
+    () => document.querySelector('#collaboration-mode').value === 'default',
+  );
+  await operator.getByText('模式说明与兼容验证', { exact: true }).click();
+  await operator.getByRole('button', { name: '验证执行设置', exact: true }).click();
+  await operator.getByText(/已由 Codex 确认：计划模式、执行模式/).waitFor();
+  await operator.getByText('模式说明与兼容验证', { exact: true }).click();
 
   for (let attempt = 0; attempt < 100; attempt++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
@@ -102,6 +114,13 @@ try {
   assert.equal(after.task.status, 'completed', JSON.stringify(after.task));
   assert.equal(after.task.settings.model, 'test-model');
   assert.equal(after.task.settings.effort, 'high');
+  const started = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line))
+    .find((message) => message.method === 'turn/start');
+  assert.equal(started.params.collaborationMode.mode, 'default');
+  assert.equal(started.params.approvalsReviewer, 'user');
   await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
   await operator.waitForFunction(() =>
     document.querySelector('.turn-usage-summary')?.textContent.includes('缓存命中率 35.7%'),
@@ -168,8 +187,14 @@ try {
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
-  for (const item of records.filter((r) => r.pid))
-    assert.doesNotThrow(() => process.kill(item.pid, 0));
+  const canonicalProject = await realpath(projectPath);
+  const persistent = records.filter((r) => r.pid && r.cwd === canonicalProject);
+  const probes = records.filter((r) => r.pid && r.cwd !== canonicalProject);
+  assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
+  assert.equal(probes.length, 1, 'Explicit verification must use its own temporary connection');
+  for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
+  for (const item of probes)
+    assert.throws(() => process.kill(item.pid, 0), 'Verification peer must already be stopped');
   await instance.close();
   instance = undefined;
   for (const item of records.filter((r) => r.pid)) assert.throws(() => process.kill(item.pid, 0));

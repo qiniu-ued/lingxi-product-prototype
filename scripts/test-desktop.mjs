@@ -17,7 +17,7 @@ await mkdir(dataRoot);
 await mkdir(join(projectPath, 'preview'), { recursive: true });
 await writeFile(
   join(projectPath, 'preview/index.html'),
-  `<!doctype html><html lang="zh"><meta charset="utf-8"><title>周末，一起去哪里？</title><style>body{font:24px system-ui;padding:40px;background:#f6eadb;color:#453d33}button,input{font:inherit;padding:15px;margin-top:20px}h1{font-size:40px}</style><h1>周末，一起去哪里？</h1><button id="vote">金山城市沙滩</button><p>票数：<strong id="count"></strong></p><input aria-label="备注"><script>const count=document.querySelector('#count');count.textContent=localStorage.votes||'0';document.querySelector('#vote').onclick=()=>{localStorage.votes=String(Number(localStorage.votes||0)+1);count.textContent=localStorage.votes}</script></html>`,
+  `<!doctype html><html lang="zh"><meta charset="utf-8"><title>周末，一起去哪里？</title><style>body{font:24px system-ui;padding:40px;background:#f6eadb;color:#453d33}button,input{font:inherit;padding:15px;margin-top:20px}h1{font-size:40px}</style><h1>周末，一起去哪里？</h1><button id="vote"><span id="vote-label">金山城市沙滩</span></button><p>票数：<strong id="count"></strong></p><input aria-label="备注"><iframe id="same-frame" style="display:block;margin-top:240px;width:400px;height:140px" srcdoc="<button id=frame-action>Frame action</button>"></iframe><iframe id="opaque-frame" sandbox style="display:block;width:400px;height:140px" srcdoc="<button>Opaque action</button>"></iframe><script>const count=document.querySelector('#count');count.textContent=localStorage.votes||'0';document.querySelector('#vote').onclick=()=>{localStorage.votes=String(Number(localStorage.votes||0)+1);count.textContent=localStorage.votes}</script></html>`,
 );
 const store = new WorkbenchStore(join(dataRoot, 'lingxi.db'));
 const state = store.read();
@@ -268,10 +268,138 @@ try {
   );
   if (await operator.locator('.workbench-menu').evaluate((element) => element.open))
     await operator.locator('.workbench-menu > summary').press('Enter');
-  await operator.getByRole('button', { name: '批注修改', exact: true }).click();
-  await operator
-    .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
-    .click({ position: { x: 150, y: 65 } });
+  // Real canonical DOM hit testing. Operator remains a screenshot, never a second page.
+  const canonical = async (code) =>
+    instance.evaluate(async ({ webContents }, expression) => {
+      const page = webContents
+        .getAllWebContents()
+        .find((contents) => contents.getURL().startsWith('lingxi-preview:'));
+      return page.executeJavaScript(expression);
+    }, code);
+  const pointFor = async (selector, inFrame = false) => {
+    const remote = await canonical(
+      `(() => {const frame=${inFrame ? "document.querySelector('#same-frame')" : 'null'};const element=(frame?.contentDocument ?? document).querySelector(${JSON.stringify(selector)});const b=element.getBoundingClientRect(),f=frame?.getBoundingClientRect();return {x:((f?.x??0)+(frame?.clientLeft??0)+b.x+b.width/2)/innerWidth,y:((f?.y??0)+(frame?.clientTop??0)+b.y+b.height/2)/innerHeight};})()`,
+    );
+    return operator.locator('.preview-pick img').evaluate((img, normalized) => {
+      const rect = img.getBoundingClientRect(),
+        scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+      return {
+        x:
+          rect.x +
+          (rect.width - img.naturalWidth * scale) / 2 +
+          normalized.x * img.naturalWidth * scale,
+        y:
+          rect.y +
+          (rect.height - img.naturalHeight * scale) / 2 +
+          normalized.y * img.naturalHeight * scale,
+      };
+    }, remote);
+  };
+  const hoverTarget = async (selector, label, inFrame = false) => {
+    const point = await pointFor(selector, inFrame);
+    await operator.mouse.move(point.x, point.y);
+    await operator.waitForFunction(
+      (value) => document.querySelector('.preview-element-label')?.textContent.startsWith(value),
+      label,
+    );
+    return point;
+  };
+  const annotation = operator.getByRole('button', { name: '批注修改', exact: true });
+  await annotation.click();
+  await hoverTarget('h1', 'h1');
+  await hoverTarget('#vote-label', 'span#vote-label');
+  assert.equal(
+    await canonical("document.querySelector('#count').textContent"),
+    '0',
+    'Hover must not activate the work',
+  );
+  await operator.mouse.wheel(0, 60);
+  let wheelScrolled = false;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    if (await canonical('window.scrollY > 0')) {
+      wheelScrolled = true;
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.equal(wheelScrolled, true, 'The picker wheel must scroll the canonical page');
+  await canonical('window.scrollTo(0,0)');
+  await operator.keyboard.press('Escape');
+  await operator.waitForFunction(() => !document.querySelector('.preview-element-outline'));
+  assert.equal(await annotation.getAttribute('aria-pressed'), 'false');
+  await annotation.click();
+  let chosen = await hoverTarget('#vote-label', 'span#vote-label');
+  await operator.screenshot({ path: join(root, '.local/annotation-hover.png') });
+  await operator.mouse.click(chosen.x, chosen.y);
+  await operator.waitForFunction(() => !!document.querySelector('.preview-element-outline.locked'));
+  await instance.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => new URL(window.webContents.getURL()).pathname === '/')
+      .setContentSize(998, 767),
+  );
+  const resizedCenter = await pointFor('#vote-label');
+  await operator.waitForFunction(({ x, y }) => {
+    const box = document.querySelector('.preview-element-outline')?.getBoundingClientRect();
+    return (
+      box && Math.abs(box.x + box.width / 2 - x) < 3 && Math.abs(box.y + box.height / 2 - y) < 3
+    );
+  }, resizedCenter);
+  await instance.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()
+      .find((window) => new URL(window.webContents.getURL()).pathname === '/')
+      .setContentSize(1440, 940),
+  );
+  const restoredCenter = await pointFor('#vote-label');
+  await operator.waitForFunction(({ x, y }) => {
+    const box = document.querySelector('.preview-element-outline')?.getBoundingClientRect();
+    return (
+      box && Math.abs(box.x + box.width / 2 - x) < 3 && Math.abs(box.y + box.height / 2 - y) < 3
+    );
+  }, restoredCenter);
+  const beforeScroll = await operator.locator('.preview-element-outline').boundingBox();
+  await canonical('window.scrollBy(0,60)');
+  await operator.waitForFunction(
+    (top) =>
+      document.querySelector('.preview-element-outline')?.getBoundingClientRect().top < top - 10,
+    beforeScroll.y,
+  );
+  assert.equal(
+    await canonical("document.querySelector('#count').textContent"),
+    '0',
+    'Selecting must not click the canonical button',
+  );
+  await instance.evaluate(({ webContents }) =>
+    webContents
+      .getAllWebContents()
+      .find((contents) => contents.getURL().startsWith('lingxi-preview:'))
+      .setZoomFactor(1.25),
+  );
+  await operator.waitForFunction(
+    () => document.querySelector('.preview-element-outline')?.getBoundingClientRect().width > 20,
+  );
+  await instance.evaluate(({ webContents }) =>
+    webContents
+      .getAllWebContents()
+      .find((contents) => contents.getURL().startsWith('lingxi-preview:'))
+      .setZoomFactor(1),
+  );
+  await canonical("window.scrollTo(0,document.querySelector('#same-frame').offsetTop-80)");
+  await annotation.click();
+  await hoverTarget('#frame-action', 'button#frame-action', true);
+  await canonical("document.querySelector('#same-frame').style.transform='rotate(5deg)'");
+  await hoverTarget('#same-frame', 'iframe#same-frame');
+  await canonical("document.querySelector('#same-frame').style.transform='none'");
+  await hoverTarget('#frame-action', 'button#frame-action', true);
+
+  await operator.keyboard.press('Escape');
+  await canonical("window.scrollTo(0,document.querySelector('#opaque-frame').offsetTop-80)");
+  await annotation.click();
+  await hoverTarget('#opaque-frame', 'iframe#opaque-frame');
+  await operator.keyboard.press('Escape');
+  await canonical('window.scrollTo(0,0)');
+  await annotation.click();
+  chosen = await hoverTarget('#vote-label', 'span#vote-label');
+  await operator.mouse.click(chosen.x, chosen.y);
   await operator.getByRole('button', { name: '清除选择' }).waitFor();
   await operator
     .getByLabel('给选中元素的批注', { exact: true })
@@ -501,7 +629,7 @@ try {
       return;
     }
     response.end(
-      `<!doctype html><html><body><h1>Live project</h1><button id="vote">金山城市沙滩</button><p>票数 <strong id="count">0</strong></p><script>let votes=0;document.querySelector('#vote').onclick=()=>document.querySelector('#count').textContent=String(++votes);fetch('/api').then(r=>r.text()).then(t=>document.body.dataset.api=t);fetch(${JSON.stringify(`${reopenedAddress}/api/health`)}).then(()=>document.body.dataset.blocked='no').catch(()=>document.body.dataset.blocked='yes')</script></body></html>`,
+      `<!doctype html><html><body><h1>Live project</h1><button id="vote"><span id="vote-label">金山城市沙滩</span></button><p>票数 <strong id="count">0</strong></p><script>let votes=0;document.querySelector('#vote').onclick=()=>document.querySelector('#count').textContent=String(++votes);fetch('/api').then(r=>r.text()).then(t=>document.body.dataset.api=t);fetch(${JSON.stringify(`${reopenedAddress}/api/health`)}).then(()=>document.body.dataset.blocked='no').catch(()=>document.body.dataset.blocked='yes')</script></body></html>`,
     );
   });
   await new Promise((resolve) => liveServer.listen(0, '127.0.0.1', resolve));

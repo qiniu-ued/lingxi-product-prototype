@@ -67,6 +67,31 @@ export const previewSelectionSchema = z.strictObject({
   description: z.string().max(500),
 });
 export type PreviewSelection = z.infer<typeof previewSelectionSchema>;
+export const previewInspectSchema = z.discriminatedUnion('target', [
+  z.strictObject({
+    target: z.literal('point'),
+    binding: previewBindingSchema,
+    x: z.number().min(0).max(1),
+    y: z.number().min(0).max(1),
+  }),
+  z.strictObject({
+    target: z.literal('ref'),
+    binding: previewBindingSchema,
+    ref: z.string().min(1).max(80),
+  }),
+]);
+export type PreviewInspect = z.infer<typeof previewInspectSchema>;
+export const previewHighlightSchema = previewSelectionSchema.extend({
+  label: z.string().max(160),
+  bounds: z.strictObject({
+    x: z.number(),
+    y: z.number(),
+    width: z.number().nonnegative(),
+    height: z.number().nonnegative(),
+  }),
+});
+export type PreviewHighlight = z.infer<typeof previewHighlightSchema>;
+
 export const contextAttachmentSchema = z.strictObject({
   id: z.uuid(),
   kind: z.enum(['text', 'terminal', 'diff', 'browser', 'sidechat', 'file']),
@@ -237,6 +262,8 @@ export interface DesktopApi {
   action(input: DesktopAction): Promise<void>;
   snapshot(): Promise<PreviewSnapshot | null>;
   pick(input: { binding: PreviewBinding; x: number; y: number }): Promise<PreviewSelection>;
+  inspect(input: PreviewInspect): Promise<PreviewHighlight | null>;
+  scrollPreview(input: { binding: PreviewBinding; deltaY: number }): Promise<void>;
   info(): Promise<{ platform: string; arch: string; systemVersion: string }>;
   microphone(): Promise<boolean>;
   microphoneStatus(): Promise<'granted' | 'denied' | 'restricted' | 'not-determined' | 'unknown'>;

@@ -16,6 +16,7 @@ import { HistoryActions } from './HistoryActions';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
 import { SettingsLink, SetupLink } from './Navigation';
+import { PreviewPicker } from './PreviewPicker';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
 import { VoiceControls, voiceConnectionLabel, voicePresentation } from './VoiceControls';
@@ -246,21 +247,26 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       return;
     }
     let active = true;
+    let pending = false;
     const update = async () => {
+      if (pending) return;
+      pending = true;
       try {
         const value = await window.lingxiDesktop?.snapshot();
         if (active && value) setShot(previewSnapshotSchema.parse(value));
       } catch {
         /* Preview may be changing. */
+      } finally {
+        pending = false;
       }
     };
     void update();
-    const timer = setInterval(() => void update(), 1200);
+    const timer = setInterval(() => void update(), picking ? 200 : 1200);
     return () => {
       active = false;
       clearInterval(timer);
     };
-  }, [display, bindingKey]);
+  }, [display, bindingKey, picking]);
   useEffect(() => {
     if (!state?.revision) return;
     const node = transcript.current;
@@ -653,7 +659,9 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               )}
             </div>
             {!display && picking && (
-              <p role="status">点击预览中的元素，选中后填写修改要求；点选不会触发页面按钮。</p>
+              <p role="status">
+                移动鼠标预览元素边界，点击锁定并填写修改要求；Esc 取消，滚轮浏览页面。
+              </p>
             )}
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
@@ -680,37 +688,20 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   )}
                 </div>
               ) : !display && shot ? (
-                <button
-                  type="button"
-                  className={`preview-pick ${picking ? 'picking' : ''}`}
-                  aria-label="选择预览元素"
-                  disabled={!picking}
-                  onClick={async (event) => {
-                    const image = event.currentTarget.querySelector('img');
-                    if (!image) return;
-                    const rect = image.getBoundingClientRect();
-                    try {
-                      const value = await window.lingxiDesktop?.pick({
-                        binding: shot.binding,
-                        x: (event.clientX - rect.x) / rect.width,
-                        y: (event.clientY - rect.y) / rect.height,
-                      });
-                      if (value) {
-                        setSelection(value);
-                        if (composer.current) composer.current.open = true;
-                        setPicking(false);
-                        retry.current = null;
-                      }
-                    } catch {
-                      setError('预览已变化，请重新点选。');
-                    }
+                <PreviewPicker
+                  key={JSON.stringify(shot.binding)}
+                  shot={shot}
+                  active={picking}
+                  selection={selection}
+                  onCancel={() => setPicking(false)}
+                  onError={setError}
+                  onPick={(value) => {
+                    setSelection(value);
+                    if (composer.current) composer.current.open = true;
+                    setPicking(false);
+                    retry.current = null;
                   }}
-                >
-                  <img
-                    alt="大屏中同一个作品页面的实时画面"
-                    src={`data:image/png;base64,${shot.image}`}
-                  />
-                </button>
+                />
               ) : !display ? (
                 <p>正在同步大屏中的作品…</p>
               ) : null}

@@ -86,6 +86,11 @@ async function open(
     ({ snapshot }) => {
       Object.defineProperty(window, 'lingxiDesktop', {
         value: {
+          snapshot: async () => Reflect.get(window, 'testPreviewSnapshot') ?? null,
+          inspect: async (input: unknown) => Reflect.get(window, 'testPreviewInspect')(input),
+          scrollPreview: async (input: unknown) => {
+            Reflect.set(window, 'previewScroll', input);
+          },
           info: async () => ({ platform: 'darwin', arch: 'arm64', systemVersion: 'fixture' }),
           microphone: async () => {
             Reflect.set(
@@ -1399,4 +1404,106 @@ test('service reconnect status is separate from local wake and explicit disconne
   expect(f.voiceCommands.some((c) => c.action === 'retry-connection')).toBe(false);
   await page.getByText('语音唤醒', { exact: true }).click();
   await page.getByRole('button', { name: '关闭语音唤醒', exact: true }).click();
+});
+
+async function previewFixture(page: Page) {
+  const binding = {
+    id: randomUUID(),
+    projectId,
+    revision: 1,
+    epoch: 1,
+    url: 'http://127.0.0.1:5174/',
+    title: 'Test preview',
+  };
+  await page.addInitScript(
+    ({ binding }) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 600;
+      const context = canvas.getContext('2d');
+      context?.fillRect(0, 0, 800, 600);
+      Reflect.set(window, 'testPreviewSnapshot', {
+        binding,
+        text: 'Preview',
+        image: canvas.toDataURL('image/png').split(',')[1],
+        width: 800,
+        height: 600,
+      });
+      Reflect.set(
+        window,
+        'testPreviewInspect',
+        async (input: { target: string; x?: number; ref?: string }) => {
+          const right = input.ref === 'r2' || (input.x ?? 0) > 0.5;
+          const value = {
+            binding,
+            ref: right ? 'r2' : 'r1',
+            description: right ? 'Right button' : 'Left button',
+            label: right ? 'button#right' : 'button#left',
+            bounds: { x: right ? 0.55 : 0.15, y: 0.3, width: 0.25, height: 0.15 },
+          };
+          if (Reflect.get(window, 'holdPreview'))
+            return new Promise((resolve) => {
+              const pending = Reflect.get(window, 'pendingPreview') ?? [];
+              pending.push(() => resolve(value));
+              Reflect.set(window, 'pendingPreview', pending);
+            });
+          return value;
+        },
+      );
+    },
+    { binding },
+  );
+  return open(page, runtime(), false, { preview: binding });
+}
+test('annotation hover switches targets, locks into the draft, scrolls only while picking and clears on cancel', async ({
+  page,
+}) => {
+  await previewFixture(page);
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  const image = await page.locator('.preview-pick img').boundingBox();
+  if (!image) throw new Error('missing preview');
+  const center = { x: image.x + image.width / 2, y: image.y + image.height / 2 };
+  await page.mouse.move(center.x - 30, center.y);
+  await expect(page.locator('.preview-element-label')).toHaveText('button#left');
+  await page.mouse.move(center.x + 30, center.y);
+  await expect(page.locator('.preview-element-label')).toHaveText('button#right');
+  await page.mouse.wheel(0, 120);
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'previewScroll')?.deltaY))
+    .toBe(120);
+  await page.mouse.click(center.x + 30, center.y);
+  await expect(page.getByLabel('给选中元素的批注', { exact: true })).toBeVisible();
+  await expect(page.locator('.preview-element-outline.locked')).toBeVisible();
+  await page.getByRole('button', { name: '清除选择', exact: true }).click();
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  await page.mouse.move(center.x, center.y);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+});
+test('Esc discards late hover and click replies without selecting or submitting an element', async ({
+  page,
+}) => {
+  const f = await previewFixture(page);
+  await page.evaluate(() => Reflect.set(window, 'holdPreview', true));
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  const image = await page.locator('.preview-pick img').boundingBox();
+  if (!image) throw new Error('missing preview');
+  await page.mouse.move(image.x + image.width / 2, image.y + image.height / 2);
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'pendingPreview')?.length ?? 0))
+    .toBeGreaterThan(0);
+  await page.mouse.click(image.x + image.width / 2, image.y + image.height / 2);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    Reflect.set(window, 'holdPreview', false);
+    for (const resolve of Reflect.get(window, 'pendingPreview') ?? []) resolve();
+  });
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '清除选择', exact: true })).toHaveCount(0);
+  expect(f.commands).toHaveLength(0);
 });

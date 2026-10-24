@@ -6,6 +6,7 @@ import {
   desktopActionSchema,
   type Project,
   previewBindingSchema,
+  previewInspectSchema,
   projectSchema,
   voiceConfigSchema,
 } from '@lingxi/protocol';
@@ -407,6 +408,19 @@ else {
             })
             .parse(input),
         );
+      });
+      ipcMain.handle('desktop.inspect', (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        return preview.inspect(previewInspectSchema.parse(input));
+      });
+      ipcMain.handle('desktop.preview-scroll', async (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        const value = z
+          .strictObject({ binding: previewBindingSchema, deltaY: z.number().min(-800).max(800) })
+          .parse(input);
+        await preview.perform({ action: 'scroll', requestId: randomUUID(), ...value });
       });
       session.defaultSession.setPermissionRequestHandler(
         (contents, permission, callback, details) => {

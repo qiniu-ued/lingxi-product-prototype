@@ -175,5 +175,8 @@ test('settings can always be opened directly and remain open after every configu
   await expect(page).toHaveURL(/\/settings#lingxi$/);
   expect(f.actions).toEqual([]);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  await expect(
+    page.locator('.live-header').getByRole('button', { name: '设置', exact: true }),
+  ).toHaveCount(0);
+  await expect(page.locator('.workbench-menu > summary')).toBeVisible();
 });

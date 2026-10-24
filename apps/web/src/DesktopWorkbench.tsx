@@ -15,7 +15,7 @@ import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
-import { SettingsLink, SetupLink } from './Navigation';
+import { SetupLink } from './Navigation';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
 import { VoiceControls } from './VoiceControls';
@@ -402,7 +402,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               </details>
             </div>
           )}
-          {!display && <SettingsLink />}
           {!display && (
             <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
               <summary>工作区</summary>

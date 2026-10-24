@@ -190,6 +190,8 @@ try {
     .getByRole('button', { name: '移除', exact: true })
     .click();
   await operator.getByLabel('给 Codex 的本轮指令').fill('主对话草稿保留');
+  await expand(operator, '.workbench-menu');
+  await operator.getByRole('button', { name: '连接向导', exact: true }).click();
   await operator.getByRole('button', { name: '设置', exact: true }).click();
   await operator.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
   await operator.getByRole('navigation', { name: '设置分类' }).waitFor();

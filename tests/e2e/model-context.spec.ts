@@ -337,6 +337,15 @@ function historyThread() {
     createdAt: new Date().toISOString(),
   };
 }
+async function openSettings(page: Page) {
+  const workspace = page.locator('.workbench-menu');
+  if (await workspace.isVisible()) {
+    if (!(await workspace.evaluate((element: HTMLDetailsElement) => element.open)))
+      await workspace.locator(':scope > summary').click();
+    await page.getByRole('button', { name: '连接向导', exact: true }).click();
+  }
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+}
 async function selectExcerpt(page: Page, taskId: string, text: string, role = 'assistant') {
   const bubble = page
     .locator(`[data-history-task="${taskId}"][data-history-role="${role}"]`)
@@ -765,7 +774,7 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
   await page.getByRole('button', { name: '开启语音唤醒', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
   const arms = fixture.voiceCommands.filter((command) => command.action === 'arm-wake').length;
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSettings(page);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -806,7 +815,7 @@ test('opening settings while microphone acquisition is pending releases the late
   await expect
     .poll(() => page.evaluate(() => typeof Reflect.get(window, 'releaseMic')))
     .toBe('function');
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSettings(page);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page.evaluate(() => Reflect.get(window, 'releaseMic')());
   await expect
@@ -869,7 +878,7 @@ test('permanent settings keep the active composer and manage voice consent and t
   await page.getByLabel('给 Codex 的本轮指令').fill('设置前没有发送的草稿');
   await selectExcerpt(page, source.id, '保留设置前的工作的回答');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSettings(page);
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page
@@ -898,7 +907,7 @@ test('permanent settings keep the active composer and manage voice consent and t
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
   for (let cycle = 0; cycle < 2; cycle++) {
-    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await openSettings(page);
     await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
     if (cycle === 0) {
       await page.goBack();
@@ -907,7 +916,7 @@ test('permanent settings keep the active composer and manage voice consent and t
       await expect(
         page.getByRole('heading', { name: '先检查，再配置。', exact: true }),
       ).toBeVisible();
-      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await openSettings(page);
       await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '返回工作台', exact: true }).click();
     }
@@ -940,7 +949,7 @@ test('voice connection failure can be retried and disconnected in settings witho
   await page.getByRole('button', { name: '连接灵矽', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '灵矽已连接' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSettings(page);
   await page
     .getByRole('navigation', { name: '设置分类' })
     .getByRole('button', { name: /灵矽与语音执行/ })

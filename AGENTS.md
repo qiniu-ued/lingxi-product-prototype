@@ -51,5 +51,6 @@
 
 - CI uploads Apple Silicon and Intel runtime archives plus desktop app ZIPs and checksums after their checks. Delivery currently means downloadable artifacts; no automatic install, cloud deployment, Developer ID signing, notarization or auto-update exists.
 - Respect the user's requested Git workflow. Keep changes on the working branch; do not merge or publish a release as a side effect of fixing checks.
+- The user has authorized merging completed work when GitHub Actions is blocked by exhausted quota. Run the applicable local checks, report CI/platform/package verification gaps, and merge without waiting for quota recovery. This exception does not justify ignoring actual code/test failures or lowering checks; leave workflows and coverage gates intact.
 - Never commit credentials, local databases, recordings, package output, dependency directories or test reports. Root `dist/` is the intentional designer-prototype exception.
 - Runtime data belongs outside versioned install folders. Stop the service before a file-copy backup; account for SQLite WAL files. Do not delete or migrate user data as routine cleanup.

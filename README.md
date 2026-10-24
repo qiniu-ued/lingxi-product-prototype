@@ -12,6 +12,8 @@
 从 [Actions → CI](https://github.com/qiniu-ued/lingxi-product-prototype/actions/workflows/ci.yml) 对应 PR/提交的全部通过运行下载 `runtime-macos-15-<commit>`（Apple Silicon）或 `runtime-macos-15-intel-<commit>`。解开 artifact，再解开其中的 `Lingxi-0.1.0-darwin-arm64.zip` / `darwin-x64.zip`，将 `Lingxi.app` 拖到「应用程序」并打开。**桌面包内置 Node、npm 和本机服务，日常启动与退出不需要终端。**
 
 当前是未签名、未公证的开发预览包，macOS 可能阻止首次打开；可信来源包的放行方式及校验见[部署文档](docs/deployment.md)。若组织策略禁止未签名应用，需等待签名版本。不要关闭全局 Gatekeeper。
+
+若 Actions 因额度耗尽无法运行，新提交不会自动生成 Mac 安装包。已安装的旧包不会自动更新；要体验最新代码，可在 Mac 按下方源码步骤运行 `npm run desktop:dev`，或使用 `npm run desktop:pack` 本机构建。
 1. 在右上角「工作区」打开「连接向导」，一次查看 Codex 和灵矽检查结果；按需一键安装 stable latest Codex CLI，并在官方浏览器登录。仅有 Codex 桌面应用时仍需要 CLI。
 2. 向导中获取灵矽六位绑定码，在官方控制台登录、创建智能体并绑定设备，点击「我已绑定，检查连接配置」。向导自动保存加密凭证；连接后测试收音与播报，无需编译音频客户端。
 3. 在「工作区」新建或打开一个允许 Codex 修改的项目文件夹，展开底栏「文字输入」，输入本轮要求并提交。额外权限和问题在对话区处理；执行时可在文字输入面板停止任务，也可使用已授权的语音停止。

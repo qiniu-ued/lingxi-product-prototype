@@ -28,6 +28,8 @@ Linux 缺浏览器依赖时用 `npx playwright install --with-deps chromium`。�
 
 CI 在 Ubuntu 24.04、macOS 15 Apple Silicon 和 Intel 执行 `npm ci` 与 `npm run check`，覆盖 SQLite 原生依赖；Ubuntu 另跑浏览器测试，失败上传报告和 trace。通过后两个 Mac runner 分别构建并验证运行包和桌面 ZIP。Linux 浏览器 job 还运行 Electron 集成检查（测试环境使用 headless/no-sandbox；应用代码不关闭生产 sandbox）。原型 HTML 不参与自动格式化。通过 GitHub 分支保护要求 CI 通过仍需管理员单独配置，workflow 本身不会禁止管理员合并失败 PR。
 
+Actions 额度耗尽时，按维护者授权，在完成适用本机检查后仍可合入；保留失败状态与具体未验证项目，不降低测试/覆盖率门槛或删除工作流。Linux 本机通过不能替代 Mac 双架构打包、签名或真机验收；没有成功的 Mac 打包任务就没有该提交的新安装包。Quota 恢复前可在目标 Mac 从源码运行或构建，见[部署文档](deployment.md)。
+
 按改动选择额外检查：
 
 ```sh

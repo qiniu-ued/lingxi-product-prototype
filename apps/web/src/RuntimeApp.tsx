@@ -1,16 +1,21 @@
 import { type SetupInspection, setupInspectionSchema, setupIssues } from '@lingxi/protocol';
 import { useEffect, useState } from 'react';
 import { App } from './App';
+import { Navigation, type SettingsSection } from './Navigation';
+import { SettingsPage } from './SettingsPage';
 import { SetupPage } from './SetupPage';
 
 export function RuntimeApp() {
-  const [phase, setPhase] = useState<'checking' | 'setup' | 'ready'>(() =>
-    location.pathname === '/setup'
-      ? 'setup'
-      : window.lingxiDesktop && location.pathname !== '/display'
-        ? 'checking'
-        : 'ready',
+  const [phase, setPhase] = useState<'checking' | 'setup' | 'settings' | 'ready'>(() =>
+    location.pathname === '/settings'
+      ? 'settings'
+      : location.pathname === '/setup'
+        ? 'setup'
+        : window.lingxiDesktop && location.pathname !== '/display'
+          ? 'checking'
+          : 'ready',
   );
+  const [hasWorkspace, setHasWorkspace] = useState(phase === 'ready');
   const [inspection, setInspection] = useState<SetupInspection | null>(null);
   useEffect(() => {
     if (phase !== 'checking') return;
@@ -34,30 +39,66 @@ export function RuntimeApp() {
       if (!result || setupIssues(result).length) {
         history.replaceState(null, '', '/setup');
         setPhase('setup');
-      } else setPhase('ready');
+      } else {
+        setHasWorkspace(true);
+        setPhase('ready');
+      }
     };
     void check();
     return () => controller.abort();
   }, [phase]);
-  if (phase === 'checking')
-    return (
-      <main className="workbench setup">
-        <section className="panel setup-result" role="status">
-          <h1>正在检查运行配置…</h1>
-          <p>检查 Codex、灵矽、唤醒模型与麦克风权限；不会自动下载、登录、连接语音或打开麦克风。</p>
-        </section>
-      </main>
-    );
-  if (phase === 'setup')
-    return (
-      <SetupPage
-        initialInspection={inspection}
-        onContinue={() => {
-          history.replaceState(null, '', '/');
-          setInspection(null);
-          setPhase('ready');
-        }}
-      />
-    );
-  return <App />;
+  const openSettings = (section?: SettingsSection) => {
+    history.pushState(null, '', `/settings${section ? `#${section}` : ''}`);
+    setPhase('settings');
+  };
+  const openSetup = () => {
+    history.pushState(null, '', '/setup');
+    setInspection(null);
+    setPhase('setup');
+  };
+  const closeConfiguration = () => {
+    history.replaceState(null, '', '/');
+    setInspection(null);
+    setHasWorkspace(true);
+    setPhase('ready');
+  };
+  useEffect(() => {
+    const back = () => {
+      setInspection(null);
+      setPhase(
+        location.pathname === '/settings'
+          ? 'settings'
+          : location.pathname === '/setup'
+            ? 'setup'
+            : hasWorkspace
+              ? 'ready'
+              : 'checking',
+      );
+    };
+    window.addEventListener('popstate', back);
+    return () => window.removeEventListener('popstate', back);
+  }, [hasWorkspace]);
+  return (
+    <Navigation.Provider value={{ settings: openSettings, setup: openSetup }}>
+      {hasWorkspace && (
+        <div hidden={phase !== 'ready'}>
+          <App active={phase === 'ready'} />
+        </div>
+      )}
+      {phase === 'checking' && (
+        <main className="workbench setup">
+          <section className="panel setup-result" role="status">
+            <h1>正在检查运行配置…</h1>
+            <p>
+              检查 Codex、灵矽、唤醒模型与麦克风权限；不会自动下载、登录、连接语音或打开麦克风。
+            </p>
+          </section>
+        </main>
+      )}
+      {phase === 'setup' && (
+        <SetupPage initialInspection={inspection} onContinue={closeConfiguration} />
+      )}
+      {phase === 'settings' && <SettingsPage onClose={closeConfiguration} />}
+    </Navigation.Provider>
+  );
 }

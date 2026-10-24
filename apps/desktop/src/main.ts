@@ -76,7 +76,7 @@ function windowOptions() {
     height: 940,
     minWidth: 960,
     minHeight: 640,
-    backgroundColor: '#23221f',
+    backgroundColor: '#f3f0e9',
     webPreferences: {
       preload: join(__dirname, 'preload.cjs'),
       sandbox: true,

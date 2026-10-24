@@ -1,6 +1,7 @@
 import { type VoiceState, voiceStateSchema } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { MicrophoneIcon } from './MicrophoneIcon';
 
 async function command(action: string, text?: string) {
   const response = await fetch('/api/voice/command', {
@@ -12,12 +13,12 @@ async function command(action: string, text?: string) {
   return voiceStateSchema.parse(await response.json());
 }
 const labels: Record<VoiceState['status'], string> = {
-  disconnected: '语音未连接',
-  connecting: '正在连接灵矽',
+  disconnected: '语音未连接 · 麦克风已关闭',
+  connecting: '正在连接灵矽 · 麦克风已关闭',
   ready: '灵矽已连接 · 麦克风关闭',
-  listening: '正在收音 · 最长 60 秒',
-  speaking: '灵矽正在播报',
-  failed: '语音连接失败',
+  listening: '收音中 · 麦克风已开启 · 最长 60 秒',
+  speaking: '灵矽正在播报 · 麦克风已关闭',
+  failed: '语音连接失败 · 麦克风已关闭',
 };
 export function VoiceControls({
   configuration = false,
@@ -226,7 +227,10 @@ export function VoiceControls({
     }
   }
   return (
-    <section className="voice-controls" aria-label="灵矽语音">
+    <section
+      className={`voice-controls voice-${state?.status ?? 'disconnected'}`}
+      aria-label="灵矽语音"
+    >
       {configuration && (
         <div className="binding-wizard">
           <h3>绑定本机语音设备</h3>
@@ -324,18 +328,25 @@ export function VoiceControls({
           允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）
         </label>
       )}
-      <p role="status">{state ? labels[state.status] : '正在读取语音状态'}</p>
+      <p role="status" className="voice-status">
+        <MicrophoneIcon muted={state?.status !== 'listening'} />
+        {state ? labels[state.status] : '正在读取语音状态'}
+      </p>
       <div className="live-actions">
-        <button
-          type="button"
-          disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
-          onClick={() => void operate('connect')}
-        >
-          连接灵矽
-        </button>
+        {(configuration ||
+          (state?.configured && ['disconnected', 'failed'].includes(state.status))) && (
+          <button
+            type="button"
+            disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
+            onClick={() => void operate('connect')}
+          >
+            连接灵矽
+          </button>
+        )}
+        {!configuration && state && !state.configured && <a href="/setup">连接设置</a>}
         {state && ['ready', 'speaking'].includes(state.status) && (
           <button type="button" onClick={() => void operate('listen')}>
-            开始收音
+            {configuration ? '开始收音' : '唤醒灵矽'}
           </button>
         )}
         {state?.status === 'listening' && (
@@ -343,25 +354,41 @@ export function VoiceControls({
             结束收音
           </button>
         )}
-        {state && !['disconnected', 'failed'].includes(state.status) && (
+        {configuration && state && !['disconnected', 'failed'].includes(state.status) && (
           <button type="button" onClick={() => void operate('disconnect')}>
             断开语音
           </button>
         )}
-        <button
-          type="button"
-          disabled={!state || !['ready', 'speaking'].includes(state.status)}
-          onClick={() => void operate('speak', '灵矽已连接，现在可以开始共创。')}
-        >
-          测试播报
-        </button>
-        <button
-          type="button"
-          disabled={state?.status !== 'speaking'}
-          onClick={() => void operate('stop-speaking')}
-        >
-          停止播报
-        </button>
+        {!configuration && state && !['disconnected', 'failed'].includes(state.status) && (
+          <details className="voice-more">
+            <summary aria-label="更多语音操作" title="更多语音操作">
+              ⋯
+            </summary>
+            <div>
+              <button type="button" onClick={() => void operate('disconnect')}>
+                断开语音
+              </button>
+            </div>
+          </details>
+        )}
+        {configuration && (
+          <button
+            type="button"
+            disabled={!state || !['ready', 'speaking'].includes(state.status)}
+            onClick={() => void operate('speak', '灵矽已连接，现在可以开始共创。')}
+          >
+            测试播报
+          </button>
+        )}
+        {(configuration || state?.status === 'speaking') && (
+          <button
+            type="button"
+            disabled={state?.status !== 'speaking'}
+            onClick={() => void operate('stop-speaking')}
+          >
+            停止播报
+          </button>
+        )}
       </div>
       {state?.subtitle && <p>{state.subtitle}</p>}
       {configuration && state?.draft && <p>转写草稿：{state.draft}</p>}

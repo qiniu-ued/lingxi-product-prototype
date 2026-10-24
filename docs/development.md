@@ -4,7 +4,7 @@
 
 ## 当前实现
 
-桌面版提供原生项目选择、Codex App Server 任务、审批/问题/中断、唯一作品页面及 MCP 操作、截图点选和深色大屏布局。作品支持静态 `preview/index.html` 或明确绑定的本机框架开发服务器。浏览器基础模式保留建议保存、SQLite、SSE 和恢复；独立浏览器不提供真实任务。
+桌面版提供原生项目选择、Codex App Server 任务、审批/问题/中断、唯一作品页面及 MCP 操作、截图点选和浅暖色双栏布局。作品支持静态 `preview/index.html` 或明确绑定的本机框架开发服务器。浏览器基础模式保留建议保存、SQLite、SSE 和恢复；独立浏览器不提供真实任务。
 
 新增常驻多轮会话、终端、Diff、Sidechat/Fork、上下文附件以及灵矽 OTA 绑定/WSS PCM 适配；自定义唤醒、自动 AirPlay、多 Agent 编排和独立 worktree 尚未接入。真实账号与 Mac 音频需要本机验收。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
 

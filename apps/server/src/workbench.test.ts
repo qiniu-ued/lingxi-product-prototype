@@ -294,6 +294,10 @@ it('switches durable histories, forks at completed turns, and makes Sidechat rea
     .trim()
     .split('\n')
     .map((s) => JSON.parse(s));
+  expect(
+    records.find((r) => r.method === 'turn/start' && r.params.disabledPluginIds)?.params
+      .disabledPluginIds,
+  ).toEqual(['fixture-plugin']);
   expect(records.find((r) => r.method === 'thread/fork').params).toMatchObject({
     sandbox: 'read-only',
     approvalPolicy: 'never',
@@ -371,4 +375,37 @@ it('explicitly terminates a still-running PTY before closing its Codex connectio
   ).toBe(id);
   for (const message of messages.filter((message) => message.pid))
     expect(() => process.kill(message.pid, 0)).toThrow();
+});
+it('captures voice context once without retargeting staged annotations to another conversation', async () => {
+  const { wb, project, binding } = await create('rich');
+  wb.setPreview(binding);
+  const selection = { binding, ref: 'r1', description: '标题' };
+  const attachment = { id: randomUUID(), kind: 'diff' as const, title: '变更', text: '+ heading' };
+  const input = {
+    projectId: project.id,
+    conversationId: null,
+    selection,
+    attachments: [attachment],
+    text: '标题写周末出游',
+  };
+  wb.setVoiceContext(input);
+  expect(wb.voiceContext()).toMatchObject({
+    selection,
+    attachments: [attachment, { title: '键盘草稿', text: input.text }],
+  });
+  expect(wb.voiceContext()).toEqual({ selection: null, attachments: [] });
+  wb.setVoiceContext(input);
+  await wb.command({ action: 'new-thread', title: 'different conversation' });
+  expect(() => wb.voiceContext()).toThrow('voice_context_changed');
+  expect(() => wb.setVoiceContext(input)).toThrow('project_changed');
+  expect(() => wb.setVoiceContext({ ...input, projectId: randomUUID() })).toThrow(
+    'project_changed',
+  );
+  expect(() =>
+    wb.setVoiceContext({
+      ...input,
+      conversationId: wb.read().selectedThreadId,
+      attachments: Array(20).fill(attachment),
+    }),
+  ).toThrow('context_limit');
 });

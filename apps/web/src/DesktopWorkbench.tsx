@@ -122,7 +122,8 @@ export function DesktopWorkbench() {
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error();
-      setState(workbenchSchema.parse(await response.json()));
+      const next = workbenchSchema.parse(await response.json());
+      setState((old) => (!old || next.revision >= old.revision ? next : old));
       return true;
     } catch {
       setError('操作未完成，输入已保留。请检查连接、当前任务和连接向导后重试。');
@@ -702,7 +703,22 @@ export function DesktopWorkbench() {
             ))}
           {!display && (
             <>
-              <VoiceControls onDraft={receiveVoice} />
+              <VoiceControls
+                onDraft={receiveVoice}
+                prepare={async () => {
+                  if (
+                    !state?.project ||
+                    !(await operate('context', {
+                      projectId: state.project.id,
+                      conversationId: state.selectedThreadId,
+                      selection,
+                      attachments,
+                      text,
+                    }))
+                  )
+                    throw new Error('context_unavailable');
+                }}
+              />
               {voiceDraft && (
                 <div className="voice-draft">
                   <p>语音转写：{voiceDraft.text}</p>

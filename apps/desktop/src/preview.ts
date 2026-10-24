@@ -188,7 +188,7 @@ export class Preview {
     await this.snapshot();
     const selected = await this.view.webContents.executeJavaScriptInIsolatedWorld(1001, [
       {
-        code: `(() => {const el=document.elementFromPoint(innerWidth*${input.x},innerHeight*${input.y});if(!el)throw new Error('no_element');const state=globalThis.__lingxiTargets;let ref=state.ids.get(el);if(!ref){ref='r'+state.next++;state.ids.set(el,ref);state.nodes.set(ref,el);}return {ref,description:(el.getAttribute('aria-label')||el.innerText||el.tagName).slice(0,500)};})()`,
+        code: `(() => {const el=document.elementFromPoint(innerWidth*${input.x},innerHeight*${input.y});if(!el)throw new Error('no_element');const state=globalThis.__lingxiTargets;let ref=state.ids.get(el);if(!ref){ref='r'+state.next++;state.ids.set(el,ref);state.nodes.set(ref,el);}const box=el.getBoundingClientRect();state.highlight?.remove();const mark=document.createElement('div');mark.setAttribute('aria-hidden','true');Object.assign(mark.style,{position:'fixed',left:box.x+'px',top:box.y+'px',width:box.width+'px',height:box.height+'px',border:'3px solid #efb095',borderRadius:'4px',boxSizing:'border-box',pointerEvents:'none',zIndex:'2147483647'});document.documentElement.appendChild(mark);state.highlight=mark;setTimeout(()=>mark.remove(),3000);return {ref,description:(el.getAttribute('aria-label')||el.innerText||el.tagName).slice(0,500)};})()`,
       },
     ]);
     return { binding: { ...this.binding }, ...selected };

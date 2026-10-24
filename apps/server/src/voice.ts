@@ -34,6 +34,10 @@ export class VoiceService {
   private pendingSpeech = '';
   private awaitingSpeech = false;
   private speechDeadline: ReturnType<typeof setTimeout> | undefined;
+  private capturedContext: ReturnType<Workbench['voiceContext']> = {
+    selection: null,
+    attachments: [],
+  };
   private target = '';
   private submittedCapture: string | null = null;
   private responses = new Map<string, { input: string; value: unknown }>();
@@ -49,7 +53,10 @@ export class VoiceService {
   constructor(
     private options: {
       desktop?: DesktopBridge;
-      workbench: Pick<Workbench, 'read' | 'start' | 'interrupt' | 'decide' | 'subscribe'>;
+      workbench: Pick<
+        Workbench,
+        'read' | 'start' | 'interrupt' | 'decide' | 'subscribe' | 'voiceContext'
+      >;
       testEndpoint?: string;
     },
   ) {
@@ -143,8 +150,11 @@ export class VoiceService {
     if (!this.socket || !['ready', 'listening', 'speaking'].includes(this.state.status))
       throw new Error('voice_not_ready');
     if (command.action === 'listen') {
+      const context = this.options.workbench.voiceContext(),
+        target = this.context();
       this.send({ type: 'abort', reason: 'wake_word_detected' });
       await this.options.desktop.call('voice-audio', { reset: true });
+      if (target !== this.context()) throw new Error('voice_context_changed');
       this.update({
         status: 'listening',
         captureId: randomUUID(),
@@ -152,7 +162,8 @@ export class VoiceService {
         subtitle: '',
         error: null,
       });
-      this.target = this.context();
+      this.target = target;
+      this.capturedContext = context;
       this.armedUntil = Date.now() + 90_000;
       this.submittedCapture = null;
       this.send({ type: 'listen', state: 'start', mode: 'manual' });
@@ -381,7 +392,12 @@ export class VoiceService {
             const { text } = textInput.parse(call.arguments);
             if (this.submittedCapture && this.submittedCapture !== text)
               throw new Error('capture_already_submitted');
-            const task = this.options.workbench.start(this.state.captureId, text);
+            const task = this.options.workbench.start(
+              this.state.captureId,
+              text,
+              this.capturedContext.selection,
+              this.capturedContext.attachments,
+            );
             this.submittedCapture = text;
             this.target = this.context();
             result = {
@@ -452,6 +468,7 @@ export class VoiceService {
     const socket = this.socket;
     this.socket = undefined;
     if (socket) socket.terminate();
+    this.capturedContext = { selection: null, attachments: [] };
     this.sessionId = '';
     this.armedUntil = 0;
     this.responses.clear();

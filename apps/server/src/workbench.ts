@@ -44,10 +44,18 @@ export class Workbench {
   private client: CodexClient | undefined;
   private connecting: Promise<CodexClient> | undefined;
   private loaded = new Set<string>();
+  private readonlyPlugins = new Map<string, string[]>();
+  private discoveredPlugins: string[] = [];
   private turnEvents: RpcMessage[] = [];
   private turnEventBytes = 0;
   private pending: Promise<void> | undefined;
   private publishing = false;
+  private stagedVoice: {
+    target: string;
+    at: number;
+    selection: PreviewSelection | null;
+    attachments: ContextAttachment[];
+  } | null = null;
   private publication: Promise<void> | undefined;
   private stopTimer: ReturnType<typeof setTimeout> | undefined;
   private turnTimer: ReturnType<typeof setTimeout> | undefined;
@@ -122,6 +130,7 @@ export class Workbench {
     this.client = undefined;
     this.connecting = undefined;
     this.loaded.clear();
+    this.readonlyPlugins.clear();
     // Closing the old connection also terminates its PTYs. Never replay them.
     if (old) void this.disposeClient(old, this.state.terminal?.id);
     const selected = this.state.threads.find(
@@ -154,6 +163,44 @@ export class Workbench {
     this.setPreview(
       await this.options.desktop.call('preview-connect', { project: this.state.project, url }),
     );
+  }
+  setVoiceContext(input: {
+    projectId: string;
+    conversationId: string | null;
+    selection: PreviewSelection | null;
+    attachments: ContextAttachment[];
+    text: string;
+  }) {
+    if (
+      !this.options.desktop ||
+      input.projectId !== this.state.project?.id ||
+      input.conversationId !== this.state.selectedThreadId
+    )
+      throw new Error('project_changed');
+    if (input.text && input.attachments.length >= 20) throw new Error('context_limit');
+    const attachments = input.text
+      ? [
+          ...input.attachments,
+          { id: randomUUID(), kind: 'text' as const, title: '键盘草稿', text: input.text },
+        ]
+      : input.attachments;
+    this.stagedVoice = {
+      target: JSON.stringify([input.projectId, input.conversationId]),
+      at: Date.now(),
+      selection: input.selection,
+      attachments,
+    };
+  }
+  voiceContext() {
+    const value = this.stagedVoice;
+    this.stagedVoice = null;
+    if (!value) return { selection: null, attachments: [] };
+    if (
+      Date.now() - value.at > 15000 ||
+      value.target !== JSON.stringify([this.state.project?.id, this.state.selectedThreadId])
+    )
+      throw new Error('voice_context_changed');
+    return { selection: value.selection, attachments: value.attachments };
   }
   private conversation() {
     const thread = this.state.threads.find((t) => t.id === this.state.selectedThreadId);
@@ -297,6 +344,7 @@ export class Workbench {
           this.client = undefined;
           this.connecting = undefined;
           this.loaded.clear();
+          this.readonlyPlugins.clear();
           if (this.state.terminal)
             this.update({ terminal: { ...this.state.terminal, status: 'failed' } });
           if (!done(this.state.task)) this.finish('failed');
@@ -326,12 +374,15 @@ export class Workbench {
       // Sidechat must not inherit mutating MCP tools. Fail closed if discovery
       // fails, rather than assuming a read-only filesystem makes MCP safe.
       const names = new Set(['lingxi_preview']);
+      const plugins = new Set<string>();
       const seen = new Set<string>();
       let cursor: string | null = null;
       do {
         const page = z
           .object({
-            data: z.array(z.object({ name: z.string() })),
+            data: z.array(
+              z.object({ name: z.string(), pluginId: z.string().nullable().optional() }),
+            ),
             nextCursor: z.string().nullable().optional(),
           })
           .parse(
@@ -340,12 +391,16 @@ export class Workbench {
               ...(cursor ? { cursor } : {}),
             }),
           );
-        for (const server of page.data) names.add(server.name);
+        for (const server of page.data) {
+          names.add(server.name);
+          if (server.pluginId) plugins.add(server.pluginId);
+        }
         cursor = page.nextCursor ?? null;
         if (cursor && (seen.has(cursor) || names.size > 1000))
           throw new Error('mcp_discovery_incomplete');
         if (cursor) seen.add(cursor);
       } while (cursor);
+      this.discoveredPlugins = [...plugins];
       for (const name of names) {
         if (!/^[a-zA-Z0-9_-]+$/.test(name)) throw new Error('unsupported_mcp_name');
         config[`mcp_servers.${name}.enabled`] = false;
@@ -385,6 +440,7 @@ export class Workbench {
         );
         thread.codexId = result.thread.id;
         this.loaded.add(thread.id);
+        if (readonly) this.readonlyPlugins.set(thread.id, [...this.discoveredPlugins]);
         this.update({
           threads: this.state.threads.map((t) => (t.id === thread.id ? { ...thread } : t)),
         });
@@ -398,6 +454,9 @@ export class Workbench {
       const result = turnResult.parse(
         await client.request('turn/start', {
           threadId: thread.codexId,
+          ...(thread.kind === 'sidechat'
+            ? { disabledPluginIds: this.readonlyPlugins.get(thread.id) ?? [] }
+            : {}),
           clientUserMessageId: task.id,
           input,
           ...(settings.model ? { model: settings.model } : {}),
@@ -831,6 +890,7 @@ export class Workbench {
           result.thread.id,
         );
         this.loaded.add(thread.id);
+        if (readonly) this.readonlyPlugins.set(thread.id, [...this.discoveredPlugins]);
       } finally {
         this.switching = false;
       }

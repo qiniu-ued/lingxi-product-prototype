@@ -60,12 +60,19 @@ async function create(format = 'pcm', allowed = true) {
   };
   const native: Array<{ method: string; params: unknown }> = [];
   const start = vi.fn(
-      (id: string, text: string) => ({ id, prompt: text, status: 'starting' }) as Task,
+      (id: string, text: string, _selection?: unknown, _attachments?: unknown) =>
+        ({ id, prompt: text, status: 'starting' }) as Task,
     ),
     interrupt = vi.fn();
   const voice = new VoiceService({
     testEndpoint: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
     workbench: {
+      voiceContext: () => ({
+        selection: null,
+        attachments: [
+          { id: randomUUID(), kind: 'text', title: '键盘草稿', text: '标题写周末出游' },
+        ],
+      }),
       read: () => state,
       start,
       interrupt,
@@ -182,6 +189,7 @@ it('routes encapsulated device MCP once per capture, rejects changed contexts an
   await f.call(7, 'workbench_submit', { text: 'build' });
   expect(f.start).toHaveBeenCalledTimes(2); // Same capture id reaches the durable Workbench deduplication.
   expect(f.start.mock.calls[0]?.[0]).toBe(f.start.mock.calls[1]?.[0]);
+  expect(f.start.mock.calls[0]?.[3]).toMatchObject([{ title: '键盘草稿', text: '标题写周末出游' }]);
   expect((await f.call(8, 'workbench_submit', { text: 'different task' })).isError).toBe(true);
   await f.call(9, 'workbench_interrupt');
   expect(f.interrupt).toHaveBeenCalledOnce();
@@ -235,6 +243,7 @@ it('rejects untrusted events without disclosing raw payloads', async () => {
   expect(f.voice.read().error).not.toContain('PRIVATE');
   const bare = new VoiceService({
     workbench: {
+      voiceContext: () => ({ selection: null, attachments: [] }),
       read: () =>
         workbenchSchema.parse({
           schemaVersion: 1,

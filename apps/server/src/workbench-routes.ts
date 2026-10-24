@@ -1,8 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
 import {
+  contextAttachmentSchema,
   desktopActionSchema,
   previewActionSchema,
   previewBindingSchema,
+  previewSelectionSchema,
   previewSnapshotSchema,
   startTaskSchema,
   taskDecisionSchema,
@@ -85,6 +87,7 @@ export function workbenchRoutes(
           'workspace',
           'terminal',
           'preview-url',
+          'context',
         ]),
       })
       .safeParse(request.params);
@@ -110,6 +113,19 @@ export function workbenchRoutes(
             );
           break;
         }
+        case 'context':
+          workbench.setVoiceContext(
+            z
+              .strictObject({
+                projectId: z.uuid(),
+                conversationId: z.uuid().nullable(),
+                selection: previewSelectionSchema.nullable(),
+                attachments: z.array(contextAttachmentSchema).max(20),
+                text: z.string().max(4000),
+              })
+              .parse(request.body),
+          );
+          break;
         case 'preview-url':
           await workbench.connectPreview(
             z.strictObject({ url: z.string().url().max(2000) }).parse(request.body).url,

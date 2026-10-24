@@ -22,8 +22,10 @@ const labels: Record<VoiceState['status'], string> = {
 export function VoiceControls({
   configuration = false,
   onDraft,
+  prepare,
 }: {
   configuration?: boolean;
+  prepare?: () => Promise<void>;
   onDraft?: (text: string, id: string) => void;
 }) {
   const [state, setState] = useState<VoiceState | null>(null),
@@ -186,6 +188,7 @@ export function VoiceControls({
         };
         context.createMediaStreamSource(media).connect(worklet);
         worklet.connect(context.destination);
+        await prepare?.();
         const value = await command(action);
         recording.current = true;
         setState(value);

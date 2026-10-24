@@ -193,3 +193,28 @@ it('supports validated workspace commands and refuses runtime URLs without a sel
   ).toBe('test');
   expect((await post('workspace', { action: 'select-thread', id: 'not-id' })).statusCode).toBe(400);
 });
+it('stages mixed voice input only for the current project and conversation', async () => {
+  const { post, app, project } = create();
+  await post('action', { action: 'select-project' });
+  const response = await post('context', {
+    projectId: project.id,
+    conversationId: null,
+    selection: null,
+    attachments: [],
+    text: '精确键盘文案',
+  });
+  expect(response.statusCode).toBe(200);
+  expect(app.workbench.voiceContext().attachments[0]?.text).toBe('精确键盘文案');
+  expect(
+    (
+      await post('context', {
+        projectId: project.id,
+        conversationId: null,
+        selection: null,
+        attachments: [],
+        text: 'x',
+        shell: 'arbitrary',
+      })
+    ).statusCode,
+  ).toBe(400);
+});

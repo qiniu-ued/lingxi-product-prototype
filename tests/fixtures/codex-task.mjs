@@ -214,7 +214,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     emit({
       id: message.id,
       result: message.params.cursor
-        ? { data: [{ name: 'second_page_tools' }], nextCursor: null }
+        ? { data: [{ name: 'second_page_tools', pluginId: 'fixture-plugin' }], nextCursor: null }
         : { data: [], nextCursor: 'page2' },
     });
   else if ((message.id === 71 || message.id === 72) && message.result) {

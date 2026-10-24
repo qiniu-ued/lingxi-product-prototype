@@ -31,7 +31,7 @@
     "prototype": "python3 -m http.server 8080 --directory dist",
     "desktop:dev": "npm run build && node scripts/desktop.mjs",
     "desktop:pack": "npm run build && node scripts/package-desktop.mjs",
-    "test:desktop": "npm run build && node scripts/test-desktop.mjs"
+    "test:desktop": "npm run build && node scripts/test-shutdown.mjs && node scripts/test-desktop.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.2",

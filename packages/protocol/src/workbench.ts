@@ -176,6 +176,13 @@ export const taskDecisionSchema = z.strictObject({
   decision: z.enum(['accept', 'decline']),
   answers: z.record(z.string(), z.string().max(4000)).optional(),
 });
+export const historyQuoteSchema = z.strictObject({
+  taskId: z.uuid(),
+  role: z.enum(['user', 'assistant']),
+  messageId: z.string().min(1).max(200),
+  text: z.string().trim().min(1).max(16000),
+});
+export type HistoryQuote = z.infer<typeof historyQuoteSchema>;
 export const workspaceCommandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('new-thread'), title: z.string().trim().min(1).max(200) }),
   z.strictObject({ action: z.literal('select-thread'), id: z.uuid() }),
@@ -189,6 +196,7 @@ export const workspaceCommandSchema = z.discriminatedUnion('action', [
     action: z.literal('fork'),
     taskId: z.uuid(),
     kind: z.enum(['fork', 'sidechat']),
+    quote: historyQuoteSchema.optional(),
   }),
   z.strictObject({ action: z.literal('settings'), settings: threadSettingsSchema }),
   z.strictObject({ action: z.literal('set-mode'), mode: z.enum(['plan', 'default']) }),

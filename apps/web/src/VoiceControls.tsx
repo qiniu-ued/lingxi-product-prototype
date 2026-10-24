@@ -346,7 +346,7 @@ export function VoiceControls({
         {!configuration && state && !state.configured && <a href="/setup">连接设置</a>}
         {state && ['ready', 'speaking'].includes(state.status) && (
           <button type="button" onClick={() => void operate('listen')}>
-            {configuration ? '开始收音' : '唤醒灵矽'}
+            开始收音
           </button>
         )}
         {state?.status === 'listening' && (

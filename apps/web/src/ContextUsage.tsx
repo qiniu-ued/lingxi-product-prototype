@@ -25,7 +25,10 @@ export function ContextUsage({
   const known = capacity !== null && capacity !== undefined && capacity > 0 && used !== undefined;
   const percent = known ? (used / capacity) * 100 : null;
   return (
-    <section className={`context-usage ${compact ? 'compact' : ''}`} aria-label="上下文用量">
+    <section
+      className={`context-usage ${compact ? 'compact' : ''}`}
+      aria-label={compact ? '当前上下文摘要' : '上下文用量'}
+    >
       <div className="context-summary">
         <strong>上下文{percent === null ? '' : ` · ${percent.toFixed(1)}%`}</strong>
         <span>
@@ -36,7 +39,7 @@ export function ContextUsage({
       </div>
       {known && (
         <meter
-          aria-label="上下文窗口占用"
+          aria-label={compact ? '当前上下文占用' : '上下文窗口占用'}
           min={0}
           max={capacity}
           value={Math.min(used, capacity)}

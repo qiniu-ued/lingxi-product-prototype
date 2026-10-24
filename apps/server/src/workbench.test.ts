@@ -682,6 +682,47 @@ it('keeps execution available when the CLI supports Default but not Plan', async
   wb.start(randomUUID(), 'execute normally');
   await until(wb, (s) => s.task?.status === 'completed');
 });
+it('validates selected history before creating a read-only Sidechat without submitting a model turn', async () => {
+  const { wb, record } = await create();
+  wb.start(randomUUID(), '讨论这个按钮的设计');
+  await until(wb, (state) => state.task?.status === 'completed' && state.runtime?.usage !== null);
+  const source = wb.read().task as NonNullable<WorkbenchState['task']>;
+  const quote = {
+    taskId: source.id,
+    role: 'assistant' as const,
+    messageId: 'message-1',
+    text: '已完成',
+  };
+  for (const bad of [
+    { ...quote, text: 'forged quotation' },
+    { ...quote, taskId: randomUUID() },
+    { ...quote, messageId: 'wrong' },
+  ]) {
+    await expect(
+      wb.command({ action: 'fork', taskId: source.id, kind: 'sidechat', quote: bad }),
+    ).rejects.toThrow('quote_stale');
+  }
+  expect(await readFile(record, 'utf8')).not.toContain('thread/fork');
+  await wb.command({ action: 'fork', taskId: source.id, kind: 'sidechat', quote });
+  expect(wb.read().threads.at(-1)).toMatchObject({
+    kind: 'sidechat',
+    parentId: source.conversationId,
+  });
+  expect(wb.read().task).toBeNull();
+  const wire = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(wire.filter((message) => message.method === 'turn/start')).toHaveLength(1);
+  expect(wire.find((message) => message.method === 'thread/fork')?.params).toMatchObject({
+    lastTurnId: source.turnId,
+    sandbox: 'read-only',
+    approvalPolicy: 'never',
+  });
+  await expect(
+    wb.command({ action: 'fork', taskId: source.id, kind: 'sidechat', quote }),
+  ).rejects.toThrow('quote_stale');
+});
 it('shows actual automatic review denial and keeps Sidechat read-only under a Full Access preference', async () => {
   const { wb, record } = await create('review-denied');
   await wb.command({ action: 'set-permission', permission: 'auto-review' });

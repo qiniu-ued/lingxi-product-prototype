@@ -586,7 +586,7 @@ export function SetupPage({
               ) : step === 1 ? (
                 <>
                   <VoiceControls configuration variant="connection" />
-                  <p>
+                  <p className="voice-setup-help">
                     首次使用先完成官方账号与智能体配置，再按向导申请激活码。不需要单独安装音频客户端。
                   </p>
                   <ExternalLink href="https://linx.qiniu.com/docs/xrobot/platform/OTA">

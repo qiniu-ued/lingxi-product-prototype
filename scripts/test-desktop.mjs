@@ -59,6 +59,11 @@ try {
   });
   await operator.getByText('本机服务已连接').waitFor();
   const address = new URL(operator.url()).origin;
+  await operator.getByLabel('模型', { exact: true }).selectOption('test-model');
+  await operator.getByLabel('Reasoning Effort', { exact: true }).selectOption('high');
+  const beforeTasks = await readFile(record, 'utf8');
+  assert.ok(!beforeTasks.includes('thread/start'), 'Loading model choices must not start a thread');
+
   for (let attempt = 0; attempt < 100; attempt++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
     if (current.preview) break;
@@ -95,6 +100,19 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(after.task.status, 'completed', JSON.stringify(after.task));
+  assert.equal(after.task.settings.model, 'test-model');
+  assert.equal(after.task.settings.effort, 'high');
+  await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
+  assert.equal(
+    await operator
+      .getByRole('meter', { name: '上下文窗口占用', exact: true })
+      .getAttribute('aria-valuetext'),
+    '25.0% 已使用',
+  );
+  await operator.getByLabel('模型', { exact: true }).selectOption('fast-model');
+  await operator.waitForFunction(() => document.querySelector('#codex-effort').value === 'low');
+  assert.equal(await operator.locator('#codex-effort option[value="high"]').count(), 0);
+
   assert.ok(after.task.selection, 'Pointer selection must reach the same Codex task');
   assert.equal(
     after.preview.revision,

@@ -69,3 +69,52 @@ it('imports v1 once, preserves legacy rows and keeps the normalized latest turn 
     await rm(root, { recursive: true, force: true });
   }
 });
+it('stores runtime telemetry separately and keeps v2 snapshots readable by old strict readers', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lingxi-runtime-')),
+    path = join(root, 'db.sqlite');
+  const store = new WorkbenchStore(path),
+    db = new Database(path);
+  try {
+    const state = store.read(),
+      id = randomUUID(),
+      projectId = randomUUID();
+    state.threads = [
+      {
+        id,
+        projectId,
+        codexId: 'provider-thread',
+        title: 'Test',
+        kind: 'main',
+        parentId: null,
+        archived: false,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    state.selectedThreadId = id;
+    state.runtime = {
+      conversationId: id,
+      codexId: 'provider-thread',
+      model: 'test-model',
+      effort: null,
+      configurationUpdatedAt: null,
+      usage: null,
+      usageTurnId: null,
+      usageUpdatedAt: null,
+    };
+    store.writeRuntime(state.runtime);
+    store.write(state);
+    expect(store.read().runtime).toEqual(state.runtime);
+    const row = db.prepare('SELECT value FROM workspace_state_v2').get() as { value: string };
+    expect(JSON.parse(row.value)).not.toHaveProperty('runtime');
+    state.threads = state.threads.map((thread) => ({
+      ...thread,
+      codexId: 'different-provider-thread',
+    }));
+    store.write(state);
+    expect(store.read().runtime).toBeNull();
+  } finally {
+    store.close();
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

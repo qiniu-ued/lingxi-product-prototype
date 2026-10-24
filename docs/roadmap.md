@@ -15,6 +15,7 @@
 - [x] 双架构 Mac runtime 与 `.app` ZIP 打包/校验工作流；实际产物以对应 CI 结果为准。
 
 - [x] 常驻 RPC 连接、完整多轮历史、重命名/归档、排队与 turn/steer。
+- [x] 输入区自动模型/Reasoning Effort 选择器、最近上下文占用及累计 token 明细，未知值明确显示，元数据独立持久化。
 - [x] xterm PTY、实际 turn/Git diff、多个提问请求和选项、上下文附件。
 - [x] 已完成轮次的 Sidechat/Fork，Sidechat 禁用 MCP 和文件写入。
 - [x] 明确绑定框架项目 loopback 服务与 HMR WebSocket，保留唯一页面。

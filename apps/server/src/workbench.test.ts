@@ -409,3 +409,77 @@ it('captures voice context once without retargeting staged annotations to anothe
     }),
   ).toThrow('context_limit');
 });
+it('reads all visible models without creating a thread or turn', async () => {
+  const { wb, record, project } = await create('rich');
+  const models = await wb.models();
+  expect(models.projectId).toBe(project.id);
+  expect(models.data.map((model) => model.model)).toEqual(['test-model', 'fast-model']);
+  expect(models.data[1]?.supportedReasoningEfforts.map((e) => e.reasoningEffort)).toEqual(['low']);
+  const wire = await readFile(record, 'utf8');
+  expect(wire).toContain('"cursor":"models2"');
+  expect(wire).not.toContain('thread/start');
+  expect(wire).not.toContain('turn/start');
+  expect(wb.read().task).toBeNull();
+});
+it.each(['model-error', 'model-cycle'])(
+  'bounds %s model discovery without starting tasks',
+  async (mode) => {
+    const { wb } = await create(mode);
+    await expect(wb.models()).rejects.toThrow();
+    expect(wb.read().task).toBeNull();
+  },
+);
+it('tracks current context separately from cumulative tokens, including fast and late reports, and restores it', async () => {
+  const { wb, root } = await create('telemetry');
+  const samples: number[] = [];
+  wb.subscribe((state) => {
+    if (state.runtime?.usage) samples.push(state.runtime.usage.last.totalTokens);
+  });
+  wb.start(randomUUID(), 'observe tokens');
+  await until(
+    wb,
+    (state) =>
+      state.task?.status === 'completed' && state.runtime?.usage?.last.totalTokens === 32000,
+  );
+  expect(samples).toContain(64000);
+  expect(samples).toContain(32000);
+  expect(samples).not.toContain(96000);
+  expect(samples).not.toContain(-1);
+  const runtime = wb.read().runtime;
+  expect(runtime).toMatchObject({
+    model: 'test-model',
+    effort: 'medium',
+    usage: {
+      modelContextWindow: 128000,
+      last: {
+        totalTokens: 32000,
+        cachedInputTokens: 12000,
+        cacheWriteInputTokens: 1000,
+        reasoningOutputTokens: 800,
+      },
+      total: { totalTokens: 150000 },
+    },
+  });
+  await wb.close();
+  const next = new Workbench({
+    databasePath: join(root, 'db.sqlite'),
+    codex: new CodexSetup({ toolsRoot: root }),
+    mcpToken: '',
+  });
+  cleanup.push(() => next.close());
+  expect(next.read().runtime).toEqual(runtime);
+});
+it('keeps unknown window capacity unknown and isolates new/forked conversation usage', async () => {
+  const { wb } = await create('usage-unknown');
+  wb.start(randomUUID(), 'unknown capacity');
+  await until(wb, (state) => state.runtime?.usage !== null && state.runtime?.usage !== undefined);
+  expect(wb.read().runtime?.usage?.modelContextWindow).toBeNull();
+  const original = wb.read().selectedThreadId as string,
+    task = wb.read().task as NonNullable<WorkbenchState['task']>;
+  await wb.command({ action: 'fork', taskId: task.id, kind: 'fork' });
+  expect(wb.read().runtime?.usage ?? null).toBeNull();
+  await wb.command({ action: 'new-thread', title: 'Empty' });
+  expect(wb.read().runtime).toBeNull();
+  await wb.command({ action: 'select-thread', id: original });
+  expect(wb.read().runtime?.usage?.last.totalTokens).toBe(32000);
+});

@@ -72,3 +72,5 @@ Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 Z
 真机验收单独记录麦克风距离、回声、多人发言、AirPlay 重连与大屏可读性。CI 不需要供应商密钥、麦克风和电视，也不把这些算作已验证。
 
 当前受管环境的 CLI 0.163.0 可生成协议类型，但实际 App Server 因其默认 `/run/codex-environment/codex-home` 为只读而无法初始化 SQLite；未改写 HOME/CODEX_HOME 绕过。这里的真实执行证据仍限于受控 App Server 协议替身，实际 CLI 终端/模型需在 Mac 可写用户目录验收。
+
+模型/上下文新增验证：完整可见模型分页不启动 thread/turn，列表失败/循环有界，最近请求与累计计数分离，早到和结束后报告、自动压缩下降、未知容量、跨线程/旧轮次过滤，以及独立元数据表的重启和旧 v2 schema 兼容。浏览器测选择器自动读取与错误重试；真实 Electron 验证 model/effort 进入实际任务参数和 25% 占用显示。所有模型/token 数据仍来自协议替身，不宣称真实账户计费已验收。

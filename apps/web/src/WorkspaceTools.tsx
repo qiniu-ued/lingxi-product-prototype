@@ -49,49 +49,8 @@ export function WorkspaceTools({
           }
         }}
       >
-        读取模型、Skills、MCP 和用量
+        读取 Skills、MCP 和账号额度
       </button>
-      <label>
-        模型
-        <select
-          value={state.settings.model ?? ''}
-          onChange={(e) =>
-            void operate('workspace', {
-              action: 'settings',
-              settings: { ...state.settings, model: e.target.value || null },
-            })
-          }
-        >
-          <option value="">使用 Codex 默认模型</option>
-          {catalog?.models?.data.map((model) => (
-            <option key={model.id} value={model.model}>
-              {model.displayName}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        思考强度
-        <select
-          value={state.settings.effort ?? ''}
-          onChange={(e) =>
-            void operate('workspace', {
-              action: 'settings',
-              settings: { ...state.settings, effort: e.target.value || null },
-            })
-          }
-        >
-          <option value="">默认</option>
-          {(
-            catalog?.models?.data.find((m) => m.model === state.settings.model)
-              ?.supportedReasoningEfforts ?? []
-          ).map((effort) => (
-            <option key={effort.reasoningEffort} value={effort.reasoningEffort}>
-              {effort.reasoningEffort}
-            </option>
-          ))}
-        </select>
-      </label>
       <label>
         <input
           type="checkbox"

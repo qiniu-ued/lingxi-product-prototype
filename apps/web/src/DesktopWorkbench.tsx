@@ -7,7 +7,9 @@ import {
   workbenchSchema,
 } from '@lingxi/protocol';
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { ContextUsage } from './ContextUsage';
 import { DiffPanel } from './DiffPanel';
+import { ModelControls } from './ModelControls';
 import { VoiceControls } from './VoiceControls';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -303,7 +305,7 @@ export function DesktopWorkbench() {
                 ['preview', '预览'],
                 ['terminal', '终端'],
                 ['diff', 'Diff'],
-                ['tools', '模型与工具'],
+                ['tools', '工具与计划'],
               ].map(([value, label]) => (
                 <button
                   type="button"
@@ -616,6 +618,7 @@ export function DesktopWorkbench() {
               {task.error && <p role="alert">{task.error}</p>}
             </section>
           )}
+          <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} compact={display} />
           {!display &&
             task &&
             (task.approvals ?? (task.approval ? [task.approval] : [])).map((approval) => (
@@ -744,6 +747,9 @@ export function DesktopWorkbench() {
           )}
           {!display && (
             <form onSubmit={submit}>
+              {state && (
+                <ModelControls state={state} busy={busy} connected={connected} operate={operate} />
+              )}
               <label htmlFor="task-prompt">给 Codex 的本轮指令</label>
               <textarea
                 id="task-prompt"

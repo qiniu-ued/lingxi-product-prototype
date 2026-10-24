@@ -262,9 +262,9 @@ try {
   // Publish a new revision and prove localStorage continuity across a real document reload.
   const file = join(projectPath, 'preview/index.html');
   await writeFile(file, (await readFile(file, 'utf8')).replace('周末，一起去哪里？', '周末出发'));
-  await expand(operator, '.workbench-menu');
+  await expand(operator, '.project-menu');
   await operator.getByRole('button', { name: '刷新作品' }).click();
-  await operator.locator('.workbench-menu > summary').press('Enter');
+  assert.equal(await operator.locator('.project-menu').evaluate((element) => element.open), false);
   for (let i = 0; i < 100; i++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
     if (current.preview?.revision > before.preview.revision) break;

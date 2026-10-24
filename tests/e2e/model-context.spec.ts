@@ -995,3 +995,42 @@ test('voice handoff distinguishes draft-only, unhandled voice replies and accept
   await expect(page.getByRole('region', { name: '语音交接状态' })).toContainText('已交给 Codex');
   await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
 });
+
+test('header project controls reuse existing actions and respect project and task availability', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 940 });
+  const fixture = await open(page, null, false, { project: null });
+  const actions: string[] = [];
+  await page.route('**/api/workbench/action', (route) => {
+    actions.push(route.request().postDataJSON().action);
+    return route.fulfill({ json: fixture.state() });
+  });
+  await expect(
+    page.getByRole('heading', {
+      name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
+      exact: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project']);
+  const menu = page.getByLabel('更多项目操作');
+  await menu.click();
+  await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
+  fixture.publishVoice({ configured: true, status: 'ready' });
+  await expect(page.locator('.voice-status')).toHaveCSS('color', 'rgb(35, 115, 74)');
+  await page.screenshot({ path: testInfo.outputPath('project-header-connected.png') });
+  await page.getByRole('button', { name: '打开项目', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project', 'select-project']);
+  await expect(page.locator('.project-menu')).not.toHaveAttribute('open');
+  await fixture.publish({ project: { id: projectId, name: 'Test', path: '/fixture' } });
+  await menu.focus();
+  await menu.press('Enter');
+  await page.getByRole('button', { name: '刷新作品', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project', 'select-project', 'publish-preview']);
+  await fixture.publish({ task: turn('正在执行', 'running') });
+  await expect(page.getByRole('button', { name: '新建项目', exact: true })).toBeDisabled();
+  await menu.click();
+  await expect(page.getByRole('button', { name: '打开项目', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
+});

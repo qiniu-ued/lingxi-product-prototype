@@ -185,9 +185,11 @@
 .live-workbench .conversation-bar select {
   max-width: 190px;
 }
+.project-menu,
 .workbench-menu {
   position: relative;
 }
+.project-menu > summary,
 .workbench-menu > summary,
 .keyboard-composer > summary {
   padding: 7px 11px;
@@ -197,6 +199,50 @@
   color: var(--live-text);
   font-size: 12px;
   white-space: nowrap;
+}
+.project-toolbar {
+  display: inline-flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+.project-toolbar > button {
+  border-radius: 7px 0 0 7px;
+}
+.project-menu > summary {
+  display: grid;
+  place-items: center;
+  list-style: none;
+  height: 100%;
+  min-width: 32px;
+  border-left: 0;
+  border-radius: 0 7px 7px 0;
+}
+.project-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.project-menu-content {
+  position: absolute;
+  z-index: 30;
+  right: 0;
+  top: calc(100% + 10px);
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+  padding: 6px;
+  border: 1px solid var(--live-line);
+  border-radius: 10px;
+  background: var(--live-surface);
+  box-shadow: 0 12px 36px var(--live-popover-shadow);
+}
+.project-menu-content button {
+  text-align: left;
+}
+.workspace-project {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--live-muted);
+  font-size: 12px;
 }
 .workbench-menu-content {
   position: absolute;
@@ -320,7 +366,7 @@
 .live-workbench details[open] > summary {
   margin-bottom: 8px;
 }
-.live-workbench :is(.workbench-menu, .keyboard-composer)[open] > summary {
+.live-workbench :is(.project-menu, .workbench-menu, .keyboard-composer)[open] > summary {
   margin-bottom: 0;
 }
 .preview-surface {
@@ -367,6 +413,8 @@
   padding: 32px 24px;
 }
 .live-workbench .live-empty h2 {
+  max-width: 540px;
+  text-wrap: balance;
   margin: 0;
   color: var(--live-text);
   font-size: 21px;
@@ -731,8 +779,8 @@
   color: var(--live-muted);
   font-weight: 500;
 }
-.live-footer .voice-listening > p[role="status"] {
-  color: var(--accent);
+.live-footer :is(.voice-ready, .voice-listening, .voice-speaking) > p[role="status"] {
+  color: var(--live-success);
 }
 .live-footer .voice-failed > p[role="status"] {
   color: var(--live-error);

@@ -56,6 +56,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const transcript = useRef<HTMLDivElement>(null),
     followTranscript = useRef(true),
     workspaceMenu = useRef<HTMLDetailsElement>(null),
+    projectMenu = useRef<HTMLDetailsElement>(null),
     composer = useRef<HTMLDetailsElement>(null);
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
@@ -360,9 +361,50 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 }[task.status]
               : '等待需求'}
           </span>
+          {!display && (
+            <div className="project-toolbar">
+              <button
+                type="button"
+                disabled={running || busy}
+                onClick={() => {
+                  if (projectMenu.current) projectMenu.current.open = false;
+                  void operate('action', { action: 'new-project' });
+                }}
+              >
+                新建项目
+              </button>
+              <details className="project-menu" name="header-menu" ref={projectMenu}>
+                <summary aria-label="更多项目操作" title="打开项目或刷新作品">
+                  ▾
+                </summary>
+                <nav className="project-menu-content" aria-label="项目操作">
+                  <button
+                    type="button"
+                    disabled={running || busy}
+                    onClick={() => {
+                      if (projectMenu.current) projectMenu.current.open = false;
+                      void operate('action', { action: 'select-project' });
+                    }}
+                  >
+                    打开项目
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!state?.project || running || busy}
+                    onClick={() => {
+                      if (projectMenu.current) projectMenu.current.open = false;
+                      void operate('action', { action: 'publish-preview' });
+                    }}
+                  >
+                    刷新作品
+                  </button>
+                </nav>
+              </details>
+            </div>
+          )}
           {!display && <SettingsLink />}
           {!display && (
-            <details className="workbench-menu" ref={workspaceMenu}>
+            <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
               <summary>工作区</summary>
               <div className="workbench-menu-content">
                 <div className="live-actions">
@@ -387,36 +429,9 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   )}
                   <SetupLink />
                 </div>
-                {!display && (
-                  <nav className="project-actions">
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() => void operate('action', { action: 'new-project' })}
-                    >
-                      新建项目
-                    </button>
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() => void operate('action', { action: 'select-project' })}
-                    >
-                      打开项目
-                    </button>
-                    <span title={state?.project?.path}>
-                      {state?.project?.name ?? '选择一个项目'}
-                    </span>
-                    {state?.project && (
-                      <button
-                        type="button"
-                        disabled={running || busy}
-                        onClick={() => void operate('action', { action: 'publish-preview' })}
-                      >
-                        刷新作品
-                      </button>
-                    )}
-                  </nav>
-                )}
+                <p className="workspace-project" title={state?.project?.path}>
+                  {state?.project?.name ?? '选择一个项目'}
+                </p>
                 {!display && state?.project && (
                   <section className="conversation-bar">
                     <input
@@ -595,7 +610,11 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               {!state?.preview ? (
                 <div className="live-empty">
                   <SparklesIcon />
-                  <h2>聊聊你的想法吧。</h2>
+                  <h2>
+                    {display
+                      ? '聊聊你的想法吧。'
+                      : '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧'}
+                  </h2>
                 </div>
               ) : !display && shot ? (
                 <button

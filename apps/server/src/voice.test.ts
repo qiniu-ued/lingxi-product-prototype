@@ -14,7 +14,11 @@ const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
 });
-async function create(format = 'pcm', allowed = true) {
+async function create(
+  format = 'pcm',
+  allowed = true,
+  wake?: NonNullable<ConstructorParameters<typeof VoiceService>[0]['wake']>,
+) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
   let peer: WebSocket | undefined;
@@ -71,6 +75,7 @@ async function create(format = 'pcm', allowed = true) {
       state = { ...state, settings: { ...state.settings, plan: input.mode === 'plan' } };
   });
   const voice = new VoiceService({
+    ...(wake ? { wake } : {}),
     testEndpoint: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
     workbench: {
       voiceContext: () => ({
@@ -347,4 +352,132 @@ it('announces real completion and questions once, queues while recording, and se
   });
   await vi.waitFor(() => expect(JSON.stringify(f.frames)).toContain('什么颜色？'));
   expect(f.interrupt).not.toHaveBeenCalled();
+});
+
+function wakePeer() {
+  let detection = () => {},
+    failure = () => {};
+  return {
+    installed: vi.fn(async () => true),
+    install: vi.fn(async () => {}),
+    start: vi.fn(async (_keyword: string, detected: () => void, failed: () => void) => {
+      detection = detected;
+      failure = failed;
+    }),
+    frame: vi.fn(),
+    reset: vi.fn(),
+    stop: vi.fn(),
+    close: vi.fn(),
+    detect: () => detection(),
+    fail: () => failure(),
+  };
+}
+it('keeps idle wake audio local, requires a staged capture after detection, and ends speech on silence', async () => {
+  const wake = wakePeer(),
+    f = await create('pcm', true, wake);
+  await f.voice.inspect();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  const quiet = Buffer.alloc(640).toString('base64');
+  f.voice.frame(quiet);
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.audio).toHaveLength(0);
+  wake.detect();
+  expect(f.voice.read().wake.status).toBe('detected');
+  expect(f.voice.read().status).toBe('ready');
+  expect(f.start).not.toHaveBeenCalled();
+  f.voice.frame(quiet);
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.audio).toHaveLength(0);
+  await f.voice.command({ action: 'listen' });
+  const loud = Buffer.alloc(640);
+  for (let i = 0; i < loud.length; i += 2) loud.writeInt16LE(5000, i);
+  for (let i = 0; i < 20; i++) f.voice.frame(loud.toString('base64'));
+  for (let i = 0; i < 100; i++) f.voice.frame(quiet);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().wake.status).toBe('armed');
+  expect(wake.reset).toHaveBeenCalled();
+  await vi.waitFor(() =>
+    expect(
+      f.frames.some((value) => {
+        const message = value as { type?: string; state?: string };
+        return message.type === 'listen' && message.state === 'stop';
+      }),
+    ).toBe(true),
+  );
+  expect(f.audio.length).toBeGreaterThan(0);
+  const count = f.audio.length;
+  f.voice.frame(quiet);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(f.audio).toHaveLength(count);
+  await f.voice.command({ action: 'stop-wake' });
+  expect(f.voice.read().wake.status).toBe('off');
+  expect(wake.stop).toHaveBeenCalled();
+  expect(
+    (await f.call(700, 'workbench_submit', { text: 'late command after disabling wake' })).isError,
+  ).toBe(true);
+  expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  await f.voice.command({ action: 'listen' });
+  await f.voice.command({ action: 'stop-wake' });
+  expect(f.voice.read().status).toBe('ready');
+});
+it('disarms wake detection on engine errors, lost microphone leases and disconnect', async () => {
+  const wake = wakePeer(),
+    f = await create('pcm', true, wake);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  wake.fail();
+  expect(f.voice.read().wake.status).toBe('failed');
+  await f.voice.command({ action: 'arm-wake', keyword: '你好灵矽' });
+  const time = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10000);
+  try {
+    await vi.waitFor(() => expect(f.voice.read().wake.status).toBe('failed'), { timeout: 2000 });
+  } finally {
+    time.mockRestore();
+  }
+  expect(f.voice.read().wake.error).toContain('麦克风');
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  f.voice.disconnect();
+  expect(f.voice.read().wake.status).toBe('off');
+  wake.detect();
+  expect(f.voice.read().wake.status).toBe('off');
+});
+it('reports wake installation/start failures without opening an upload capture', async () => {
+  const wake = wakePeer(),
+    f = await create('pcm', true, wake);
+  wake.install.mockRejectedValueOnce(new Error('network'));
+  await f.voice.command({ action: 'install-wake' });
+  expect(f.voice.read().wake.status).toBe('failed');
+  await f.voice.command({ action: 'install-wake' });
+  expect(f.voice.read().wake.installed).toBe(true);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  wake.start.mockRejectedValueOnce(new Error('engine'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  expect(f.voice.read().wake.status).toBe('failed');
+  expect(f.voice.read().status).toBe('ready');
+  expect(f.audio).toHaveLength(0);
+});
+it('times out an empty wake capture and only accepts context detail voice controls within consent and capture', async () => {
+  const wake = wakePeer(),
+    f = await create('pcm', true, wake);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect((await f.call(600, 'workbench_context_details', { open: true })).isError).toBe(true);
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
+  wake.detect();
+  await f.voice.command({ action: 'listen' });
+  expect((await f.call(601, 'workbench_context_details', { open: true })).isError).not.toBe(true);
+  expect(f.voice.read().contextDetailsOpen).toBe(true);
+  expect(f.start).not.toHaveBeenCalled();
+  for (let i = 0; i < 400; i++) f.voice.frame(Buffer.alloc(640).toString('base64'));
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(
+    (await f.call(602, 'workbench_submit', { text: 'late command after silence' })).isError,
+  ).toBe(true);
+  await f.voice.command({ action: 'context-details', open: false });
+  expect(f.voice.read().contextDetailsOpen).toBe(false);
 });

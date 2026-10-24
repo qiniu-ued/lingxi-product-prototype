@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type ThreadRuntime,
   taskSchema,
+  voiceStateSchema,
   type WorkbenchState,
   workbenchSchema,
 } from '@lingxi/protocol';
@@ -83,7 +84,16 @@ async function open(
   });
   await page.addInitScript(
     ({ snapshot }) => {
-      Object.defineProperty(window, 'lingxiDesktop', { value: { onAudio: () => () => {} } });
+      Object.defineProperty(window, 'lingxiDesktop', {
+        value: {
+          microphone: async () => true,
+          audioFrame: () => {},
+          onAudio: () => () => {},
+          copy: async (text: string) => {
+            Reflect.set(window, 'copiedReply', text);
+          },
+        },
+      });
       // Controlled SSE peer: keeps the connection open without real provider calls.
       Object.defineProperty(window, 'EventSource', {
         value: class {
@@ -116,6 +126,11 @@ async function open(
     );
   });
   const commands: Array<Record<string, unknown>> = [];
+  const contexts: Array<Record<string, unknown>> = [];
+  await page.route('**/api/workbench/context', (route) => {
+    contexts.push(route.request().postDataJSON());
+    return route.fulfill({ json: state });
+  });
   const views = new Map<
     string,
     Pick<WorkbenchState, 'history' | 'task' | 'runtime' | 'turnUsage'>
@@ -200,9 +215,44 @@ async function open(
   await page.route('**/api/workbench/verify-execution', (route) =>
     route.fulfill({ json: { ...execution, verified: ['plan', 'default', 'manual'] } }),
   );
+  let voice = voiceStateSchema.parse({
+    configured: false,
+    status: 'disconnected',
+    draft: '',
+    captureId: null,
+    subtitle: '',
+    error: null,
+    allowVoiceSubmit: false,
+  });
+  await page.route('**/api/voice', (route) => route.fulfill({ json: voice }));
+  await page.route('**/api/voice/inspect', (route) => route.fulfill({ json: voice }));
+  const voiceCommands: Array<Record<string, unknown>> = [];
+  await page.route('**/api/voice/command', (route) => {
+    const body = route.request().postDataJSON();
+    voiceCommands.push(body);
+    if (body.action === 'install-wake')
+      voice = { ...voice, wake: { ...voice.wake, installed: true, status: 'off' } };
+    if (body.action === 'arm-wake')
+      voice = { ...voice, wake: { ...voice.wake, keyword: body.keyword, status: 'armed' } };
+    if (body.action === 'listen')
+      voice = { ...voice, status: 'listening', captureId: randomUUID() };
+    if (body.action === 'stop-wake')
+      voice = {
+        ...voice,
+        status: 'ready',
+        wake: { ...voice.wake, status: 'off', detectionId: null },
+      };
+    if (body.action === 'context-details') voice = { ...voice, contextDetailsOpen: body.open };
+    return route.fulfill({ json: voice });
+  });
   await page.goto('/');
   return {
     commands,
+    voiceCommands,
+    contexts,
+    publishVoice: (change: Partial<typeof voice>) => {
+      voice = { ...voice, ...change };
+    },
     state: () => state,
     allowModels: () => {
       failModels = false;
@@ -321,7 +371,8 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
   };
   await fixture.publish({ history: [answer], task: answer });
   await page.locator('.keyboard-composer > summary').click();
-  await page.getByRole('button', { name: '把讨论结果带回原对话' }).click();
+  await selectExcerpt(page, answer.id, '讨论结论：保留这个按钮。');
+  await page.getByRole('button', { name: '引用到原对话' }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话未发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('讨论结论：保留这个按钮。');
   await page.locator('.workbench-menu > summary').click();
@@ -344,11 +395,14 @@ test('usage summaries remain visible with auxiliary menus closed, including on t
   for (const path of ['/', '/display']) {
     if (path !== '/') await page.goto(path);
     await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '本轮 32,000 tokens',
+      '32,000 Token used',
     );
     await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '缓存命中率 40.0%',
+      '40.0% Cache hit.',
     );
+    await expect(page.getByRole('table')).toHaveCount(0);
+    await page.getByRole('button', { name: '上下文使用详情', exact: true }).hover();
+    await expect(page.getByRole('tooltip')).toHaveText('Context Window: 32,000/128,000 used.');
     await expect(page.getByRole('meter', { name: '当前上下文占用', exact: true })).toHaveAttribute(
       'aria-valuetext',
       '25.0% 已使用',
@@ -359,10 +413,9 @@ test('context meter uses the last request, with separate cumulative and cached/r
   page,
 }) => {
   await open(page, runtime());
-  await page.locator('.workbench-menu > summary').click();
-  const meter = page.getByRole('meter', { name: '上下文窗口占用', exact: true });
+  const meter = page.getByRole('meter', { name: '当前上下文占用', exact: true });
   await expect(meter).toHaveAttribute('aria-valuetext', '25.0% 已使用');
-  await page.getByText('上下文使用详情', { exact: true }).click();
+  await page.getByRole('button', { name: '上下文使用详情', exact: true }).click();
   const total = page.getByRole('row').filter({ hasText: '总 token' });
   await expect(total).toContainText('32,000');
   await expect(total).toContainText('150,000');
@@ -374,7 +427,7 @@ test('context meter uses the last request, with separate cumulative and cached/r
 });
 test('unknown usage or window capacity never appears as zero percent', async ({ page }) => {
   await open(page, { ...runtime(), usage: { ...usage, modelContextWindow: null } });
-  await page.locator('.workbench-menu > summary').click();
+  await page.getByRole('button', { name: '上下文使用详情', exact: true }).click();
   await expect(page.getByRole('region', { name: '上下文用量' })).toContainText('容量未报告');
   await expect(page.getByRole('meter')).toHaveCount(0);
   await expect(page.getByRole('region', { name: '上下文用量' })).not.toContainText('0.0%');
@@ -382,7 +435,7 @@ test('unknown usage or window capacity never appears as zero percent', async ({ 
 
 test('no usage report is shown as waiting rather than zero consumption', async ({ page }) => {
   await open(page, null);
-  await page.locator('.workbench-menu > summary').click();
+  await page.getByRole('button', { name: '上下文使用详情', exact: true }).click();
   await expect(page.getByRole('region', { name: '上下文用量' })).toContainText(
     '等待 Codex 报告用量',
   );
@@ -421,16 +474,13 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
   const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
   const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
   const runningTurn = page.locator('article.conversation-turn').filter({ hasText: '运行中' });
-  await firstTurn.locator('summary[aria-label="本轮详情"]').click();
-  await secondTurn.locator('summary[aria-label="本轮详情"]').click();
-  await runningTurn.locator('summary[aria-label="本轮详情"]').click();
-  await expect(firstTurn.getByRole('region', { name: '本轮 Token 用量' })).toContainText(
-    '本轮 32,000 tokens',
+  await expect(firstTurn.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+    '32,000 Token used',
   );
-  await expect(firstTurn).toContainText('缓存命中率 40.0%');
-  await expect(secondTurn).toContainText('本轮用量未报告');
+  await expect(firstTurn).toContainText('40.0% Cache hit.');
+  await expect(secondTurn.locator('.turn-usage')).toHaveCount(0);
   await expect(secondTurn).not.toContainText('本轮 0 tokens');
-  await expect(runningTurn.getByRole('region', { name: '本轮 Token 用量' })).toHaveCount(0);
+  await expect(runningTurn.getByRole('region', { name: '本轮用量摘要' })).toHaveCount(0);
   await fixture.publish({
     turnUsage: [
       ...fixture.state().turnUsage,
@@ -448,11 +498,12 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
       },
     ],
   });
-  await expect(secondTurn).toContainText('本轮 48,000 tokens');
-  await expect(secondTurn).toContainText('缓存命中率 25.0%');
-  await expect(firstTurn).toContainText('缓存命中率 40.0%');
-  await secondTurn.getByText('本轮用量明细', { exact: true }).click();
-  await expect(secondTurn.getByRole('definition').first()).toHaveText('10,000');
+  await expect(secondTurn).toContainText('48,000 Token used');
+  await expect(secondTurn).toContainText('25.0% Cache hit.');
+  await expect(firstTurn).toContainText('40.0% Cache hit.');
+  await expect(secondTurn.locator('.turn-usage')).toHaveText(
+    '48,000 Token used, 40,000 Input, 8,000 Output, 25.0% Cache hit.',
+  );
 });
 test('missing baselines, cache counters and zero input do not invent cache hits', async ({
   page,
@@ -488,13 +539,13 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
   });
   const article = (text: string) =>
     page.locator('article.conversation-turn').filter({ hasText: text });
-  for (const prompt of ['缺少基线', '缺少缓存', '无输入', '已中断']) {
-    await article(prompt).locator('summary[aria-label="本轮详情"]').click();
-  }
-  await expect(article('缺少基线')).toContainText('缺少起始累计值，无法计算本轮用量');
-  await expect(article('缺少缓存')).toContainText('缓存命中率 未报告');
-  await expect(article('无输入')).toContainText('缓存命中率 不适用（无输入）');
-  await expect(article('已中断')).toContainText('截至最后报告的用量');
+  await expect(article('缺少基线').locator('.turn-usage')).toHaveCount(0);
+  await expect(article('缺少缓存').locator('.turn-usage')).toContainText('32,000 Token used');
+  await expect(article('缺少缓存').locator('.turn-usage')).not.toContainText('Cache hit');
+  await expect(article('无输入').locator('.turn-usage')).toHaveText(
+    '0 Token used, 0 Input, 0 Output.',
+  );
+  await expect(article('已中断').locator('.turn-usage')).toContainText('40.0% Cache hit.');
 });
 test('composer selects collaboration modes and permissions, and reports explicit verification', async ({
   page,
@@ -605,4 +656,92 @@ test('tools show readable skill, MCP and quota cards with independent errors and
     '尚未报告额度窗口',
   );
   expect(fixture.state().task).toBeNull();
+});
+
+test('voice wake uses the real audio worklet, stages current drafts after detection, and releases tracks when disabled', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => {
+        const context = new AudioContext({ sampleRate: 16000 });
+        const source = context.createConstantSource();
+        source.offset.value = 0.05;
+        const output = context.createMediaStreamDestination();
+        source.connect(output);
+        source.start();
+        await context.resume();
+        Reflect.set(window, 'testMicTracks', output.stream.getTracks());
+        return output.stream;
+      },
+    });
+  });
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  fixture.publishVoice({
+    configured: true,
+    status: 'ready',
+    wake: { status: 'off', keyword: '丽塔同学', installed: true, detectionId: null, error: null },
+  });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByLabel('给 Codex 的本轮指令').fill('本轮待发送草稿');
+  await page.getByText('语音唤醒', { exact: true }).click();
+  await page.getByRole('button', { name: '开启语音唤醒', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toContainText(
+    '丽塔同学',
+  );
+  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.voiceCommands.some((command) => command.action === 'listen')).toBe(false);
+  fixture.publishVoice({
+    wake: {
+      status: 'detected',
+      keyword: '丽塔同学',
+      installed: true,
+      detectionId: randomUUID(),
+      error: null,
+    },
+  });
+  await expect.poll(() => fixture.contexts.length).toBe(1);
+  expect(fixture.contexts[0]).toMatchObject({ projectId, conversationId, text: '本轮待发送草稿' });
+  await expect
+    .poll(() => fixture.voiceCommands.filter((command) => command.action === 'listen').length)
+    .toBe(1);
+  await page.getByRole('button', { name: '关闭语音唤醒', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'testMicTracks') as MediaStreamTrack[]).every(
+          (track) => track.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+});
+test('copy and Fork remain as icons while quotes and Sidechat require a text selection; voice opens details on both screens', async ({
+  page,
+}) => {
+  const source = turn('测试入口');
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  await expect(page.getByRole('button', { name: '添加到对话', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Sidechat', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Fork 对话', exact: true })).toHaveText('');
+  await page.getByRole('button', { name: '复制本轮回复', exact: true }).click();
+  expect(await page.evaluate(() => Reflect.get(window, 'copiedReply'))).toBe('测试入口的回答');
+  fixture.publishVoice({ contextDetailsOpen: true });
+  await expect(page.getByRole('button', { name: '上下文使用详情', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  await expect(page.getByRole('table')).toBeVisible();
+  await page.goto('/display');
+  await expect(page.getByRole('table')).toBeVisible();
+  await page.getByRole('button', { name: '上下文使用详情', exact: true }).click();
+  await expect(page.getByRole('table')).toHaveCount(0);
 });

@@ -10,6 +10,7 @@ export function HistoryActions({
   onSelect,
   onQuote,
   onSidechat,
+  onReturn,
 }: {
   state: WorkbenchState;
   transcript: RefObject<HTMLDivElement | null>;
@@ -19,6 +20,7 @@ export function HistoryActions({
   onSelect: () => void;
   onQuote: (quote: HistoryQuote) => void;
   onSidechat: (quote: HistoryQuote) => void;
+  onReturn?: (quote: HistoryQuote) => void;
 }) {
   const [selection, setSelection] = useState<{
     quote: HistoryQuote;
@@ -77,7 +79,7 @@ export function HistoryActions({
       setSelection({
         context,
         quote: parsed.data,
-        left: Math.max(8, Math.min(rect.left, innerWidth - 290)),
+        left: Math.max(8, Math.min(rect.left, innerWidth - 440)),
         top: rect.top >= 62 ? rect.top - 48 : rect.bottom + 8,
       });
     };
@@ -143,6 +145,18 @@ export function HistoryActions({
       >
         选段 Sidechat
       </button>
+      {onReturn && (
+        <button
+          type="button"
+          disabled={busy || running}
+          onClick={() => {
+            onReturn(selection.quote);
+            setSelection(null);
+          }}
+        >
+          引用到原对话
+        </button>
+      )}
       <button type="button" aria-label="关闭选段操作" onClick={() => setSelection(null)}>
         ×
       </button>

@@ -148,6 +148,18 @@ export function DesktopWorkbench() {
       },
     );
   }
+  async function returnQuote(quote: HistoryQuote) {
+    const attachment = quoteAttachment(quote);
+    const parentId = thread?.parentId;
+    if (!attachment || !parentId) return;
+    await operate('workspace', { action: 'select-thread', id: parentId }, (next) => {
+      if (next.selectedThreadId !== parentId) throw new Error('quote_context_changed');
+      patchDraft(composerTarget(next), (draft) => ({
+        attachments: [...draft.attachments, attachment].slice(0, 20),
+      }));
+      focusComposer();
+    });
+  }
   useEffect(() => {
     if (retryTarget.current !== target) {
       retry.current = null;
@@ -262,6 +274,19 @@ export function DesktopWorkbench() {
       return false;
     } finally {
       setBusy(false);
+    }
+  }
+  async function contextDetails(open: boolean) {
+    try {
+      const response = await fetch('/api/voice/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'context-details', open }),
+      });
+      if (!response.ok) throw new Error();
+      setDisplayVoice(voiceStateSchema.parse(await response.json()));
+    } catch {
+      setError('上下文详情切换失败，请检查本机连接。');
     }
   }
   async function submit(event: FormEvent) {
@@ -481,7 +506,7 @@ export function DesktopWorkbench() {
                     </details>
                   </section>
                 )}
-                <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} />
+
                 {!display && (
                   <nav className="workspace-tabs" aria-label="项目工作区">
                     {[
@@ -686,130 +711,138 @@ export function DesktopWorkbench() {
                   <TurnUsage
                     usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
                     status={turn.status}
-                    compact
                   />
-                  {!display && (
-                    <details className="turn-tools">
-                      <summary aria-label="本轮详情" title="本轮详情">
-                        ⋯
-                      </summary>
-                      {turn.attachments?.length ? (
-                        <details>
-                          <summary>本轮上下文 · {turn.attachments.length}</summary>
-                          {turn.attachments.map((a) => (
-                            <pre key={a.id}>
-                              {a.title}\n{a.text}
-                            </pre>
-                          ))}
-                        </details>
-                      ) : null}
-                      {!!turn.plan?.length && (
-                        <details>
-                          <summary>执行步骤 · {turn.plan.length}</summary>
-                          <ol>
-                            {turn.plan.map((step) => (
-                              <li key={step.step}>
-                                {step.step} · {step.status}
-                              </li>
+                  <div className="turn-footer">
+                    {!display && (
+                      <details className="turn-tools">
+                        <summary aria-label="本轮详情" title="本轮详情">
+                          ⋯
+                        </summary>
+                        {turn.attachments?.length ? (
+                          <details>
+                            <summary>本轮上下文 · {turn.attachments.length}</summary>
+                            {turn.attachments.map((a) => (
+                              <pre key={a.id}>
+                                {a.title}\n{a.text}
+                              </pre>
                             ))}
-                          </ol>
-                        </details>
-                      )}
-                      {!!turn.items?.length && (
-                        <details>
-                          <summary>执行记录 · {turn.items.length}</summary>
-                          {turn.items.map((item) => (
-                            <details key={item.id}>
-                              <summary>
-                                {item.type} · {item.status ?? '执行中'}
-                              </summary>
-                              <pre>{item.text}</pre>
+                          </details>
+                        ) : null}
+                        {!!turn.plan?.length && (
+                          <details>
+                            <summary>执行步骤 · {turn.plan.length}</summary>
+                            <ol>
+                              {turn.plan.map((step) => (
+                                <li key={step.step}>
+                                  {step.step} · {step.status}
+                                </li>
+                              ))}
+                            </ol>
+                          </details>
+                        )}
+                        {!!turn.items?.length && (
+                          <details>
+                            <summary>执行记录 · {turn.items.length}</summary>
+                            {turn.items.map((item) => (
+                              <details key={item.id}>
+                                <summary>
+                                  {item.type} · {item.status ?? '执行中'}
+                                </summary>
+                                <pre>{item.text}</pre>
+                              </details>
+                            ))}
+                          </details>
+                        )}
+                        <small>
+                          {turn.status} · {new Date(turn.createdAt).toLocaleString()}
+                        </small>
+                      </details>
+                    )}
+                    {!display && (
+                      <div className="turn-icons">
+                        {' '}
+                        {!display && (
+                          <div className="live-actions">
+                            {turn.status === 'queued' ? (
                               <button
                                 type="button"
-                                onClick={() =>
-                                  attach({
-                                    id: crypto.randomUUID(),
-                                    kind: 'text',
-                                    title: item.type,
-                                    text: item.text.slice(0, 32000),
-                                  })
-                                }
-                              >
-                                添加到对话
-                              </button>
-                            </details>
-                          ))}
-                        </details>
-                      )}
-                      <small>
-                        {turn.status} · {new Date(turn.createdAt).toLocaleString()}
-                      </small>
-                      <TurnUsage
-                        usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
-                        status={turn.status}
-                        compact={false}
-                      />
-                      {!display && (
-                        <div className="live-actions">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              attach({
-                                id: crypto.randomUUID(),
-                                kind: thread?.kind === 'sidechat' ? 'sidechat' : 'text',
-                                title: '对话摘录',
-                                text: turn.messages
-                                  .map((m) => m.text)
-                                  .join('\n')
-                                  .slice(0, 32000),
-                              })
-                            }
-                          >
-                            添加到对话
-                          </button>
-                          {turn.status === 'queued' ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void operate('workspace', { action: 'cancel-queued', id: turn.id })
-                              }
-                            >
-                              取消排队
-                            </button>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                disabled={running || !turn.turnId}
                                 onClick={() =>
                                   void operate('workspace', {
-                                    action: 'fork',
-                                    taskId: turn.id,
-                                    kind: 'sidechat',
+                                    action: 'cancel-queued',
+                                    id: turn.id,
                                   })
                                 }
                               >
-                                Sidechat
+                                取消排队
                               </button>
-                              <button
-                                type="button"
-                                disabled={running || !turn.turnId}
-                                onClick={() =>
-                                  void operate('workspace', {
-                                    action: 'fork',
-                                    taskId: turn.id,
-                                    kind: 'fork',
-                                  })
-                                }
-                              >
-                                Fork 对话
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </details>
-                  )}
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  aria-label="Fork 对话"
+                                  title="Fork 对话"
+                                  disabled={running || !turn.turnId}
+                                  onClick={() =>
+                                    void operate('workspace', {
+                                      action: 'fork',
+                                      taskId: turn.id,
+                                      kind: 'fork',
+                                    })
+                                  }
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.7"
+                                  >
+                                    <circle cx="6" cy="5" r="2" />
+                                    <circle cx="18" cy="5" r="2" />
+                                    <circle cx="6" cy="19" r="2" />
+                                    <path d="M6 7v10M18 7v1a5 5 0 0 1-5 5H6" />
+                                  </svg>
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="复制本轮回复"
+                                  title="复制本轮回复"
+                                  disabled={!turn.messages.length}
+                                  onClick={async () => {
+                                    try {
+                                      const value = turn.messages
+                                        .map((message) => message.text)
+                                        .join('\n\n');
+                                      if (window.lingxiDesktop)
+                                        await window.lingxiDesktop.copy(value);
+                                      else await navigator.clipboard.writeText(value);
+                                    } catch {
+                                      setError('复制失败，请选中文字后复制。');
+                                    }
+                                  }}
+                                >
+                                  <svg
+                                    aria-hidden="true"
+                                    width="16"
+                                    height="16"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="1.7"
+                                  >
+                                    <rect x="8" y="8" width="12" height="12" rx="2" />
+                                    <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" />
+                                  </svg>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </article>
               ))
             ) : (
@@ -821,39 +854,16 @@ export function DesktopWorkbench() {
                 </p>
               </div>
             )}
-            {!display && thread?.parentId && (
-              <button
-                type="button"
-                disabled={running}
-                onClick={() => {
-                  const text =
-                    state?.history.flatMap((t) => t.messages.map((m) => m.text)).join('\n') ?? '';
-                  const result: ContextAttachment = {
-                    id: crypto.randomUUID(),
-                    kind: 'sidechat',
-                    title: thread.title,
-                    text: text.slice(0, 32000),
-                  };
-                  void operate(
-                    'workspace',
-                    { action: 'select-thread', id: thread.parentId },
-                    (next) => {
-                      patchDraft(composerTarget(next), (draft) => ({
-                        attachments: [...draft.attachments, result].slice(0, 20),
-                      }));
-                      focusComposer();
-                    },
-                  );
-                }}
-              >
-                把讨论结果带回原对话
-              </button>
-            )}
             {!display && thread?.kind === 'fork' && (
               <p>此 Fork 复制对话历史，共享当前项目文件。独立代码工作区尚未创建。</p>
             )}
           </div>
-          <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} compact />
+          <ContextUsage
+            runtime={state?.runtime ?? null}
+            turnId={task?.turnId}
+            expanded={displayVoice?.contextDetailsOpen ?? false}
+            onExpand={(open) => void contextDetails(open)}
+          />
           {task && (
             <section
               className="live-agents"
@@ -1023,6 +1033,9 @@ export function DesktopWorkbench() {
           }}
           onQuote={quoteToDraft}
           onSidechat={(quote) => void discussQuote(quote)}
+          {...(thread?.parentId
+            ? { onReturn: (quote: HistoryQuote) => void returnQuote(quote) }
+            : {})}
         />
       )}
       <footer className="live-footer">
@@ -1030,13 +1043,24 @@ export function DesktopWorkbench() {
           <div
             className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : ''}`}
           >
-            <MicrophoneIcon muted={displayVoice?.status !== 'listening'} />
+            <MicrophoneIcon
+              muted={
+                displayVoice?.status !== 'listening' &&
+                !['armed', 'detected'].includes(displayVoice?.wake.status ?? '')
+              }
+            />
             <strong>
               {!connected || !displayVoice
                 ? '正在同步麦克风状态'
-                : displayVoice.status === 'listening'
-                  ? '收音中 · 麦克风已开启'
-                  : '麦克风已关闭'}
+                : ['armed', 'detected'].includes(displayVoice.wake.status) &&
+                    displayVoice.status === 'ready'
+                  ? `本地待唤醒 · 麦克风已开启 · ${displayVoice.wake.keyword}`
+                  : displayVoice.status === 'speaking' &&
+                      ['armed', 'detected'].includes(displayVoice.wake.status)
+                    ? '播报中 · 本地麦克风开启，暂停唤醒'
+                    : displayVoice.status === 'listening'
+                      ? '收音中 · 麦克风已开启'
+                      : '麦克风已关闭'}
             </strong>
             {displayVoice?.status === 'listening' && (
               <span>{displayVoice.draft || '正在听取本次指令…'}</span>
@@ -1046,6 +1070,7 @@ export function DesktopWorkbench() {
         {!display && (
           <VoiceControls
             onDraft={receiveVoice}
+            onState={setDisplayVoice}
             prepare={async () => {
               if (
                 !state?.project ||

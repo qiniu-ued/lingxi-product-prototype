@@ -166,7 +166,7 @@ try {
   assert.equal(started.params.approvalsReviewer, 'user');
   const summary = operator.getByRole('region', { name: '本轮用量摘要', exact: true }).first();
   await summary.waitFor();
-  assert.ok((await summary.textContent()).includes('本轮 150,000 tokens'));
+  assert.ok((await summary.textContent()).includes('150,000 Token used'));
   assert.equal(
     await operator
       .getByRole('meter', { name: '当前上下文占用', exact: true })
@@ -204,25 +204,25 @@ try {
   await operator.getByLabel('给 Codex 的本轮指令').fill('');
   assert.equal(await operator.locator('.context-attachments').count(), 0);
   await operator.locator('.keyboard-composer > summary').press('Enter');
-  await expand(operator, '.workbench-menu');
-  await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
-  assert.equal(
-    await operator
-      .getByRole('meter', { name: '上下文窗口占用', exact: true })
-      .getAttribute('aria-valuetext'),
-    '25.0% 已使用',
-  );
-  await operator.locator('.workbench-menu > summary').press('Enter');
-  await expand(operator, '.turn-tools');
-  await operator.waitForFunction(() =>
-    document.querySelector('.turn-usage-summary')?.textContent.includes('缓存命中率 35.7%'),
-  );
+  await operator.getByRole('button', { name: '复制本轮回复', exact: true }).first().click();
   assert.ok(
-    (await operator.locator('.turn-usage-summary').first().textContent()).includes(
-      '本轮 150,000 tokens',
-    ),
+    (await instance.evaluate(({ clipboard }) => clipboard.readText())).includes('本轮已完成'),
   );
-  await operator.locator('.turn-tools > summary').press('Enter');
+  assert.equal(await operator.getByRole('button', { name: 'Sidechat', exact: true }).count(), 0);
+  assert.equal(await operator.getByRole('button', { name: '添加到对话', exact: true }).count(), 0);
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).hover();
+  await operator.getByRole('tooltip').waitFor();
+  assert.equal(
+    await operator.getByRole('tooltip').evaluate((node) => getComputedStyle(node).backgroundColor),
+    'rgb(54, 51, 45)',
+  );
+  await operator.screenshot({ path: join(root, '.local/context-tooltip.png') });
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).click();
+  await operator.getByRole('table').waitFor();
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).click();
+  await operator.waitForFunction(() =>
+    document.querySelector('.turn-usage')?.textContent.includes('35.7% Cache hit.'),
+  );
   await expand(operator, '.keyboard-composer');
   await operator.getByLabel('模型', { exact: true }).selectOption('fast-model');
   await operator.waitForFunction(() => document.querySelector('#codex-effort').value === 'low');

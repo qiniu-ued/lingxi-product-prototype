@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { MicrophoneIcon } from './MicrophoneIcon';
 
-async function command(action: string, text?: string) {
+async function command(action: string, values: Record<string, unknown> = {}) {
   const response = await fetch('/api/voice/command', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...(text ? { text } : {}) }),
+    body: JSON.stringify({ action, ...values }),
   });
   if (!response.ok) throw new Error('voice unavailable');
   return voiceStateSchema.parse(await response.json());
@@ -24,10 +24,12 @@ export function VoiceControls({
   configuration = false,
   onDraft,
   prepare,
+  onState,
 }: {
   configuration?: boolean;
   prepare?: () => Promise<void>;
   onDraft?: (text: string, id: string) => void;
+  onState?: (value: VoiceState) => void;
 }) {
   const [state, setState] = useState<VoiceState | null>(null),
     [error, setError] = useState('');
@@ -66,6 +68,13 @@ export function VoiceControls({
   const [token, setToken] = useState(''),
     [deviceId, setDeviceId] = useState(''),
     [allow, setAllow] = useState(false);
+  const [keyword, setKeyword] = useState('丽塔同学');
+  const [operating, setOperating] = useState(false);
+  const inOperation = useRef(false),
+    wakeActive = useRef(false),
+    lastWake = useRef('');
+  const suppressUntil = useRef(0);
+  const startCapture = useRef<(action: string) => Promise<void>>(async () => {});
   const clientId = useRef(crypto.randomUUID());
   const stream = useRef<MediaStream | null>(null),
     capture = useRef<AudioContext | null>(null),
@@ -142,13 +151,39 @@ export function VoiceControls({
       clearInterval(timer);
       unsubscribe?.();
       stopMic();
+      if (wakeActive.current) void command('stop-wake').catch(() => {});
       resetPlayback();
       void playback.current?.close();
       playback.current = null;
     };
   }, [stopMic, resetPlayback]);
   useEffect(() => {
-    if (state?.status !== 'listening' && recording.current) stopMic();
+    if (state) onState?.(state);
+    if (!inOperation.current && state) {
+      if (['off', 'failed'].includes(state.wake.status)) wakeActive.current = false;
+      if (state.status !== 'listening' && !wakeActive.current && recording.current) stopMic();
+    }
+    if (
+      state?.wake.status === 'detected' &&
+      state.wake.detectionId &&
+      wakeActive.current &&
+      state.wake.detectionId !== lastWake.current &&
+      !inOperation.current
+    ) {
+      lastWake.current = state.wake.detectionId;
+      const context = playback.current;
+      if (context) {
+        const tone = context.createOscillator(),
+          gain = context.createGain();
+        tone.frequency.value = 880;
+        gain.gain.value = 0.08;
+        tone.connect(gain).connect(context.destination);
+        tone.start();
+        tone.stop(context.currentTime + 0.1);
+        suppressUntil.current = Date.now() + 300;
+      }
+      void startCapture.current('listen');
+    }
     if (
       state?.draft &&
       state.captureId &&
@@ -158,53 +193,73 @@ export function VoiceControls({
       lastDraft.current = `${state.captureId}:${state.draft}`;
       onDraft(state.draft, state.captureId);
     }
-  }, [state, onDraft, stopMic]);
+  }, [state, onDraft, onState, stopMic]);
   async function operate(action: string, text?: string) {
+    if (inOperation.current) return;
+    inOperation.current = true;
+    setOperating(true);
     try {
       setError('');
-      if (action === 'connect' || action === 'speak' || action === 'listen') {
+      if (['connect', 'speak', 'listen', 'arm-wake'].includes(action)) {
         playback.current ??= new AudioContext();
         await playback.current.resume();
       }
-      if (action === 'listen') {
-        if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission');
-        const media = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-        stream.current = media;
-        const context = new AudioContext({ sampleRate: 16000 });
-        capture.current = context;
-        if (context.sampleRate !== 16000) throw new Error('sample rate unsupported');
-        await context.audioWorklet.addModule('/pcm-worklet.js');
-        const worklet = new AudioWorkletNode(context, 'lingxi-pcm-capture');
-        worklet.port.onmessage = (event) => {
-          if (recording.current && event.data instanceof ArrayBuffer)
-            window.lingxiDesktop?.audioFrame(event.data);
-        };
-        context.createMediaStreamSource(media).connect(worklet);
-        worklet.connect(context.destination);
-        await prepare?.();
-        const value = await command(action);
+      if (action === 'listen' || action === 'arm-wake') {
+        if (action === 'arm-wake') wakeActive.current = true;
+        if (!recording.current) {
+          if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission');
+          const media = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+            video: false,
+          });
+          stream.current = media;
+          const context = new AudioContext({ sampleRate: 16000 });
+          capture.current = context;
+          if (context.sampleRate !== 16000) throw new Error('sample rate unsupported');
+          await context.audioWorklet.addModule('/pcm-worklet.js');
+          const worklet = new AudioWorkletNode(context, 'lingxi-pcm-capture');
+          worklet.port.onmessage = (event) => {
+            if (recording.current && event.data instanceof ArrayBuffer) {
+              const muted = Date.now() < suppressUntil.current || sources.current.size > 0;
+              window.lingxiDesktop?.audioFrame(muted ? new ArrayBuffer(640) : event.data);
+            }
+          };
+          context.createMediaStreamSource(media).connect(worklet);
+          worklet.connect(context.destination);
+        }
+        if (action === 'listen') await prepare?.();
+        const value = await command(action, action === 'arm-wake' ? { keyword } : {});
+        if (action === 'arm-wake' && value.wake.status !== 'armed') throw new Error('wake_failed');
         recording.current = true;
         setState(value);
-        await context.resume();
+        await capture.current?.resume();
       } else {
-        if (action === 'stop-listening' || action === 'disconnect') stopMic();
+        if (action === 'stop-wake' || action === 'disconnect') wakeActive.current = false;
+        if (
+          (action === 'stop-listening' && !wakeActive.current) ||
+          action === 'disconnect' ||
+          action === 'stop-wake'
+        )
+          stopMic();
         if (action === 'stop-speaking' || action === 'disconnect') resetPlayback();
-        setState(await command(action, text));
+        setState(await command(action, text ? { text } : {}));
       }
     } catch {
       stopMic();
-      if (action === 'listen') void command('disconnect').catch(() => {});
+      wakeActive.current = false;
+      if (action === 'listen' || action === 'arm-wake') void command('stop-wake').catch(() => {});
       setError('操作未完成。请检查连接配置、麦克风权限和系统声音设置。');
+    } finally {
+      inOperation.current = false;
+      setOperating(false);
     }
   }
+  startCapture.current = (action) => operate(action);
   async function save() {
     try {
       const response = await fetch('/api/voice/config', {
@@ -299,7 +354,7 @@ export function VoiceControls({
           </label>
           <p>
             令牌仅在本机加密保存。普通转写保留为草稿；开启语音提交后，每次主动收音最多提交一个任务，30
-            秒后不再接受工具指令。当前不持续监听唤醒词。
+            秒后不再接受工具指令。自动唤醒需另行明确开启，本地等待音频不会上传。
           </p>
           <button type="button" disabled={!token || !deviceId} onClick={() => void save()}>
             保存设备配置
@@ -329,8 +384,21 @@ export function VoiceControls({
         </label>
       )}
       <p role="status" className="voice-status">
-        <MicrophoneIcon muted={state?.status !== 'listening'} />
-        {state ? labels[state.status] : '正在读取语音状态'}
+        <MicrophoneIcon
+          muted={
+            state?.status !== 'listening' &&
+            !['armed', 'detected'].includes(state?.wake.status ?? '')
+          }
+        />
+        {state &&
+        ['armed', 'detected'].includes(state.wake.status) &&
+        ['ready', 'speaking'].includes(state.status)
+          ? state.status === 'speaking'
+            ? '播报中 · 本地麦克风开启，暂停唤醒'
+            : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`
+          : state
+            ? labels[state.status]
+            : '正在读取语音状态'}
       </p>
       <div className="live-actions">
         {(configuration ||
@@ -345,7 +413,7 @@ export function VoiceControls({
         )}
         {!configuration && state && !state.configured && <a href="/setup">连接设置</a>}
         {state && ['ready', 'speaking'].includes(state.status) && (
-          <button type="button" onClick={() => void operate('listen')}>
+          <button type="button" disabled={operating} onClick={() => void operate('listen')}>
             开始收音
           </button>
         )}
@@ -390,6 +458,54 @@ export function VoiceControls({
           </button>
         )}
       </div>
+      <details className="wake-settings">
+        <summary>语音唤醒</summary>
+        {configuration && (
+          <p>下载完成并连接灵矽后，回到工作台开启唤醒，以携带当前项目与输入草稿。</p>
+        )}
+        <p>
+          开启后麦克风持续在本机检测；说出唤醒词、听到提示音后再说指令，停顿约 1.2
+          秒结束收音。待唤醒音频不上传、不保存。播报期间暂停检测；退出或刷新页面后需重新开启。
+        </p>
+        <label>
+          中文唤醒词
+          <input
+            value={keyword}
+            maxLength={12}
+            disabled={operating || wakeActive.current}
+            onChange={(event) => setKeyword(event.target.value)}
+          />
+        </label>
+        {!state?.wake.installed && (
+          <button
+            type="button"
+            disabled={operating || state?.wake.status === 'installing'}
+            onClick={() => void operate('install-wake')}
+          >
+            {state?.wake.status === 'installing' ? '正在下载模型…' : '下载本地唤醒模型（约 33 MB）'}
+          </button>
+        )}
+        {state?.wake.installed && !['armed', 'detected', 'loading'].includes(state.wake.status) && (
+          <button
+            type="button"
+            disabled={
+              configuration ||
+              operating ||
+              state.status !== 'ready' ||
+              !/^[\u4e00-\u9fff]{2,12}$/.test(keyword)
+            }
+            onClick={() => void operate('arm-wake')}
+          >
+            开启语音唤醒
+          </button>
+        )}
+        {state && ['armed', 'detected', 'loading'].includes(state.wake.status) && (
+          <button type="button" disabled={operating} onClick={() => void operate('stop-wake')}>
+            关闭语音唤醒
+          </button>
+        )}
+        {state?.wake.error && <p role="alert">{state.wake.error}</p>}
+      </details>
       {state?.subtitle && <p>{state.subtitle}</p>}
       {configuration && state?.draft && <p>转写草稿：{state.draft}</p>}
       {(error || state?.error) && <p role="alert">{error || state?.error}</p>}

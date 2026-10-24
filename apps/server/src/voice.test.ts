@@ -30,6 +30,7 @@ async function create(
   const server = new WebSocketServer({
     host: '127.0.0.1',
     port: 0,
+    autoPong: false,
     verifyClient: (_info, done) => {
       if (deniedAuthentication) done(false, 401);
       else done(true);
@@ -38,7 +39,8 @@ async function create(
   await new Promise<void>((resolve) => server.once('listening', resolve));
   let peer: WebSocket | undefined;
   let accepting = true,
-    pings = 0;
+    pings = 0,
+    pongEnabled = true;
   const frames: unknown[] = [],
     audio: unknown[] = [];
   let headers: Record<string, unknown> = {};
@@ -49,8 +51,9 @@ async function create(
       return;
     }
     peer = socket;
-    socket.on('ping', () => {
+    socket.on('ping', (data) => {
       pings++;
+      if (pongEnabled) socket.pong(data);
     });
     headers = request.headers;
     socket.on('message', (data, binary) => {
@@ -170,6 +173,9 @@ async function create(
       accepting = accept;
     },
     pingCount: () => pings,
+    ignorePongs: () => {
+      pongEnabled = false;
+    },
     send,
     sendBinary: (value: Buffer) => peer?.send(value),
     call,
@@ -921,5 +927,31 @@ it('closes capture and service even when saving the wake off choice fails', asyn
     connectionPreference: { enabled: false },
   });
   await f.voice.startAutoConnection();
+  expect(f.connections()).toBe(1);
+});
+
+it('detects an unresponsive connection through missing pongs and clears heartbeat retries on exit', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  vi.useFakeTimers();
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.ignorePongs();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.voice.read()).toMatchObject({
+    status: 'failed',
+    error: '语音服务保活响应超时。',
+    connection: { attempt: 1 },
+  });
+  expect(f.audio).toHaveLength(0);
+  f.voice.close();
+  await vi.advanceTimersByTimeAsync(120000);
   expect(f.connections()).toBe(1);
 });

@@ -29,6 +29,7 @@ await cp(join(root, 'tests/fixtures/codex-task.mjs'), fixture);
 await chmod(fixture, 0o755);
 const record = join(temporary, 'peer.jsonl');
 let instance, liveServer;
+const desktopRuns = new WeakMap();
 const launch = async (mode = 'browser', directory = dataRoot) => {
   const application = await _electron.launch({
     executablePath: process.env.LINGXI_DESKTOP_BUNDLE
@@ -51,6 +52,11 @@ const launch = async (mode = 'browser', directory = dataRoot) => {
     },
     timeout: 25000,
   });
+  const diagnostics = { stderr: '' };
+  desktopRuns.set(application, diagnostics);
+  application.process().stderr?.on('data', (data) => {
+    diagnostics.stderr = (diagnostics.stderr + data).slice(-32000);
+  });
   await application.evaluate(({ app, BrowserWindow }) => {
     const identify = (window) => {
       window.setTitle('灵矽 · 自动化检查（临时数据）');
@@ -61,6 +67,49 @@ const launch = async (mode = 'browser', directory = dataRoot) => {
   });
   return application;
 };
+async function closeDesktop(application, repeated = false) {
+  const diagnostics = desktopRuns.get(application);
+  const pids = await application
+    .evaluate(() =>
+      process
+        ._getActiveHandles()
+        .filter((handle) => handle.constructor.name === 'ChildProcess')
+        .map((handle) => handle.pid)
+        .filter(Boolean),
+    )
+    .catch(() => []);
+  const ownedProcess = application.process();
+  const processExited =
+    ownedProcess.exitCode !== null || ownedProcess.signalCode !== null
+      ? Promise.resolve({ code: ownedProcess.exitCode, signal: ownedProcess.signalCode })
+      : new Promise((resolve) =>
+          ownedProcess.once('exit', (code, signal) => resolve({ code, signal })),
+        );
+  if (repeated)
+    await application
+      .evaluate(({ app }) => {
+        app.quit();
+        app.quit();
+      })
+      .catch(() => {});
+  await application.close();
+  const result = await processExited;
+  assert.deepEqual(
+    result,
+    { code: 0, signal: null },
+    `Electron exit failed: ${diagnostics.stderr}`,
+  );
+  assert.doesNotMatch(
+    diagnostics.stderr,
+    /ERR_IPC_CHANNEL_CLOSED|Unhandled|uncaught|shutdown failed/i,
+  );
+  for (const pid of pids)
+    assert.throws(
+      () => process.kill(pid, 0),
+      { code: 'ESRCH' },
+      'An owned service survived Electron exit',
+    );
+}
 async function expand(page, selector) {
   const details = page.locator(selector);
   if (!(await details.evaluate((element) => element.open))) {
@@ -382,7 +431,7 @@ try {
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)
     assert.throws(() => process.kill(item.pid, 0), 'Verification peer must already be stopped');
-  await instance.close();
+  await closeDesktop(instance);
   instance = undefined;
   for (const item of records.filter((r) => r.pid)) assert.throws(() => process.kill(item.pid, 0));
   await assert.rejects(
@@ -671,7 +720,7 @@ try {
     .getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true })
     .waitFor();
   await reopened.screenshot({ path: join(root, '.local/wake-setup-smoke.png') });
-  await instance.close();
+  await closeDesktop(instance);
   instance = await launch('rich');
   const recovery = await instance.firstWindow();
   await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
@@ -838,7 +887,7 @@ try {
       'Failure or interruption must retain the previous preview binding',
     );
   }
-  await instance.close();
+  await closeDesktop(instance);
   const emptyData = join(temporary, 'empty-data');
   await mkdir(emptyData);
   instance = await launch('rich', emptyData);
@@ -893,7 +942,7 @@ try {
     body: JSON.stringify({ action: 'wake-auto', enabled: false }),
   });
   assert.equal(off.status, 200);
-  await instance.close();
+  await closeDesktop(instance);
   instance = await launch('rich', emptyData);
   const restartedPreference = await instance.firstWindow();
   await restartedPreference
@@ -912,7 +961,7 @@ try {
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );
 } finally {
-  if (instance) await instance.close();
+  if (instance) await closeDesktop(instance, true);
   if (liveServer) await new Promise((resolve) => liveServer.close(resolve));
   await rm(temporary, { recursive: true, force: true });
 }

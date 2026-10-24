@@ -955,3 +955,47 @@ it('detects an unresponsive connection through missing pongs and clears heartbea
   await vi.advanceTimersByTimeAsync(120000);
   expect(f.connections()).toBe(1);
 });
+it.each(['disconnected', 'armed', 'conversation', 'retrying'] as const)(
+  'closes %s voice state once without leaving wake, lease, heartbeat or retry timers',
+  async (state) => {
+    const wake = wakePeer(),
+      closed = vi.fn();
+    wake.close = closed;
+    const f = await create(
+      'pcm',
+      true,
+      wake,
+      undefined,
+      new WakePreferences(null),
+      'granted',
+      new WakePreferences(null),
+    );
+    vi.useFakeTimers();
+    if (state !== 'disconnected') {
+      await f.voice.startAutoConnection();
+      await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    }
+    if (state === 'armed')
+      await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+    if (state === 'conversation') await f.voice.command({ action: 'start-session' });
+    if (state === 'retrying') {
+      f.drop();
+      await vi.waitFor(() => expect(f.voice.read().connection.nextRetryAt).not.toBeNull());
+    }
+    const prior = f.connections();
+    const closing = f.voice.close();
+    expect(f.voice.close()).toBe(closing);
+    await closing;
+    await vi.advanceTimersByTimeAsync(120000);
+    await f.voice.startAutoConnection(true);
+    await expect(f.voice.command({ action: 'connect' })).rejects.toThrow('voice_closed');
+    expect(f.connections()).toBe(prior);
+    expect(closed).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.voice.read()).toMatchObject({
+      status: 'disconnected',
+      conversationActive: false,
+      wake: { status: 'off' },
+    });
+  },
+);

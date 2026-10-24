@@ -40,6 +40,7 @@ export class VoiceService {
   private socket: WebSocket | undefined;
   private connectionLoop = false;
   private closed = false;
+  private closing: Promise<void> | undefined;
   private connectionEpoch = 0;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private heartbeat: ReturnType<typeof setInterval> | undefined;
@@ -108,10 +109,9 @@ export class VoiceService {
       testEndpoint?: string;
       wakePreferences?: Pick<WakePreferences, 'read' | 'save'>;
       connectionPreferences?: Pick<WakePreferences, 'read' | 'save'>;
-      wake?: Pick<
-        WakeModel,
-        'installed' | 'install' | 'start' | 'frame' | 'reset' | 'stop' | 'close'
-      >;
+      wake?: Pick<WakeModel, 'installed' | 'install' | 'start' | 'frame' | 'reset' | 'stop'> & {
+        close: () => void | Promise<void>;
+      };
     },
   ) {
     this.state.wakePreference = options.wakePreferences?.read() ?? this.state.wakePreference;
@@ -318,6 +318,7 @@ export class VoiceService {
     }
   }
   async command(command: VoiceCommand) {
+    if (this.closed) throw new Error('voice_closed');
     if (!this.options.desktop) throw new Error('desktop_required');
     if (command.action === 'stop-session') {
       this.stopWake();
@@ -1102,11 +1103,13 @@ export class VoiceService {
     if (recoverable) this.retryConnection();
   }
   close() {
+    if (this.closing) return this.closing;
     this.closed = true;
     this.connectionLoop = false;
     this.unsubscribe();
-    this.options.wake?.close();
     this.disconnect();
+    this.closing = Promise.resolve(this.options.wake?.close());
+    return this.closing;
   }
   private stopWake(error: string | null = null) {
     if (error) this.update({ wakeAutoSuspended: true });

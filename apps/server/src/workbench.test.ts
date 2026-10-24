@@ -630,16 +630,33 @@ it('captures Plan and permissions when queueing and explicitly restores default 
     collaborationMode: { mode: 'default' },
   });
 });
-it.each(['no-modes', 'settings-error', 'settings-mismatch'])(
-  'does not call a model after unsupported or unconfirmed settings (%s)',
+it.each(['default', 'plan'] as const)(
+  'starts a real child turn in %s mode when the CLI omits its implicit cwd root',
   async (mode) => {
-    const { wb, record } = await create(mode);
-    wb.start(randomUUID(), 'do work');
-    await until(wb, (s) => s.task?.status === 'failed');
-    expect(await readFile(record, 'utf8')).not.toContain('turn/start');
-    expect(JSON.stringify(wb.read())).not.toContain('PRIVATE');
+    const { wb, record } = await create('implicit-cwd');
+    await wb.command({ action: 'set-mode', mode });
+    wb.start(randomUUID(), 'check implicit workspace root');
+    await until(wb, (s) => s.task?.status === 'completed');
+    const wire = (await readFile(record, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(wire.find((r) => r.method === 'turn/start').params.collaborationMode.mode).toBe(mode);
   },
 );
+it.each([
+  'no-modes',
+  'settings-error',
+  'settings-mismatch',
+  'settings-wrong-cwd',
+  'settings-extra-root',
+])('does not call a model after unsupported or unconfirmed settings (%s)', async (mode) => {
+  const { wb, record } = await create(mode);
+  wb.start(randomUUID(), 'do work');
+  await until(wb, (s) => s.task?.status === 'failed');
+  expect(await readFile(record, 'utf8')).not.toContain('turn/start');
+  expect(JSON.stringify(wb.read())).not.toContain('PRIVATE');
+});
 it('respects managed restrictions and rejects a voice mode change whose context expired while checking', async () => {
   const { wb } = await create('restricted');
   expect((await wb.executionOptions()).permissions).toEqual({

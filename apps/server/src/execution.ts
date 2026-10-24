@@ -1,3 +1,5 @@
+import { realpathSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
 import type { ExecutionOptions, PermissionMode, Project } from '@lingxi/protocol';
 import { z } from 'zod';
 import type { CodexClient } from './codex-client.js';
@@ -77,6 +79,7 @@ export function executionParams(
         };
   return {
     threadId,
+    cwd: project.path,
     approvalPolicy,
     approvalsReviewer,
     sandboxPolicy,
@@ -86,13 +89,44 @@ export function executionParams(
     },
   };
 }
+
+function directory(value: unknown): string | null {
+  if (typeof value !== 'string' || !isAbsolute(value)) return null;
+  try {
+    return realpathSync(value);
+  } catch {
+    return null;
+  }
+}
+
+function sameWritableRoots(requested: unknown, reported: unknown, cwd: string) {
+  const roots = z.array(z.string());
+  const expected = roots.safeParse(requested);
+  const actual = roots.safeParse(reported);
+  if (!expected.success || !actual.success) return false;
+  // workspaceWrite already includes cwd. Codex may omit it from the explicit
+  // roots in its notification; no other missing or additional root is allowed.
+  const normalize = (paths: string[]) => new Set([cwd, ...paths.map(directory)]);
+  const left = normalize(expected.data);
+  const right = normalize(actual.data);
+  return (
+    !left.has(null) &&
+    !right.has(null) &&
+    left.size === right.size &&
+    [...left].every((path) => right.has(path))
+  );
+}
+
 export async function applyExecution(
   client: CodexClient,
   params: ReturnType<typeof executionParams>,
 ) {
+  const cwd = directory(params.cwd);
+  if (!cwd) throw new Error('execution_unconfirmed');
   await client.updateSettings(params, (value) => {
     const event = z
       .object({
+        cwd: z.string(),
         approvalPolicy: z.unknown(),
         approvalsReviewer: z.string(),
         sandboxPolicy: z.record(z.string(), z.unknown()),
@@ -104,10 +138,13 @@ export async function applyExecution(
       .safeParse(value);
     return (
       event.success &&
+      directory(event.data.cwd) === cwd &&
       event.data.approvalPolicy === params.approvalPolicy &&
       event.data.approvalsReviewer === params.approvalsReviewer &&
-      Object.entries(params.sandboxPolicy).every(
-        ([key, value]) => JSON.stringify(event.data.sandboxPolicy[key]) === JSON.stringify(value),
+      Object.entries(params.sandboxPolicy).every(([key, value]) =>
+        key === 'writableRoots'
+          ? sameWritableRoots(value, event.data.sandboxPolicy[key], cwd)
+          : JSON.stringify(event.data.sandboxPolicy[key]) === JSON.stringify(value),
       ) &&
       event.data.collaborationMode.mode === params.collaborationMode.mode &&
       event.data.collaborationMode.settings.model === params.collaborationMode.settings.model &&

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 // Deterministic App Server peer. No model/provider login, real Codex or cloud calls.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const [argMode, argRecord] = process.argv.slice(2);
@@ -253,9 +254,28 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           threadId: message.params.threadId,
           threadSettings: {
             ...message.params,
+            ...(mode === 'implicit-cwd' && message.params.sandboxPolicy.type === 'workspaceWrite'
+              ? {
+                  sandboxPolicy: {
+                    ...message.params.sandboxPolicy,
+                    writableRoots: message.params.sandboxPolicy.writableRoots.filter(
+                      (root) => root !== message.params.cwd,
+                    ),
+                  },
+                }
+              : {}),
             model: message.params.collaborationMode.settings.model,
             effort: message.params.collaborationMode.settings.reasoning_effort,
             ...(mode === 'settings-mismatch' ? { approvalsReviewer: 'wrong-reviewer' } : {}),
+            ...(mode === 'settings-wrong-cwd' ? { cwd: dirname(message.params.cwd) } : {}),
+            ...(mode === 'settings-extra-root'
+              ? {
+                  sandboxPolicy: {
+                    ...message.params.sandboxPolicy,
+                    writableRoots: [dirname(message.params.cwd)],
+                  },
+                }
+              : {}),
           },
         },
       });

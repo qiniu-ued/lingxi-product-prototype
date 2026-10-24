@@ -295,7 +295,12 @@ export function VoiceControls({
             <div className="binding-wizard">
               <h3>绑定本机语音设备</h3>
               <p>1. 在七牛官方控制台登录并创建智能体。</p>
-              <a href="https://xrobo.qiniu.com/" target="_blank" rel="noreferrer">
+              <a
+                className="setup-link"
+                href="https://xrobo.qiniu.com/"
+                target="_blank"
+                rel="noreferrer"
+              >
                 打开灵矽控制台 ↗
               </a>
               <p>2. 申请本机激活码，在控制台的设备绑定入口输入六位数字。</p>
@@ -332,7 +337,7 @@ export function VoiceControls({
           )}
           {configuration && (
             <details>
-              <summary>高级：手动配置已绑定设备</summary>
+              <summary className="voice-config-summary">高级：手动配置已绑定设备</summary>
               <p>
                 在灵矽控制台创建智能体并绑定本机设备，获取设备 WebSocket 令牌。此处使用官方 PCM
                 16kHz 单声道协议；如果服务只返回 Opus，会明确提示协议不兼容。

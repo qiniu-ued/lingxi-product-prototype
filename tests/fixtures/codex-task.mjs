@@ -42,7 +42,7 @@ const usage = (tokens, window = 128000, threadId = currentThread, turnId = curre
     },
   },
 });
-const complete = () => {
+const complete = (status = mode === 'failed' ? 'failed' : 'completed') => {
   const roundUsage = (total) => {
     const event = usage(120);
     const input = (total * 5) / 6;
@@ -116,7 +116,7 @@ const complete = () => {
     method: 'turn/completed',
     params: {
       threadId: currentThread,
-      turn: { id: currentTurn, status: mode === 'failed' ? 'failed' : 'completed' },
+      turn: { id: currentTurn, status },
     },
   });
   if (measure) {
@@ -331,16 +331,18 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           questions: [{ id: 'color', question: '什么颜色？' }],
         },
       });
+    else if (mode === 'rich' && message.params.input[0].text.includes('fail-task'))
+      complete('failed');
     else if (
       mode === 'wait' ||
       mode === 'steer-timeout' ||
       (mode === 'rich' && message.params.input[0].text.includes('hold'))
     )
       return;
-    else if (mode === 'rich' && message.params.input[0].text.includes('ask-many')) {
+    else if (mode === 'rich' && /ask-many|ask-repeated/.test(message.params.input[0].text)) {
       for (const [id, color] of [
         [71, 'color'],
-        [72, 'layout'],
+        [72, message.params.input[0].text.includes('ask-repeated') ? 'color' : 'layout'],
       ])
         emit({
           id,

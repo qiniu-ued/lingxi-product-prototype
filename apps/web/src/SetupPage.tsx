@@ -10,6 +10,7 @@ import {
   setupInspectionSchema,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SparklesIcon } from './DesktopWorkbench';
 import { VoiceControls } from './VoiceControls';
 
 const steps = ['配置 Codex', '配置灵矽'];
@@ -288,7 +289,9 @@ export function SetupPage() {
     <div className="workbench setup">
       <header className="topbar">
         <a className="brand" href="/">
-          <span className="brand-mark">灵</span>
+          <span className="brand-mark">
+            <SparklesIcon />
+          </span>
           <span>
             灵矽 <span className="brand-detail">/ 连接向导</span>
           </span>
@@ -336,8 +339,8 @@ export function SetupPage() {
             )}
             <p>
               {runtime.capabilities.codexTasks
-                ? '桌面版已提供 Codex 任务与共享预览。灵矽语音控制待接入。'
-                : '当前浏览器入口可保存建议和同步大屏。执行 Codex 任务请使用桌面版；灵矽语音待接入。'}
+                ? '桌面版已提供 Codex 任务与共享预览。语音需完成下方设备绑定与连接后使用。'
+                : '当前浏览器入口可保存建议和同步大屏。Codex 执行与语音设备配置请使用桌面版。'}
             </p>
           </div>
           <section className="setup-overview" aria-label="环境检查结果">

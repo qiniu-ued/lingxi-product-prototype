@@ -456,6 +456,10 @@
 .agent-group-title {
   margin: 0;
 }
+.task-recovery {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
 .live-activity {
   flex-shrink: 0;
   margin-top: 8px;
@@ -601,11 +605,13 @@
   color: var(--live-error);
   font-size: 13px;
 }
-.live-approval {
+.pending-approvals {
   flex-shrink: 1;
   min-height: 0;
   max-height: 40dvh;
   overflow: auto;
+}
+.live-approval {
   padding: 12px;
   margin-bottom: 12px;
   border: 1px solid var(--accent);
@@ -619,6 +625,14 @@
 }
 .live-approval button {
   margin: 8px 8px 0 0;
+}
+.live-approval label button {
+  display: inline-block;
+  vertical-align: top;
+  margin: 8px 8px 0 0;
+}
+.live-approval :is(textarea, input) {
+  margin-top: 8px;
 }
 .live-workbench .live-approval small {
   color: var(--live-muted);
@@ -710,6 +724,10 @@
 }
 .live-footer .voice-listening > p[role="status"] {
   color: var(--accent);
+}
+.live-mic-state.submitted,
+.live-footer .voice-submitted > p[role="status"] {
+  color: var(--live-success);
 }
 .live-footer .voice-failed > p[role="status"] {
   color: var(--live-error);

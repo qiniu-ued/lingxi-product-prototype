@@ -55,9 +55,12 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 - `POST /api/workbench/workspace`：新建/选择/重命名/归档对话、Sidechat/Fork、设置、取消排队。
 - `POST /api/workbench/terminal`：应用固定 shell 的打开、stdin、resize、terminate。仅桌面、合法 Origin；无 executable/argv 参数。
 - `POST /api/workbench/preview-url`：显式绑定项目 loopback URL。
+- `GET /api/workbench/models`：完整可见模型分页目录；只查询，不创建线程或执行任务。
 - `GET /api/workbench/git` / `catalog`：固定只读 Git 与模型/Skills/MCP/额度查询。
 - `GET /api/voice` / `binding`：无秘密状态。
 - `POST /api/voice/binding`：显式 start/check/cancel；官方 OTA 网关请求，不代理任意 URL。
 - `POST /api/voice/inspect|config|preferences|command`：只读配置检查、加密配置/偏好及固定语音动作；音频仅私有 IPC。
 
 安全边界、Sidechat MCP 禁用、音频帧、存储兼容与协议来源见 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。
+
+输入区模型选择器、上下文最近/累计统计及独立元数据表兼容见 [ADR 0005](adr/0005-model-controls-and-context-usage.md)。快照 runtime 字段来自当前对话对应的真实通知；旧 v2 状态 JSON 不写入该新字段。

@@ -14,7 +14,34 @@ let currentThread = 'thread-1',
   turnSequence = 0,
   threadSequence = 0;
 let terminalRequest;
+const usage = (tokens, window = 128000, threadId = currentThread, turnId = currentTurn) => ({
+  method: 'thread/tokenUsage/updated',
+  params: {
+    threadId,
+    turnId,
+    tokenUsage: {
+      modelContextWindow: window,
+      last: {
+        totalTokens: tokens,
+        inputTokens: Math.max(0, tokens - 2000),
+        cachedInputTokens: 12000,
+        cacheWriteInputTokens: 1000,
+        outputTokens: 2000,
+        reasoningOutputTokens: 800,
+      },
+      total: {
+        totalTokens: 150000,
+        inputTokens: 140000,
+        cachedInputTokens: 50000,
+        cacheWriteInputTokens: 3000,
+        outputTokens: 10000,
+        reasoningOutputTokens: 3000,
+      },
+    },
+  },
+});
 const complete = () => {
+  if (mode === 'telemetry') emit(usage(64000));
   emit({
     method: 'turn/diff/updated',
     params: {
@@ -66,6 +93,12 @@ const complete = () => {
       turn: { id: currentTurn, status: mode === 'failed' ? 'failed' : 'completed' },
     },
   });
+  emit(usage(32000, mode === 'usage-unknown' ? null : 128000));
+  if (mode === 'telemetry') {
+    emit(usage(96000, 128000, 'foreign-thread'));
+    emit(usage(96000, 128000, currentThread, 'old-turn'));
+    emit(usage(-1));
+  }
 };
 let config;
 async function browser(prompt) {
@@ -134,7 +167,11 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     config = message.params.config;
     currentThread = message.params.threadId ?? `thread-${++threadSequence}`;
     if (mode === 'rpc-error') emit({ id: message.id, error: { message: 'PRIVATE ERROR' } });
-    else emit({ id: message.id, result: { thread: { id: currentThread } } });
+    else
+      emit({
+        id: message.id,
+        result: { thread: { id: currentThread }, model: 'test-model', reasoningEffort: 'medium' },
+      });
   } else if (message.method === 'thread/fork') {
     currentThread = `fork-${++threadSequence}`;
     emit({ id: message.id, result: { thread: { id: currentThread } } });
@@ -142,6 +179,16 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     currentThread = message.params.threadId;
     currentTurn = `turn-${++turnSequence}`;
     emit({ id: message.id, result: { turn: { id: currentTurn } } });
+    emit({
+      method: 'thread/settings/updated',
+      params: {
+        threadId: currentThread,
+        threadSettings: {
+          model: message.params.model ?? 'test-model',
+          effort: message.params.effort ?? 'medium',
+        },
+      },
+    });
     if (mode === 'approval' || mode === 'file')
       emit({
         id: 70,
@@ -243,21 +290,40 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   else if (message.method === 'command/exec/terminate') {
     emit({ id: message.id, result: {} });
     emit({ id: terminalRequest.id, result: { exitCode: 0, stdout: '', stderr: '' } });
-  } else if (message.method === 'model/list')
+  } else if (message.method === 'model/list') {
+    if (mode === 'model-error') {
+      emit({ id: message.id, error: { message: 'PRIVATE MODEL ERROR' } });
+      return;
+    }
+    const first = {
+      id: 'test',
+      model: 'test-model',
+      displayName: 'Test Model',
+      isDefault: true,
+      defaultReasoningEffort: 'medium',
+      supportedReasoningEfforts: [
+        { reasoningEffort: 'medium', description: 'Balanced' },
+        { reasoningEffort: 'high', description: 'High' },
+      ],
+    };
+    const second = {
+      id: 'fast',
+      model: 'fast-model',
+      displayName: 'Fast Model',
+      isDefault: false,
+      defaultReasoningEffort: 'low',
+      supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Fast' }],
+    };
     emit({
       id: message.id,
-      result: {
-        data: [
-          {
-            id: 'test',
-            model: 'test-model',
-            displayName: 'Test',
-            supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'High' }],
-          },
-        ],
-      },
+      result: message.params.cursor
+        ? {
+            data: [second, { ...second, model: 'hidden-model', hidden: true }],
+            nextCursor: mode === 'model-cycle' ? 'cycle' : null,
+          }
+        : { data: [first], nextCursor: mode === 'model-cycle' ? 'cycle' : 'models2' },
     });
-  else if (message.method === 'skills/list') emit({ id: message.id, result: { data: [] } });
+  } else if (message.method === 'skills/list') emit({ id: message.id, result: { data: [] } });
   else if (message.method === 'account/rateLimits/read')
     emit({ id: message.id, result: { rateLimits: null } });
   else if (message.method === 'fixture/out-of-order')

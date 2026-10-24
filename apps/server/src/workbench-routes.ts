@@ -195,6 +195,14 @@ export function workbenchRoutes(
       return reply.code(409).send({ error: 'git_unavailable_or_diff_too_large' });
     }
   });
+  app.get('/api/workbench/models', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    try {
+      return await workbench.models();
+    } catch {
+      return reply.code(409).send({ error: 'models_unavailable' });
+    }
+  });
   app.get('/api/workbench/catalog', async (_request, reply) => {
     reply.header('Cache-Control', 'no-store');
     try {

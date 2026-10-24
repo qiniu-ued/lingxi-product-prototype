@@ -29,7 +29,9 @@
 - 「Diff」区分 Codex 本轮 patch、Git 已暂存和未暂存变更；选中行并填写评论，可加入下一条指令。
 - 「点选修改」可保存多个版本化元素标记，再统一说明修改。上下文附件明确提交后才发给 Codex。
 - 已结束轮次可创建只读 Sidechat，或 Fork 对话。Sidechat 可把结论带回原对话；普通 Fork 共享项目文件，尚未提供独立 Git worktree。
-- 「模型与工具」按需读取可用模型、思考强度、Skills、MCP 和额度。计划开关目前通过指令要求先确认；完整 Codex 桌面功能对照见 [工作区能力表](docs/workspace-capabilities.md)。
+- 输入框上方自动加载模型与 Reasoning Effort，切换模型时调整为兼容强度。新选择用于后续提交，正在执行和已入队的轮次保留原选择。
+- 「上下文」显示最近一次 Codex 报告的窗口占用；展开可查看输入、缓存读写、输出、推理及线程累计 token。未知容量/用量显示未报告，不把累计消耗当作当前占用。
+- 「工具与计划」按需读取 Skills、MCP 和账号额度。计划开关目前通过指令要求先确认；完整 Codex 桌面功能对照见 [工作区能力表](docs/workspace-capabilities.md)。
 
 ## 从源码开发
 
@@ -54,7 +56,7 @@ npm run desktop:pack
 - [Mac 连接与验收指南](docs/mac-setup.md)
 - [运行、打包、部署、更新与回退](docs/deployment.md)
 - [开发与工程结构](docs/development.md)、[测试与 Codecov 配置](docs/testing.md)
-- [产品设计](docs/product-design.md)、[系统架构](docs/architecture.md)、[桌面与预览 ADR](docs/adr/0003-desktop-canonical-preview.md)、[常驻会话与灵矽 ADR](docs/adr/0004-persistent-workspace-and-voice.md)
+- [产品设计](docs/product-design.md)、[系统架构](docs/architecture.md)、[桌面与预览 ADR](docs/adr/0003-desktop-canonical-preview.md)、[常驻会话与灵矽 ADR](docs/adr/0004-persistent-workspace-and-voice.md)、[模型与上下文 ADR](docs/adr/0005-model-controls-and-context-usage.md)
 - [设计对齐、唤醒词与自动投屏计划](docs/desktop-voice-plan.md)、[实施清单](docs/roadmap.md)
 
 覆盖率徽章展示主分支数据；私有仓库需要在 Codecov 侧启用服务，CI 绿色不代表外部上传成功。

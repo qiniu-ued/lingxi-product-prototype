@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   type ContextAttachment,
   type Conversation,
+  modelDescriptorSchema,
   type PreviewSelection,
   type Project,
   previewBindingSchema,
@@ -9,6 +10,8 @@ import {
   type Task,
   type TaskDecision,
   type TerminalCommand,
+  type ThreadRuntime,
+  threadTokenUsageSchema,
   type WorkbenchState,
   type WorkspaceCommand,
 } from '@lingxi/protocol';
@@ -21,7 +24,15 @@ import { WorkbenchStore } from './workbench-store.js';
 const done = (task: Task | null) =>
   !task || ['completed', 'failed', 'interrupted'].includes(task.status);
 const record = z.record(z.string(), z.unknown());
-const threadResult = z.object({ thread: z.object({ id: z.string() }) });
+const threadResult = z.object({
+  thread: z.object({
+    id: z.string(),
+    model: z.string().nullable().optional(),
+    reasoningEffort: z.string().nullable().optional(),
+  }),
+  model: z.string().optional(),
+  reasoningEffort: z.string().nullable().optional(),
+});
 const turnResult = z.object({ turn: z.object({ id: z.string(), status: z.string().optional() }) });
 const questionsSchema = z.array(
   z.object({
@@ -144,6 +155,7 @@ export class Workbench {
       selectedThreadId: selected?.id ?? null,
       preview: null,
       terminal: null,
+      runtime: selected?.codexId ? this.runtimeFor(selected) : null,
     });
   }
   setPreview(value: unknown) {
@@ -229,6 +241,7 @@ export class Workbench {
       selectedThreadId: thread.id,
       task: null,
       history: [],
+      runtime: null,
     });
     return thread;
   }
@@ -439,6 +452,13 @@ export class Workbench {
           }),
         );
         thread.codexId = result.thread.id;
+        this.confirmConfiguration(
+          thread,
+          result.model ?? result.thread.model,
+          result.reasoningEffort !== undefined
+            ? result.reasoningEffort
+            : result.thread.reasoningEffort,
+        );
         this.loaded.add(thread.id);
         if (readonly) this.readonlyPlugins.set(thread.id, [...this.discoveredPlugins]);
         this.update({
@@ -673,6 +693,43 @@ export class Workbench {
       this.nextQueued();
     });
   }
+  private runtimeFor(thread: Conversation): ThreadRuntime {
+    const stored = this.store.runtime(thread.id);
+    if (stored?.codexId === thread.codexId) return stored;
+    return {
+      conversationId: thread.id,
+      codexId: thread.codexId as string,
+      model: null,
+      effort: null,
+      configurationUpdatedAt: null,
+      usage: null,
+      usageTurnId: null,
+      usageUpdatedAt: null,
+    };
+  }
+  private saveRuntime(value: ThreadRuntime) {
+    this.store.writeRuntime(value);
+    if (value.conversationId === this.state.selectedThreadId) this.update({ runtime: value });
+  }
+  private confirmConfiguration(
+    thread: Conversation,
+    model?: string | null,
+    effort?: string | null,
+  ) {
+    if (!thread.codexId || (model === undefined && effort === undefined)) return;
+    const value = this.runtimeFor(thread);
+    this.saveRuntime({
+      ...value,
+      model: model === undefined ? value.model : model,
+      effort: effort === undefined ? value.effort : effort,
+      configurationUpdatedAt: new Date().toISOString(),
+    });
+  }
+  private bufferEvent(message: RpcMessage) {
+    this.turnEventBytes += Buffer.byteLength(JSON.stringify(message));
+    if (this.turnEventBytes > 8 * 1024 * 1024) throw new Error('turn_event_limit');
+    this.turnEvents.push(message);
+  }
   private onMessage(message: RpcMessage) {
     const parsed = record.safeParse(message.params);
     if (!parsed.success) return;
@@ -695,6 +752,43 @@ export class Workbench {
       }
       return;
     }
+    if (
+      message.method === 'thread/tokenUsage/updated' ||
+      message.method === 'thread/settings/updated'
+    ) {
+      const thread = this.state.threads.find(
+        (t) => t.codexId === p.threadId && t.projectId === this.state.project?.id,
+      );
+      if (!thread) return;
+      if (message.method === 'thread/settings/updated') {
+        const settings = z
+          .object({ model: z.string(), effort: z.string().nullable() })
+          .safeParse(p.threadSettings);
+        if (settings.success)
+          this.confirmConfiguration(thread, settings.data.model, settings.data.effort);
+      } else {
+        const event = z
+          .object({ turnId: z.string(), tokenUsage: threadTokenUsageSchema })
+          .safeParse(p);
+        if (!event.success) return;
+        const task =
+          this.state.task?.conversationId === thread.id
+            ? this.state.task
+            : this.store.history(thread.id).findLast((t) => t.turnId);
+        if (task && !task.turnId && ['starting', 'stopping'].includes(task.status)) {
+          this.bufferEvent(message);
+          return;
+        }
+        if (task?.turnId && task.turnId !== event.data.turnId) return;
+        this.saveRuntime({
+          ...this.runtimeFor(thread),
+          usage: event.data.tokenUsage,
+          usageTurnId: event.data.turnId,
+          usageUpdatedAt: new Date().toISOString(),
+        });
+      }
+      return;
+    }
     const task = this.state.task;
     if (!task || done(task)) return;
     if (
@@ -706,9 +800,7 @@ export class Workbench {
     // response, before its Promise continuation runs. Buffer until the actual
     // turn id is known; never lose a fast completion or accept an old turn.
     if (!task.turnId && ['starting', 'stopping'].includes(task.status)) {
-      this.turnEventBytes += Buffer.byteLength(JSON.stringify(message));
-      if (this.turnEventBytes > 8 * 1024 * 1024) throw new Error('turn_event_limit');
-      this.turnEvents.push(message);
+      this.bufferEvent(message);
       return;
     }
     if (message.id !== undefined && message.method) {
@@ -889,6 +981,13 @@ export class Workbench {
           task.conversationId ?? null,
           result.thread.id,
         );
+        this.confirmConfiguration(
+          thread,
+          result.model ?? result.thread.model,
+          result.reasoningEffort !== undefined
+            ? result.reasoningEffort
+            : result.thread.reasoningEffort,
+        );
         this.loaded.add(thread.id);
         if (readonly) this.readonlyPlugins.set(thread.id, [...this.discoveredPlugins]);
       } finally {
@@ -902,7 +1001,12 @@ export class Workbench {
     if (!thread) throw new Error('thread_unavailable');
     if (command.action === 'select-thread') {
       const history = this.store.history(thread.id);
-      this.update({ selectedThreadId: thread.id, history, task: history.at(-1) ?? null });
+      this.update({
+        selectedThreadId: thread.id,
+        history,
+        task: history.at(-1) ?? null,
+        runtime: thread.codexId ? this.runtimeFor(thread) : null,
+      });
     } else if (command.action === 'rename-thread')
       this.update({
         threads: this.state.threads.map((t) =>
@@ -995,11 +1099,40 @@ export class Workbench {
       });
     else await client.request('command/exec/terminate', { processId: command.id });
   }
+  async models() {
+    if (!this.options.desktop || !this.state.project) throw new Error('project_required');
+    const projectId = this.state.project.id,
+      client = await this.connection();
+    const data = new Map<string, z.infer<typeof modelDescriptorSchema>>(),
+      seen = new Set<string>();
+    let cursor: string | null = null;
+    do {
+      const page = z
+        .object({
+          data: z.array(modelDescriptorSchema),
+          nextCursor: z.string().nullable().optional(),
+        })
+        .parse(
+          await client.request('model/list', {
+            includeHidden: false,
+            limit: 100,
+            ...(cursor ? { cursor } : {}),
+          }),
+        );
+      if (this.state.project?.id !== projectId) throw new Error('project_changed');
+      for (const model of page.data) if (!model.hidden) data.set(model.model, model);
+      cursor = page.nextCursor ?? null;
+      if (data.size > 500 || seen.size >= 10 || (cursor && seen.has(cursor)))
+        throw new Error('model_catalog_limit');
+      if (cursor) seen.add(cursor);
+    } while (cursor);
+    return { projectId, data: [...data.values()] };
+  }
   async catalog() {
     if (!this.options.desktop || !this.state.project) throw new Error('project_required');
     const client = await this.connection();
     const results = await Promise.allSettled([
-      client.request('model/list', {}),
+      this.models(),
       client.request('skills/list', { cwds: [this.state.project.path] }),
       client.request('mcpServerStatus/list', {}),
       client.request('account/rateLimits/read', {}),

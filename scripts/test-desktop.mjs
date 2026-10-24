@@ -217,12 +217,16 @@ try {
     true,
     'The explicit display action must reopen the display',
   );
-  await expand(operator, '.workbench-menu');
-  await operator.getByRole('button', { name: '点选修改', exact: true }).click();
+  if (await operator.locator('.workbench-menu').evaluate((element) => element.open))
+    await operator.locator('.workbench-menu > summary').press('Enter');
+  await operator.getByRole('button', { name: '批注修改', exact: true }).click();
   await operator
     .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
     .click({ position: { x: 150, y: 65 } });
   await operator.getByRole('button', { name: '清除选择' }).waitFor();
+  await operator
+    .getByLabel('给选中元素的批注', { exact: true })
+    .fill('保留这段文字，把背景改成粉色');
   await expand(operator, '.keyboard-composer');
   await operator.getByLabel('给 Codex 的本轮指令').fill('vote and type');
   await operator.getByRole('button', { name: '提交给 Codex' }).click();
@@ -233,6 +237,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(after.task.status, 'completed', JSON.stringify(after.task));
+  assert.ok(after.task.prompt.includes('保留这段文字，把背景改成粉色'));
   assert.equal(after.task.settings.model, 'test-model');
   assert.equal(after.task.settings.effort, 'high');
   const started = (await readFile(record, 'utf8'))
@@ -638,13 +643,13 @@ try {
   }
   await reopened.goto(`${reopenedAddress}/setup`);
   await reopened
-    .getByRole('button', { name: /配置灵矽/ })
+    .getByRole('button', { name: /配置丽塔同学/ })
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
   assert.equal(
     await reopened
-      .getByRole('link', { name: '打开灵矽控制台 ↗', exact: true })
+      .getByRole('link', { name: '打开七牛语音控制台 ↗', exact: true })
       .getAttribute('href'),
     'https://xrobo.qiniu.com/',
   );
@@ -728,6 +733,7 @@ try {
   assert.ok(recoveryDisplay);
   let presentationCaptureId = randomUUID();
   let presentationStatus = 'ready';
+  let presentationConversation = false;
   const presentationWake = {
     status: 'off',
     keyword: '丽塔同学',
@@ -741,6 +747,7 @@ try {
       json: {
         configured: true,
         status: presentationStatus,
+        conversationActive: presentationConversation,
         draft: '普通转写草稿',
         captureId: presentationCaptureId,
         subtitle: '',
@@ -788,6 +795,22 @@ try {
         }
       }
       presentationWake.status = 'off';
+      presentationConversation = true;
+      for (const [status, label] of [
+        ['ready', '语音会话开启 · 本机待说话 · 麦克风已开启'],
+        ['processing', '正在处理这句话 · 语音会话保持开启'],
+        ['speaking', '丽塔同学正在播报 · 语音会话保持开启'],
+      ]) {
+        presentationStatus = status;
+        for (const page of [recovery, recoveryDisplay]) {
+          await page.getByText(label, { exact: true }).waitFor();
+          assert.equal(
+            await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+            0,
+          );
+        }
+      }
+      presentationConversation = false;
       presentationStatus = 'ready';
       for (const page of [recovery, recoveryDisplay])
         await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
@@ -850,6 +873,10 @@ try {
   assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
   assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
   await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
+  assert.ok(
+    (await instance.windows()).some((page) => page.url().endsWith('/display')),
+    'A fresh installation must open the display without a project or AirPlay',
+  );
   console.log(
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );

@@ -16,13 +16,13 @@ import { SparklesIcon } from './DesktopWorkbench';
 import { SettingsLink, SetupLink } from './Navigation';
 import { VoiceControls } from './VoiceControls';
 
-const steps = ['配置 Codex', '配置灵矽', '配置唤醒模型'];
+const steps = ['配置 Codex', '配置丽塔同学', '配置唤醒模型'];
 const finished = (action: CodexSetupAction) =>
   ['succeeded', 'failed', 'cancelled'].includes(action.state);
 const codexMessages: Record<CodexCheck['status'], { title: string; detail: string }> = {
   ready: {
     title: 'Codex 环境检查通过',
-    detail: 'CLI、App Server 与认证配置可用，可以继续配置灵矽。桌面版可回到工作台执行任务。',
+    detail: 'CLI、App Server 与认证配置可用，可以继续配置丽塔同学。桌面版可回到工作台执行任务。',
   },
   'not-installed': {
     title: '未找到 Codex CLI',
@@ -120,7 +120,7 @@ export function SetupPage({
   const [step, setStep] = useState(() =>
     mode === 'settings' ? Math.max(0, ['#codex', '#lingxi', '#wake'].indexOf(location.hash)) : 0,
   );
-  const titles = mode === 'settings' ? ['Codex', '灵矽与语音执行', '语音唤醒与麦克风'] : steps;
+  const titles = mode === 'settings' ? ['Codex', '丽塔同学与语音执行', '语音唤醒与麦克风'] : steps;
   const [desktopInfo, setDesktopInfo] = useState<{
     platform: string;
     arch: string;
@@ -355,7 +355,8 @@ export function SetupPage({
             <SparklesIcon />
           </span>
           <span>
-            灵矽 <span className="brand-detail">/ {mode === 'settings' ? '设置' : '连接向导'}</span>
+            丽塔同学{' '}
+            <span className="brand-detail">/ {mode === 'settings' ? '设置' : '连接向导'}</span>
           </span>
         </a>
         <button className="button secondary" type="button" onClick={onContinue}>
@@ -367,12 +368,12 @@ export function SetupPage({
         <p className="eyebrow">{mode === 'settings' ? '应用设置' : '连接你的工具'}</p>
         <h1>{mode === 'settings' ? '配置与连接' : '先检查，再配置。'}</h1>
         <p className="intro-detail">
-          根据这台电脑的实际状态，准备 Codex、灵矽、唤醒模型与麦克风权限。
+          根据这台电脑的实际状态，准备 Codex、丽塔同学、唤醒模型与麦克风权限。
         </p>
       </section>
       {loading && !runtime ? (
         <div className="panel setup-result" role="status">
-          <strong>正在检查 Codex、灵矽和语音唤醒…</strong>
+          <strong>正在检查 Codex、丽塔同学和语音唤醒…</strong>
           <p>检查本地配置、模型文件和原生检测库，不自动下载、登录、连接语音或打开麦克风。</p>
         </div>
       ) : !runtime || (!check && (!action || finished(action))) ? (
@@ -404,7 +405,7 @@ export function SetupPage({
             )}
             <p>
               {runtime.capabilities.codexTasks
-                ? '桌面版支持 Codex、共享预览与灵矽语音；检查通过后仍需明确开启收音或唤醒。'
+                ? '桌面版支持 Codex、共享预览与丽塔同学语音；检查通过后仍需明确开启收音或唤醒。'
                 : '当前浏览器入口可保存建议和同步大屏。执行任务、语音和本地唤醒请使用桌面版。'}
             </p>
           </div>
@@ -415,15 +416,15 @@ export function SetupPage({
               <p>{check ? codexMessages[check.status].detail : '正在准备本地接口。'}</p>
             </div>
             <div className="panel">
-              <p className="eyebrow">灵矽 AI</p>
+              <p className="eyebrow">丽塔同学 AI</p>
               <h2>
                 {lingxi?.status === 'configured'
-                  ? '灵矽配置已保存'
+                  ? '丽塔同学配置已保存'
                   : lingxi?.status === 'not-configured'
-                    ? '需要绑定灵矽设备'
+                    ? '需要绑定丽塔同学设备'
                     : lingxi?.reason === 'secure-storage-unavailable'
-                      ? '无法读取灵矽本机配置'
-                      : '需在桌面版检测灵矽'}
+                      ? '无法读取丽塔同学本机配置'
+                      : '需在桌面版检测丽塔同学'}
               </h2>
               <p>检查仅读取本机配置，不上传声音、不申请绑定码。连接服务与收音都需要主动点击。</p>
             </div>

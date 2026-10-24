@@ -12,12 +12,14 @@ import { VoiceService } from './voice.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.useRealTimers();
   for (const close of cleanup.splice(0).reverse()) await close();
 });
 async function create(
   format = 'pcm',
   allowed = true,
   wake?: NonNullable<ConstructorParameters<typeof VoiceService>[0]['wake']>,
+  reset?: () => Promise<void>,
 ) {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 });
   await new Promise<void>((resolve) => server.once('listening', resolve));
@@ -101,6 +103,7 @@ async function create(
         native.push({ method, params });
         if (method === 'voice-config-read') return config ?? null;
         if (method === 'voice-config-save') config = params as VoiceConfig;
+        if (method === 'voice-audio' && (params as { reset?: boolean })?.reset) await reset?.();
         return null;
       },
     },
@@ -395,6 +398,10 @@ it('keeps idle wake audio local, requires a staged capture after detection, and 
   for (let i = 0; i < loud.length; i += 2) loud.writeInt16LE(5000, i);
   for (let i = 0; i < 20; i++) f.voice.frame(loud.toString('base64'));
   for (let i = 0; i < 100; i++) f.voice.frame(quiet);
+  expect(f.voice.read().status).toBe('processing');
+  expect(f.voice.read().conversationActive).toBe(true);
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'stop' });
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
   expect(f.voice.read().wake.status).toBe('armed');
   expect(wake.reset).toHaveBeenCalled();
@@ -431,7 +438,7 @@ it('disarms wake detection on engine errors, lost microphone leases and disconne
   await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学' });
   wake.fail();
   expect(f.voice.read().wake.status).toBe('failed');
-  await f.voice.command({ action: 'arm-wake', keyword: '你好灵矽' });
+  await f.voice.command({ action: 'arm-wake', keyword: '你好丽塔同学' });
   const time = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10000);
   try {
     await vi.waitFor(() => expect(f.voice.read().wake.status).toBe('failed'), { timeout: 2000 });
@@ -569,4 +576,100 @@ it('can set a session wake keyword without connecting or opening the microphone'
   await expect(f.voice.command({ action: 'wake-keyword', keyword: '丽塔同学' })).rejects.toThrow(
     'wake_active',
   );
+});
+it('keeps an explicitly opened conversation through long silence without uploading idle audio or granting tasks', async () => {
+  const f = await create('pcm', false);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  vi.useFakeTimers();
+  await f.voice.command({ action: 'start-session' });
+  const quiet = Buffer.alloc(640).toString('base64');
+  for (let second = 0; second < 125; second++) {
+    f.voice.frame(quiet);
+    await vi.advanceTimersByTimeAsync(1000);
+  }
+  expect(f.voice.read()).toMatchObject({
+    status: 'ready',
+    conversationActive: true,
+    speechId: null,
+  });
+  expect(f.audio).toHaveLength(0);
+  expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'stop-session' });
+  f.voice.frame(quiet);
+  expect(f.voice.read().conversationActive).toBe(false);
+  vi.useRealTimers();
+});
+it('stages a new bounded speech capture after idle, retains initial speech and continues after a response', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'start-session' });
+  const loud = Buffer.alloc(640);
+  for (let i = 0; i < loud.length; i += 2) loud.writeInt16LE(5000, i);
+  const quiet = Buffer.alloc(640).toString('base64');
+  for (let i = 0; i < 5; i++) f.voice.frame(loud.toString('base64'));
+  expect(f.voice.read().speechId).toBeTruthy();
+  expect(f.audio).toHaveLength(0);
+  await f.voice.command({ action: 'listen' });
+  const captureId = f.voice.read().captureId;
+  await vi.waitFor(() => expect(f.audio).toHaveLength(5));
+  for (let i = 0; i < 15; i++) f.voice.frame(loud.toString('base64'));
+  for (let i = 0; i < 100; i++) f.voice.frame(quiet);
+  expect(f.voice.read().status).toBe('processing');
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().conversationActive).toBe(true);
+  for (let i = 0; i < 5; i++) f.voice.frame(loud.toString('base64'));
+  await f.voice.command({ action: 'listen' });
+  expect(f.voice.read().captureId).not.toBe(captureId);
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('allows an explicit spoken close without task permission and never reopens after disconnect', async () => {
+  const f = await create('pcm', false);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect((await f.call(900, 'workbench_voice_close', {})).isError).toBe(true);
+  await f.voice.command({ action: 'listen' });
+  expect((await f.call(901, 'workbench_voice_close', {})).isError).not.toBe(true);
+  expect(f.voice.read().conversationActive).toBe(false);
+  expect(f.start).not.toHaveBeenCalled();
+  f.send({ type: 'tts', state: 'start' });
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(f.voice.read().status).toBe('ready');
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().conversationActive).toBe(false);
+});
+it('ends the active microphone lease when audio is lost, not when frames are silent', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  vi.useFakeTimers();
+  await f.voice.command({ action: 'start-session' });
+  await vi.advanceTimersByTimeAsync(6000);
+  expect(f.voice.read()).toMatchObject({ conversationActive: false, status: 'ready' });
+  expect(f.voice.read().error).toContain('麦克风音频已中断');
+});
+it('does not reopen a capture whose audio setup finishes after an explicit close', async () => {
+  let release = () => {};
+  const pendingReset = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const f = await create('pcm', true, undefined, () => pendingReset);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  const listening = f.voice.command({ action: 'listen' });
+  const rejected = expect(listening).rejects.toThrow('voice_capture_cancelled');
+  const stopping = f.voice.command({ action: 'stop-session' });
+  release();
+  await Promise.all([rejected, stopping]);
+  expect(f.voice.read()).toMatchObject({
+    conversationActive: false,
+    status: 'ready',
+    captureId: null,
+  });
+  expect(f.start).not.toHaveBeenCalled();
 });

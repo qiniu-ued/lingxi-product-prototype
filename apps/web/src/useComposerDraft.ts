@@ -3,11 +3,18 @@ import { type SetStateAction, useCallback, useEffect, useState } from 'react';
 
 type Draft = {
   text: string;
+  annotation: string;
   attachments: ContextAttachment[];
   selection: PreviewSelection | null;
   voiceDraft: { text: string; id: string } | null;
 };
-const empty: Draft = { text: '', attachments: [], selection: null, voiceDraft: null };
+const empty: Draft = {
+  text: '',
+  annotation: '',
+  attachments: [],
+  selection: null,
+  voiceDraft: null,
+};
 export const composerTarget = (state: WorkbenchState | null) =>
   `${state?.project?.id ?? 'none'}:${state?.selectedThreadId ?? 'new'}`;
 
@@ -44,6 +51,7 @@ export function useComposerDraft(target: string) {
     ...(drafts[target] ?? empty),
     patch,
     setText: useCallback((value: SetStateAction<string>) => set('text', value), [set]),
+    setAnnotation: useCallback((value: SetStateAction<string>) => set('annotation', value), [set]),
     setAttachments: useCallback(
       (value: SetStateAction<ContextAttachment[]>) => set('attachments', value),
       [set],

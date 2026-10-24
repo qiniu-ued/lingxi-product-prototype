@@ -77,3 +77,5 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 桌面启动门控、三步向导、显式继续与只读原生/权限检查见 [ADR 0010](adr/0010-startup-configuration-checks.md)。OpenCode / DeepSeek Harness 的后续适配边界见[多引擎评估](multi-engine-options.md)，当前尚未实现这些后端。
 
 常驻 `/settings` 复用向导表单和检查，内部切换保留工作台内存草稿、卸载音频所有者，返回不自动开麦。VoiceState 的工具发现和交接回执为临时诊断，不改变持久配置或任务格式。云端角色/工具描述与实际执行许可分别处理；只有真实任务回执显示已提交。见 [ADR 0011](adr/0011-settings-and-voice-handoff.md)。
+
+主动语音会话跨静音/播报保持，逐句重新暂存当前上下文，手动或设备工具可关闭；故障断连不自动恢复。预览旁「批注修改」提供元素批注并进入真实任务，大屏启动默认打开，即使无项目也有空状态；AirPlay 仍由系统管理。可见品牌统一「丽塔同学」，技术标识与数据目录不变。详见 [ADR 0012](adr/0012-continuous-voice-and-preview-annotations.md)。

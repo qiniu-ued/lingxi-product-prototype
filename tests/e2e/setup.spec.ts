@@ -55,13 +55,15 @@ test('one inspection reports both tools before offering only the missing steps',
   });
   await page.goto('/');
   await page.getByRole('link', { name: '连接向导', exact: true }).click();
-  await expect(page.getByText('正在检查 Codex、灵矽和语音唤醒…', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('正在检查 Codex、丽塔同学和语音唤醒…', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('navigation', { name: '连接步骤' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toHaveCount(0);
   release();
   const results = page.getByRole('region', { name: '环境检查结果' });
   await expect(results).toContainText('未找到 Codex CLI');
-  await expect(results).toContainText('需在桌面版检测灵矽');
+  await expect(results).toContainText('需在桌面版检测丽塔同学');
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: '连接步骤' }).getByRole('button')).toHaveCount(
@@ -79,8 +81,8 @@ test('existing signed-in Codex skips installation and suggests Lingxi preparatio
 }) => {
   await inspection(page, 'ready');
   await page.goto('/setup');
-  await expect(page.getByRole('heading', { name: '配置灵矽', exact: true })).toBeVisible();
-  await expect(page.getByRole('link', { name: '打开灵矽控制台' })).toHaveAttribute(
+  await expect(page.getByRole('heading', { name: '配置丽塔同学', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '打开七牛语音控制台' })).toHaveAttribute(
     'href',
     'https://xrobo.qiniu.com/',
   );

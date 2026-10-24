@@ -116,7 +116,7 @@ export function runCodexSession<T>(options: {
         id: 0,
         method: 'initialize',
         params: {
-          clientInfo: { name: 'lingxi_setup', title: '灵矽连接配置', version: '0.1.0' },
+          clientInfo: { name: 'lingxi_setup', title: '丽塔同学连接配置', version: '0.1.0' },
         },
       });
   });

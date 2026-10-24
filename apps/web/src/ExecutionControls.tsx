@@ -112,7 +112,7 @@ export function ExecutionControls({
       <details>
         <summary>模式说明与兼容验证</summary>
         <small>
-          计划模式先讨论与制定计划；切回执行模式后再提交实施要求。连接灵矽并启用语音控制后，可说“切换到计划模式”或“切换到执行模式”。
+          计划模式先讨论与制定计划；切回执行模式后再提交实施要求。连接丽塔同学并启用语音控制后，可说“切换到计划模式”或“切换到执行模式”。
         </small>
         <button
           type="button"

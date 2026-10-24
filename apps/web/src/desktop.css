@@ -380,7 +380,7 @@
 }
 .live-workbench .live-transcript {
   flex: 1;
-  min-height: 0;
+  min-height: 80px;
   max-height: none;
   overflow: auto;
   display: flex;

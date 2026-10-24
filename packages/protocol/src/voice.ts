@@ -21,6 +21,12 @@ export const voiceConfigSchema = z.strictObject({
     .regex(/^[^\r\n]+$/),
   allowVoiceSubmit: z.boolean().default(false),
 });
+export const wakePreferenceSchema = z.strictObject({
+  version: z.literal(1),
+  enabled: z.boolean(),
+  source: z.enum(['default', 'user', 'legacy-review', 'unavailable']),
+});
+export type WakePreference = z.infer<typeof wakePreferenceSchema>;
 export const voiceStateSchema = z.strictObject({
   configured: z.boolean(),
   status: z.enum([
@@ -42,6 +48,24 @@ export const voiceStateSchema = z.strictObject({
   deviceToolsReady: z.boolean().default(false),
   handoff: voiceHandoffSchema.nullable().default(null),
   contextDetailsOpen: z.boolean().default(false),
+  wakePreference: wakePreferenceSchema.default({
+    version: 1,
+    enabled: false,
+    source: 'legacy-review',
+  }),
+  wakeAutoSuspended: z.boolean().default(false),
+  connectionPreference: wakePreferenceSchema.default({
+    version: 1,
+    enabled: false,
+    source: 'legacy-review',
+  }),
+  connection: z
+    .strictObject({
+      attempt: z.number().int().nonnegative(),
+      nextRetryAt: z.string().nullable(),
+      exhausted: z.boolean(),
+    })
+    .default({ attempt: 0, nextRetryAt: null, exhausted: false }),
   wake: z
     .strictObject({
       status: z.enum(['off', 'installing', 'loading', 'armed', 'detected', 'failed']),
@@ -64,6 +88,8 @@ export const wakeKeywordSchema = z
   .regex(/^[\u4e00-\u9fff]{2,12}$/);
 export const voiceCommandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('connect') }),
+  z.strictObject({ action: z.literal('retry-connection') }),
+  z.strictObject({ action: z.literal('connection-auto'), enabled: z.boolean() }),
   z.strictObject({ action: z.literal('disconnect') }),
   z.strictObject({ action: z.literal('listen') }),
   z.strictObject({ action: z.literal('start-session') }),
@@ -72,7 +98,14 @@ export const voiceCommandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('stop-speaking') }),
   z.strictObject({ action: z.literal('speak'), text: z.string().min(1).max(1000) }),
   z.strictObject({ action: z.literal('install-wake') }),
-  z.strictObject({ action: z.literal('arm-wake'), keyword: wakeKeywordSchema }),
+  z.strictObject({
+    action: z.literal('arm-wake'),
+    keyword: wakeKeywordSchema,
+    automatic: z.boolean().optional(),
+  }),
+  z.strictObject({ action: z.literal('wake-auto'), enabled: z.boolean() }),
+  z.strictObject({ action: z.literal('dismiss-wake') }),
+  z.strictObject({ action: z.literal('pause-voice'), suspend: z.boolean().optional() }),
   z.strictObject({ action: z.literal('wake-keyword'), keyword: wakeKeywordSchema }),
   z.strictObject({ action: z.literal('stop-wake') }),
   z.strictObject({ action: z.literal('context-details'), open: z.boolean() }),

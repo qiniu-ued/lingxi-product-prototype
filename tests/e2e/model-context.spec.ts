@@ -277,11 +277,28 @@ async function open(
     if (body.action === 'arm-wake')
       voice = { ...voice, wake: { ...voice.wake, keyword: body.keyword, status: 'armed' } };
     if (body.action === 'listen')
-      voice = { ...voice, status: 'listening', captureId: randomUUID() };
+      voice = {
+        ...voice,
+        status: 'listening',
+        conversationActive: true,
+        speechId: null,
+        captureId: randomUUID(),
+      };
+    if (body.action === 'start-session')
+      voice = { ...voice, conversationActive: true, speechId: null, status: 'ready' };
+    if (body.action === 'stop-session')
+      voice = {
+        ...voice,
+        conversationActive: false,
+        speechId: null,
+        status: 'ready',
+        wake: { ...voice.wake, status: 'off' },
+      };
     if (body.action === 'stop-wake')
       voice = {
         ...voice,
         status: 'ready',
+        conversationActive: false,
         wake: { ...voice.wake, status: 'off', detectionId: null },
       };
     if (body.action === 'wake-keyword')
@@ -786,6 +803,85 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
   );
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('本轮待发送草稿');
 });
+test('an explicit voice conversation keeps its microphone through responses and stops only on close or a real connection failure', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async () => {
+        const context = new AudioContext({ sampleRate: 16000 });
+        const source = context.createConstantSource();
+        const output = context.createMediaStreamDestination();
+        source.connect(output);
+        source.start();
+        await context.resume();
+        Reflect.set(window, 'conversationTracks', output.stream.getTracks());
+        return output.stream;
+      },
+    });
+  });
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  fixture.publishVoice({ configured: true, status: 'ready' });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByLabel('给 Codex 的本轮指令').fill('第一句话的草稿');
+  await page.getByRole('button', { name: '开始收音', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
+  expect(fixture.contexts).toHaveLength(0);
+  fixture.publishVoice({ speechId: randomUUID() });
+  await expect.poll(() => fixture.contexts.length).toBe(1);
+  fixture.publishVoice({ status: 'processing' });
+  await expect(page.getByRole('status').filter({ hasText: '会话保持开启' })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (Reflect.get(window, 'conversationTracks') as MediaStreamTrack[]).every(
+        (track) => track.readyState === 'live',
+      ),
+    ),
+  ).toBe(true);
+  fixture.publishVoice({ status: 'speaking' });
+  await expect(page.getByRole('status').filter({ hasText: '正在播报' })).toBeVisible();
+  fixture.publishVoice({ status: 'ready', speechId: null });
+  await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
+  await page.getByLabel('给 Codex 的本轮指令').fill('第二句话的新草稿');
+  fixture.publishVoice({ speechId: randomUUID() });
+  await expect.poll(() => fixture.contexts.length).toBe(2);
+  expect(fixture.contexts[1]).toMatchObject({ text: '第二句话的新草稿' });
+  await page.getByRole('button', { name: '关闭语音', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'conversationTracks') as MediaStreamTrack[]).every(
+          (track) => track.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole('button', { name: '开始收音', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
+  fixture.publishVoice({
+    status: 'failed',
+    conversationActive: false,
+    error: '连接已断开，请重新连接。',
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'conversationTracks') as MediaStreamTrack[]).every(
+          (track) => track.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  fixture.publishVoice({ status: 'ready', error: null });
+  await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeEnabled();
+  expect(
+    fixture.voiceCommands.filter((command) => command.action === 'start-session'),
+  ).toHaveLength(2);
+  expect(fixture.commands).toHaveLength(0);
+});
 test('opening settings while microphone acquisition is pending releases the late stream without starting capture', async ({
   page,
 }) => {
@@ -874,7 +970,7 @@ test('permanent settings keep the active composer and manage voice consent and t
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page
     .getByRole('navigation', { name: '设置分类' })
-    .getByRole('button', { name: /灵矽与语音执行/ })
+    .getByRole('button', { name: /丽塔同学与语音执行/ })
     .click();
   const consent = page.getByRole('checkbox', { name: /允许主动收音后用语音提交/ });
   await expect(consent).not.toBeChecked();
@@ -934,22 +1030,22 @@ test('voice connection failure can be retried and disconnected in settings witho
     }
     return route.fallback();
   });
-  await page.getByRole('button', { name: '连接灵矽', exact: true }).click();
+  await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('操作未完成');
   await expect(page.getByRole('alert')).not.toContainText('PRIVATE_PROVIDER_ERROR');
-  await page.getByRole('button', { name: '连接灵矽', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '灵矽已连接' })).toBeVisible();
+  await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '丽塔同学已连接' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await page
     .getByRole('navigation', { name: '设置分类' })
-    .getByRole('button', { name: /灵矽与语音执行/ })
+    .getByRole('button', { name: /丽塔同学与语音执行/ })
     .click();
   await expect(page.getByRole('checkbox', { name: /允许主动收音后用语音提交/ })).not.toBeChecked();
   await page.getByRole('button', { name: '断开语音', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '语音未连接' })).toBeVisible();
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await expect(page.getByRole('button', { name: '连接灵矽', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '连接丽塔同学', exact: true })).toBeEnabled();
   expect(
     fixture.voiceCommands.some(
       (command) => command.action === 'listen' || command.action === 'arm-wake',
@@ -975,7 +1071,7 @@ test('voice handoff distinguishes draft-only, unhandled voice replies and accept
       captureId: randomUUID(),
       status: 'unhandled',
       taskId: null,
-      message: '灵矽本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。',
+      message: '丽塔同学本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。',
     },
   });
   await expect(handoff).toContainText('没有提交给 Codex');

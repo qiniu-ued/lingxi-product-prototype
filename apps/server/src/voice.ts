@@ -23,7 +23,7 @@ const textInput = z.strictObject({ text: z.string().trim().min(1).max(4000) });
 const modeInput = z.strictObject({ mode: z.enum(['plan', 'default']) });
 const toolErrors: Record<string, string> = {
   voice_submit_disabled:
-    '本机尚未开启语音执行。请在设置 → 灵矽与语音执行勾选允许语音提交，保存后重新连接灵矽；本轮未交给 Codex。',
+    '本机尚未开启语音执行。请在设置 → 丽塔同学与语音执行勾选允许语音提交，保存后重新连接丽塔同学；本轮未交给 Codex。',
   capture_required: '没有有效的主动收音，请在工作台开始收音后重试。',
   capture_expired: '本次收音的操作窗口已结束，请重新收音；不会自动重放旧指令。',
   voice_context_changed: '项目或对话已切换，请在当前工作台重新收音。',
@@ -63,10 +63,16 @@ export class VoiceService {
   private captureFrames = 0;
   private voicedFrames = 0;
   private silentFrames = 0;
+  private speechFrames = 0;
+  private speechBlocked = false;
+  private captureEpoch = 0;
+  private speechBuffer: Buffer[] = [];
   private responses = new Map<string, { input: string; value: unknown }>();
   private state: VoiceState = {
     configured: false,
     status: 'disconnected',
+    conversationActive: false,
+    speechId: null,
     draft: '',
     captureId: null,
     subtitle: '',
@@ -97,7 +103,7 @@ export class VoiceService {
     const task = this.options.workbench.read().task;
     const previous = this.previousTask;
     this.previousTask = task ? { id: task.id, status: task.status } : null;
-    if (!this.socket) return;
+    if (!this.socket || (!this.state.conversationActive && !this.wakeEnabled)) return;
     if (
       task &&
       task.status !== 'waiting' &&
@@ -180,6 +186,62 @@ export class VoiceService {
     }
     this.state = { ...this.state, ...value };
   }
+  private lease() {
+    if (this.wakeLease) return;
+    this.lastFrame = Date.now();
+    this.wakeLease = setInterval(() => {
+      if (Date.now() - this.lastFrame <= 4000) return;
+      this.stopConversation('麦克风音频已中断，请手动重新开启语音。');
+      this.stopWake('麦克风音频已中断，请重新开启唤醒。');
+    }, 1000);
+  }
+  private stopConversation(error: string | null = null) {
+    this.captureEpoch++;
+    this.speechBlocked = true;
+    this.pendingSpeech = '';
+    this.awaitingSpeech = false;
+    clearTimeout(this.speechDeadline);
+    clearTimeout(this.captureDeadline);
+    if (this.state.status === 'listening')
+      this.send({ type: 'listen', state: 'stop', mode: 'manual' });
+    if (['processing', 'speaking'].includes(this.state.status))
+      this.send({ type: 'abort', reason: 'user_requested' });
+    this.speechFrames = 0;
+    this.speechBuffer = [];
+    this.armedUntil = 0;
+    this.update({
+      conversationActive: false,
+      speechId: null,
+      error,
+      ...(['listening', 'processing', 'speaking'].includes(this.state.status)
+        ? { status: 'ready' as const }
+        : {}),
+    });
+    if (!this.wakeEnabled) {
+      clearInterval(this.wakeLease);
+      this.wakeLease = undefined;
+    }
+  }
+  private finishUtterance() {
+    clearTimeout(this.captureDeadline);
+    this.send({ type: 'listen', state: 'stop', mode: 'manual' });
+    const hasSpeech = this.voicedFrames >= 10 || !!this.state.draft;
+    this.armedUntil = hasSpeech ? Date.now() + 30000 : 0;
+    this.speechBuffer = [];
+    this.speechFrames = 0;
+    this.update({ status: hasSpeech ? 'processing' : 'ready', speechId: null });
+    if (hasSpeech) {
+      const id = this.state.captureId;
+      this.captureDeadline = setTimeout(() => {
+        if (this.state.captureId !== id || this.state.status !== 'processing') return;
+        this.armedUntil = 0;
+        this.update({
+          status: 'ready',
+          error: '尚未收到语音回复，会话仍开启；可以再说一次或点击关闭语音。',
+        });
+      }, 30000);
+    }
+  }
   async save(input: unknown) {
     if (!this.options.desktop) throw new Error('desktop_required');
     const config = voiceConfigSchema.parse(input);
@@ -210,6 +272,12 @@ export class VoiceService {
   }
   async command(command: VoiceCommand) {
     if (!this.options.desktop) throw new Error('desktop_required');
+    if (command.action === 'stop-session') {
+      this.stopWake();
+      this.stopConversation();
+      await this.options.desktop.call('voice-audio', { reset: true });
+      return;
+    }
     if (command.action === 'context-details') {
       this.update({ contextDetailsOpen: command.open });
       return;
@@ -221,6 +289,7 @@ export class VoiceService {
     }
     if (command.action === 'stop-wake') {
       this.stopWake();
+      this.stopConversation();
       return;
     }
     if (command.action === 'install-wake') {
@@ -252,8 +321,21 @@ export class VoiceService {
       this.disconnect();
       return;
     }
-    if (!this.socket || !['ready', 'listening', 'speaking'].includes(this.state.status))
+    if (
+      !this.socket ||
+      !['ready', 'listening', 'processing', 'speaking'].includes(this.state.status)
+    )
       throw new Error('voice_not_ready');
+    if (command.action === 'start-session') {
+      this.captureEpoch++;
+      if (this.state.status !== 'ready') throw new Error('voice_not_ready');
+      this.update({ conversationActive: true, speechId: null, error: null });
+      this.speechBlocked = false;
+      this.speechBuffer = [];
+      this.speechFrames = 0;
+      this.lease();
+      return;
+    }
     if (command.action === 'arm-wake') {
       if (
         !this.options.wake ||
@@ -285,16 +367,15 @@ export class VoiceService {
         this.wakeEnabled = true;
         this.lastFrame = Date.now();
         this.update({ wake: { ...this.state.wake, status: 'armed' } });
-        this.wakeLease = setInterval(() => {
-          if (Date.now() - this.lastFrame > 4000)
-            this.stopWake('麦克风音频已中断，请重新开启唤醒。');
-        }, 1000);
+        this.lease();
       } catch {
         this.stopWake('无法启动本地唤醒，请确认模型已下载并尝试其他中文唤醒词。');
       }
       return;
     }
     if (command.action === 'listen') {
+      const epoch = ++this.captureEpoch;
+      this.speechBlocked = false;
       const context = this.options.workbench.voiceContext(),
         target = this.context();
       this.pendingSpeech = '';
@@ -302,9 +383,12 @@ export class VoiceService {
       clearTimeout(this.speechDeadline);
       this.send({ type: 'abort', reason: 'wake_word_detected' });
       await this.options.desktop.call('voice-audio', { reset: true });
+      if (epoch !== this.captureEpoch) throw new Error('voice_capture_cancelled');
       if (target !== this.context()) throw new Error('voice_context_changed');
       this.update({
         status: 'listening',
+        conversationActive: true,
+        speechId: null,
         captureId: randomUUID(),
         draft: '',
         subtitle: '',
@@ -314,7 +398,7 @@ export class VoiceService {
       this.handoff(
         this.config?.allowVoiceSubmit ? 'awaiting-tool' : 'draft-only',
         this.config?.allowVoiceSubmit
-          ? '本轮尚未交给 Codex，等待灵矽调用工作台工具。'
+          ? '本轮尚未交给 Codex，等待丽塔同学调用工作台工具。'
           : '当前仅转写草稿，未开启语音执行；不会自动交给 Codex。',
       );
       this.automaticCapture = this.wakeEnabled && this.state.wake.status === 'detected';
@@ -324,10 +408,15 @@ export class VoiceService {
       this.submittedCapture = null;
       this.modeInCapture = null;
       this.send({ type: 'listen', state: 'start', mode: 'manual' });
+      this.lease();
+      const buffered = this.speechBuffer;
+      this.speechBuffer = [];
+      this.speechFrames = 0;
       clearTimeout(this.captureDeadline);
       this.captureDeadline = setTimeout(() => {
-        void this.command({ action: 'stop-listening' }).catch(() => {});
+        if (this.state.status === 'listening') this.finishUtterance();
       }, 60000);
+      for (const frame of buffered) this.frame(frame.toString('base64'));
     } else if (command.action === 'stop-listening') {
       if (this.state.status !== 'listening') throw new Error('voice_not_listening');
       clearTimeout(this.captureDeadline);
@@ -337,6 +426,7 @@ export class VoiceService {
       this.update({ status: 'ready' });
       this.flushSpeech();
     } else if (command.action === 'stop-speaking') {
+      this.speechBlocked = true;
       this.pendingSpeech = '';
       this.awaitingSpeech = false;
       clearTimeout(this.speechDeadline);
@@ -344,6 +434,7 @@ export class VoiceService {
       await this.options.desktop.call('voice-audio', { reset: true });
       this.update({ status: 'ready', subtitle: '' });
     } else {
+      this.speechBlocked = false;
       this.send({
         type: 'listen',
         state: 'detect',
@@ -403,29 +494,45 @@ export class VoiceService {
       try {
         this.receive(JSON.parse(data.toString()));
       } catch {
-        this.fail('灵矽返回了不兼容的消息，请检查服务配置。');
+        this.fail('丽塔同学返回了不兼容的消息，请检查服务配置。');
       }
     });
     socket.on('error', () => {
-      if (this.socket === socket) this.fail('无法连接灵矽，请核对令牌、设备绑定与网络。');
+      if (this.socket === socket) this.fail('无法连接丽塔同学，请核对令牌、设备绑定与网络。');
     });
     socket.on('close', () => {
-      if (this.socket === socket) this.fail('灵矽连接已断开，请重新连接。');
+      if (this.socket === socket) this.fail('丽塔同学连接已断开，请重新连接。');
     });
   }
   frame(base64: string) {
     if (base64.length > 900) return;
     const pcm = Buffer.from(base64, 'base64');
     if (pcm.length !== 640) return;
-    if (this.wakeEnabled) this.lastFrame = Date.now();
+    if (this.wakeEnabled || this.state.conversationActive) this.lastFrame = Date.now();
     if (this.state.status !== 'listening') {
-      if (this.wakeEnabled && this.state.status === 'ready' && this.state.wake.status === 'armed')
+      if (this.state.conversationActive && this.state.status === 'ready') {
+        let energy = 0;
+        for (let i = 0; i < pcm.length; i += 2) energy += (pcm.readInt16LE(i) / 32768) ** 2;
+        const voiced = Math.sqrt(energy / 320) > 0.015;
+        this.speechBuffer.push(pcm);
+        if (!this.state.speechId && this.speechBuffer.length > 15) this.speechBuffer.shift();
+        this.speechFrames = voiced ? this.speechFrames + 1 : 0;
+        if (!this.state.speechId && this.speechFrames >= 5) this.update({ speechId: randomUUID() });
+        if (this.speechBuffer.length > 100) {
+          this.stopConversation('未能开始本轮收音，请点击开始语音重试。');
+          this.stopWake('未能开始本轮收音，请手动重新开启。');
+        }
+      } else if (
+        this.wakeEnabled &&
+        this.state.status === 'ready' &&
+        this.state.wake.status === 'armed'
+      )
         this.options.wake?.frame(pcm);
       return;
     }
     if (!this.socket || this.socket.bufferedAmount > 64000) return;
     this.socket.send(pcm);
-    if (this.automaticCapture) {
+    if (this.state.conversationActive || this.automaticCapture) {
       this.captureFrames++;
       let energy = 0;
       for (let i = 0; i < pcm.length; i += 2) energy += (pcm.readInt16LE(i) / 32768) ** 2;
@@ -437,7 +544,7 @@ export class VoiceService {
         (this.voicedFrames >= 10 && this.silentFrames >= 60 && this.captureFrames >= 100) ||
         (this.voicedFrames < 10 && this.captureFrames >= 400)
       )
-        void this.command({ action: 'stop-listening' }).catch(() => {});
+        this.finishUtterance();
     }
   }
   private send(value: Record<string, unknown>) {
@@ -455,7 +562,9 @@ export class VoiceService {
         .object({ format: z.literal('pcm'), sample_rate: z.literal(16000), channels: z.literal(1) })
         .safeParse(message.audio_params);
       if (!audio.success) {
-        this.fail('服务未协商 PCM 16kHz 单声道，请在灵矽配置 PCM；本版不把 Opus 音频当 PCM 播放。');
+        this.fail(
+          '服务未协商 PCM 16kHz 单声道，请在丽塔同学配置 PCM；本版不把 Opus 音频当 PCM 播放。',
+        );
         return;
       }
       clearTimeout(this.deadline);
@@ -471,6 +580,7 @@ export class VoiceService {
       const text = z.string().max(4000).parse(message.text);
       this.update({ draft: text }); // STT alone never executes a task.
     } else if (message.type === 'tts') {
+      if (this.speechBlocked) return;
       const event = z
         .object({
           state: z.enum(['start', 'stop', 'sentence_start']),
@@ -478,7 +588,11 @@ export class VoiceService {
           is_aborted: z.boolean().optional(),
         })
         .parse(message);
-      if (event.state === 'start' && this.state.status !== 'listening') {
+      if (
+        event.state === 'start' &&
+        (this.state.status !== 'listening' || this.state.conversationActive)
+      ) {
+        clearTimeout(this.captureDeadline);
         clearTimeout(this.speechDeadline);
         this.awaitingSpeech = false;
         this.update({ status: 'speaking' });
@@ -489,13 +603,15 @@ export class VoiceService {
           this.handoff(
             'unhandled',
             this.state.deviceToolsReady
-              ? '灵矽本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。'
-              : '灵矽尚未读取工作台工具列表，本轮没有提交给 Codex。请检查云端意图识别配置并重新连接。',
+              ? '丽塔同学本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。'
+              : '丽塔同学尚未读取工作台工具列表，本轮没有提交给 Codex。请检查云端意图识别配置并重新连接。',
           );
         if (event.is_aborted)
           void this.options.desktop?.call('voice-audio', { reset: true }).catch(() => {});
         if (this.state.status === 'speaking') {
           this.update({ status: 'ready' });
+          this.speechFrames = 0;
+          this.speechBuffer = [];
           this.flushSpeech();
         }
       }
@@ -524,6 +640,12 @@ export class VoiceService {
       this.update({ deviceToolsReady: true });
       result = {
         tools: [
+          {
+            name: 'workbench_voice_close',
+            description:
+              '用户明确说关闭语音、停止收音或结束语音会话时调用。仅关闭麦克风会话与唤醒，不停止 Codex 任务，不更改任何执行权限。',
+            inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+          },
           {
             name: 'workbench_status',
             description: '读取当前项目、任务进度和待回答问题。',
@@ -567,6 +689,7 @@ export class VoiceService {
           .object({
             name: z.enum([
               'workbench_status',
+              'workbench_voice_close',
               'workbench_submit',
               'workbench_interrupt',
               'workbench_set_mode',
@@ -597,6 +720,21 @@ export class VoiceService {
                     .flatMap((a) => a.questions?.filter((q) => !q.isSecret) ?? []),
                 }),
               },
+            ],
+          };
+        } else if (call.name === 'workbench_voice_close') {
+          z.strictObject({}).parse(call.arguments);
+          if (
+            !this.state.conversationActive ||
+            !captureId ||
+            Date.now() > this.armedUntil ||
+            this.target !== this.context()
+          )
+            throw new Error('capture_required');
+          await this.command({ action: 'stop-session' });
+          result = {
+            content: [
+              { type: 'text', text: '语音会话已关闭，麦克风与唤醒已停止。Codex 任务不受影响。' },
             ],
           };
         } else {
@@ -734,6 +872,7 @@ export class VoiceService {
   }
   private stopWake(error: string | null = null) {
     const hadWake = this.wakeEnabled;
+    if (hadWake && this.state.conversationActive) this.stopConversation(error);
     this.wakeEnabled = false;
     clearInterval(this.wakeLease);
     this.wakeLease = undefined;
@@ -751,6 +890,7 @@ export class VoiceService {
     });
   }
   disconnect() {
+    this.stopConversation();
     this.stopWake();
     clearTimeout(this.speechDeadline);
     this.awaitingSpeech = false;

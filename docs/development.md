@@ -1,4 +1,4 @@
-# 灵矽 · 共创工作台
+# 丽塔同学 · 共创工作台
 
 在沙发或会议室里，用语音、鼠标和键盘共同制作产品；电脑运行 Code Agent，大屏展示成果和进展。
 
@@ -6,7 +6,7 @@
 
 桌面版提供原生项目选择、Codex App Server 任务、审批/问题/中断、唯一作品页面及 MCP 操作、截图点选和浅暖色双栏布局。作品支持静态 `preview/index.html` 或明确绑定的本机框架开发服务器。浏览器基础模式保留建议保存、SQLite、SSE 和恢复；独立浏览器不提供真实任务。
 
-新增常驻多轮会话、终端、Diff、Sidechat/Fork、上下文附件以及灵矽 OTA 绑定/WSS PCM 适配；本地中文唤醒已接入，自动 AirPlay、多 Agent 编排和独立 worktree 尚未接入。真实账号与 Mac 音频需要本机验收。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
+新增常驻多轮会话、终端、Diff、Sidechat/Fork、上下文附件以及丽塔同学 OTA 绑定/WSS PCM 适配；本地中文唤醒已接入，自动 AirPlay、多 Agent 编排和独立 worktree 尚未接入。真实账号与 Mac 音频需要本机验收。设计师 `source/` 与根 `dist/` 保留，演示剧情不算真实执行。详见 [设计对齐计划](desktop-voice-plan.md)。
 
 ## 桌面开发
 
@@ -68,7 +68,7 @@ dist/                 原型导出页面（继续提交到 Git）
 - [产品设计](product-design.md)
 - [系统架构](architecture.md)
 - [ADR 0001：技术架构取舍](adr/0001-local-web-architecture.md)
-- [Codex、灵矽、AirPlay 与 A2UI 接入](integrations.md)
+- [Codex、丽塔同学、AirPlay 与 A2UI 接入](integrations.md)
 - [测试策略](testing.md) 与 [实施清单](roadmap.md)
 - [运行、交付与更新](deployment.md)
 - [Mac 首次运行与连接准备](mac-setup.md)
@@ -78,3 +78,5 @@ GitHub Actions 检查 Linux、Apple Silicon 与 Intel Mac，并在 Linux 运行 
 工作区完整能力与限制见 [能力表](workspace-capabilities.md) 和 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。修改语音/绑定协议需更新本地协议替身；不要让 CI 用真实设备身份注册云端设备。
 
 操作台常驻「设置」使用内部导航，保留本页未发送草稿，停止其录音/唤醒，返回不自动恢复麦克风。设置与向导复用只读检查和配置表单，检查通过仍停留；直接加载路由或刷新不会保存内存草稿。语音任务许可与云端工具配置见 [Mac 指南](mac-setup.md)。
+
+主动语音会话跨静音/播报保持，逐句重新暂存当前上下文，手动或设备工具可关闭；故障断连不自动恢复。预览旁「批注修改」提供元素批注并进入真实任务，大屏启动默认打开，即使无项目也有空状态；AirPlay 仍由系统管理。可见品牌统一「丽塔同学」，技术标识与数据目录不变。详见 [ADR 0012](adr/0012-continuous-voice-and-preview-annotations.md)。

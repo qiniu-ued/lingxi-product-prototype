@@ -25,14 +25,14 @@ afterEach(async () => {
 describe('local command API', () => {
   it('serves both production views through the local service', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'lingxi-static-'));
-    writeFileSync(join(directory, 'index.html'), '<!doctype html><title>灵矽工作台</title>');
+    writeFileSync(join(directory, 'index.html'), '<!doctype html><title>丽塔同学工作台</title>');
     const app = buildApp({ databasePath: ':memory:', webRoot: directory });
     try {
       for (const url of ['/', '/display', '/setup']) {
         const response = await app.inject(url);
         expect(response.statusCode).toBe(200);
         expect(response.headers['content-type']).toContain('text/html');
-        expect(response.body).toContain('灵矽工作台');
+        expect(response.body).toContain('丽塔同学工作台');
       }
     } finally {
       await app.close();

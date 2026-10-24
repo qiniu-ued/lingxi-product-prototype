@@ -59,6 +59,24 @@ async function expand(page, selector) {
   }
   assert.equal(await details.evaluate((element) => element.open), true);
 }
+async function assertAgentDensity(page) {
+  const agent = await page.locator('.live-activity').evaluate((element) => ({
+    open: element.open,
+    height: element.querySelector('summary').getBoundingClientRect().height,
+    iconHeight: element.querySelector('.agent-icon').getBoundingClientRect().height,
+    statusHeight: element.querySelector('.agent-state').getBoundingClientRect().height,
+    viewportHeight: innerHeight,
+  }));
+  assert.equal(agent.open, false, 'Actual Agent details must start collapsed');
+  const compact = agent.viewportHeight <= 850;
+  // Prototype row = max(icon, 12px text × 1.6 line height + 2px status padding per side)
+  // plus 2px (compact) or 6px (regular) row padding per side.
+  const agentLimit = Math.max(compact ? 22 : 28, 12 * 1.6 + 2 * 2) + (compact ? 2 : 6) * 2;
+  assert.ok(
+    agent.height <= agentLimit + 1,
+    `Agent summary must match the prototype density: ${JSON.stringify(agent)}`,
+  );
+}
 try {
   instance = await launch();
   const operator = await instance.firstWindow();
@@ -372,17 +390,7 @@ try {
     layout.preview <= layout.footer,
     `Preview must stay inside its panel: ${JSON.stringify(layout)}`,
   );
-  const agent = await reopened.locator('.live-activity').evaluate((element) => ({
-    open: element.open,
-    height: element.querySelector('summary').getBoundingClientRect().height,
-    viewportHeight: innerHeight,
-  }));
-  assert.equal(agent.open, false, 'Actual Agent details must start collapsed');
-  const agentLimit = agent.viewportHeight > 850 ? 40 : 26;
-  assert.ok(
-    agent.height <= agentLimit + 1,
-    `Agent summary must match the prototype density: ${JSON.stringify(agent)}`,
-  );
+  await assertAgentDensity(reopened);
   const steps = await reopened
     .locator('.conversation-turn details')
     .evaluateAll((elements) =>
@@ -468,6 +476,7 @@ try {
           current.bodyHeight <= current.height,
         `Desktop ${name} must fit one screen: ${JSON.stringify(current)}`,
       );
+      await assertAgentDensity(page);
       const screenshotPath = join(root, `.local/desktop-${name}-${width}x${height}.png`);
       await page.screenshot({ path: screenshotPath });
       if (name === 'display') {

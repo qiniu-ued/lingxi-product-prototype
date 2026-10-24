@@ -231,6 +231,7 @@ try {
       control.show();
       control.focus();
     }, visible);
+    await expand(operator, '.project-menu');
     const published = operator.waitForResponse(
       (response) =>
         response.url().endsWith('/api/workbench/action') && response.request().method() === 'POST',
@@ -251,6 +252,7 @@ try {
         'Publishing must preserve operator focus',
       );
   }
+  await expand(operator, '.workbench-menu');
   const openedDisplay = operator.waitForResponse(
     (response) =>
       response.url().endsWith('/api/workbench/action') && response.request().method() === 'POST',
@@ -447,6 +449,8 @@ try {
     .getByRole('button', { name: '移除', exact: true })
     .click();
   await operator.getByLabel('给 Codex 的本轮指令').fill('主对话草稿保留');
+  await expand(operator, '.workbench-menu');
+  await operator.getByRole('button', { name: '连接向导', exact: true }).click();
   await operator.getByRole('button', { name: '设置', exact: true }).click();
   await operator.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
   await operator.getByRole('navigation', { name: '设置分类' }).waitFor();
@@ -519,9 +523,9 @@ try {
   // Publish a new revision and prove localStorage continuity across a real document reload.
   const file = join(projectPath, 'preview/index.html');
   await writeFile(file, (await readFile(file, 'utf8')).replace('周末，一起去哪里？', '周末出发'));
-  await expand(operator, '.workbench-menu');
+  await expand(operator, '.project-menu');
   await operator.getByRole('button', { name: '刷新作品' }).click();
-  await operator.locator('.workbench-menu > summary').press('Enter');
+  assert.equal(await operator.locator('.project-menu').evaluate((element) => element.open), false);
   for (let i = 0; i < 100; i++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
     if (current.preview?.revision > before.preview.revision) break;
@@ -1021,7 +1025,12 @@ try {
   instance = await launch('rich', emptyData);
   const empty = await instance.firstWindow();
   await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
-  await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
+  await empty
+    .getByRole('heading', {
+      name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
+      exact: true,
+    })
+    .waitFor();
   const freshAddress = new URL(empty.url()).origin;
   const freshVoice = await (await fetch(`${freshAddress}/api/voice`)).json();
   assert.deepEqual(freshVoice.wakePreference, { version: 1, enabled: true, source: 'default' });
@@ -1048,12 +1057,16 @@ try {
   );
   await empty.reload();
   await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
-  await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
+  await empty
+    .getByRole('heading', {
+      name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
+      exact: true,
+    })
+    .waitFor();
+  await expand(empty, '.project-menu');
   for (const name of ['新建项目', '打开项目'])
-    assert.equal(
-      await empty.locator('.live-empty').getByRole('button', { name }).isEnabled(),
-      true,
-    );
+    assert.equal(await empty.getByRole('button', { name, exact: true }).isEnabled(), true);
+  await empty.locator('.project-menu > summary').press('Enter');
   const wake = empty.getByRole('button', { name: '开始收音', exact: true });
   await wake.waitFor();
   assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');

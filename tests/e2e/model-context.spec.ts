@@ -1507,3 +1507,99 @@ test('Esc discards late hover and click replies without selecting or submitting 
   await expect(page.getByRole('button', { name: '清除选择', exact: true })).toHaveCount(0);
   expect(f.commands).toHaveLength(0);
 });
+
+test('header project controls reuse existing actions and respect project and task availability', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 940 });
+  const fixture = await open(page, null, false, { project: null });
+  const actions: string[] = [];
+  await page.route('**/api/workbench/action', (route) => {
+    actions.push(route.request().postDataJSON().action);
+    return route.fulfill({ json: fixture.state() });
+  });
+  await expect(
+    page.getByText('点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project']);
+  const menu = page.getByLabel('更多项目操作');
+  await menu.click();
+  await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
+  fixture.publishVoice({ configured: true, status: 'ready' });
+  await expect(page.getByRole('status', { name: '语音服务连接状态', exact: true })).toHaveCSS(
+    'color',
+    'rgb(35, 115, 74)',
+  );
+  await expect(page.locator('.voice-status > svg > path').first()).toHaveAttribute('d', /^m2 2/);
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('project-header-connected.png') });
+  await page.getByRole('button', { name: '打开项目', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project', 'select-project']);
+  await expect(page.locator('.project-menu')).not.toHaveAttribute('open');
+  await fixture.publish({ project: { id: projectId, name: 'Test', path: '/fixture' } });
+  await menu.focus();
+  await menu.press('Enter');
+  await page.getByRole('button', { name: '刷新作品', exact: true }).click();
+  await expect.poll(() => actions).toEqual(['new-project', 'select-project', 'publish-preview']);
+  await fixture.publish({ task: turn('正在执行', 'running') });
+  await expect(page.getByRole('button', { name: '新建项目', exact: true })).toBeDisabled();
+  await menu.click();
+  await expect(page.getByRole('button', { name: '打开项目', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
+});
+
+test('operator and display distinguish service connection, local wake and actual microphone state', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const cases = [
+    { status: 'ready', active: false, wake: 'off', muted: true, label: '服务已连接' },
+    { status: 'ready', active: false, wake: 'armed', muted: false, label: '服务已连接' },
+    { status: 'listening', active: true, wake: 'off', muted: false, label: '服务已连接' },
+    { status: 'speaking', active: true, wake: 'off', muted: false, label: '服务已连接' },
+    { status: 'disconnected', active: false, wake: 'armed', muted: false, label: '服务已手动断开' },
+    { status: 'failed', active: false, wake: 'off', muted: true, label: '服务重连 2/6' },
+  ] as const;
+  for (const path of ['/', '/display']) {
+    await page.goto(path);
+    const icon = page
+      .locator(path === '/' ? '.voice-status > svg > path' : '.live-mic-state > svg > path')
+      .first();
+    const service = page.getByRole('status', { name: '语音服务连接状态', exact: true });
+    for (const row of cases) {
+      f.publishVoice({
+        configured: true,
+        status: row.status,
+        conversationActive: row.active,
+        connectionPreference: {
+          version: 1,
+          enabled: row.status !== 'disconnected',
+          source: 'user',
+        },
+        connection: {
+          attempt: row.status === 'failed' ? 2 : 0,
+          nextRetryAt: row.status === 'failed' ? new Date(Date.now() + 4000).toISOString() : null,
+          exhausted: false,
+        },
+        wake: {
+          status: row.wake,
+          keyword: '丽塔同学',
+          installed: true,
+          detectionId: null,
+          error: null,
+        },
+      });
+      await expect(service).toHaveText(row.label);
+      await expect(icon).toBeVisible();
+      if (row.muted) await expect(icon).toHaveAttribute('d', /^m2 2/);
+      else await expect(icon).not.toHaveAttribute('d', /^m2 2/);
+      if (row.label === '服务已连接') await expect(service).toHaveCSS('color', 'rgb(35, 115, 74)');
+    }
+    if (path === '/display') {
+      await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
+    }
+  }
+  expect(f.commands).toHaveLength(0);
+});

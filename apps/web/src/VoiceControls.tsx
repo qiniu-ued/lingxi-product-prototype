@@ -28,6 +28,13 @@ const labels: Record<VoiceState['status'], string> = {
   speaking: '丽塔同学正在播报 · 麦克风已关闭',
   failed: '语音连接失败 · 麦克风已关闭',
 };
+export const voiceMicrophoneOpen = (state: VoiceState | null) =>
+  !!state &&
+  (state.conversationActive ||
+    state.status === 'listening' ||
+    ['armed', 'detected'].includes(state.wake.status));
+export const voiceServiceConnected = (state: VoiceState | null) =>
+  !!state && ['ready', 'listening', 'processing', 'speaking'].includes(state.status);
 export function voiceConnectionLabel(state: VoiceState | null) {
   if (!state) return '服务状态同步中';
   if (state.status === 'connecting') return '服务连接中';
@@ -654,6 +661,7 @@ export function VoiceControls({
   const WakePanel = configuration ? 'section' : 'details';
   return (
     <section
+      data-microphone-open={voiceMicrophoneOpen(state)}
       className={`voice-controls voice-${state?.status ?? 'disconnected'}${!configuration && presentation.submitted ? ' voice-submitted' : ''}`}
       aria-label="丽塔同学语音"
     >
@@ -838,13 +846,7 @@ export function VoiceControls({
             </>
           )}
           <p role="status" className="voice-status">
-            <MicrophoneIcon
-              muted={
-                !state?.conversationActive &&
-                state?.status !== 'listening' &&
-                !['armed', 'detected'].includes(state?.wake.status ?? '')
-              }
-            />
+            <MicrophoneIcon muted={!voiceMicrophoneOpen(state)} />
             <span>
               {!configuration && autoNotice && !recording.current
                 ? '自动唤醒待授权 · 麦克风已关闭'
@@ -858,6 +860,7 @@ export function VoiceControls({
             <small
               role="status"
               className="voice-service-state"
+              data-connected={voiceServiceConnected(state)}
               aria-label="语音服务连接状态"
               title={
                 state?.connection.nextRetryAt

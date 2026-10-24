@@ -19,7 +19,13 @@ import { SettingsLink, SetupLink } from './Navigation';
 import { PreviewPicker } from './PreviewPicker';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
-import { VoiceControls, voiceConnectionLabel, voicePresentation } from './VoiceControls';
+import {
+  VoiceControls,
+  voiceConnectionLabel,
+  voiceMicrophoneOpen,
+  voicePresentation,
+  voiceServiceConnected,
+} from './VoiceControls';
 import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -59,6 +65,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const transcript = useRef<HTMLDivElement>(null),
     followTranscript = useRef(true),
     workspaceMenu = useRef<HTMLDetailsElement>(null),
+    projectMenu = useRef<HTMLDetailsElement>(null),
     composer = useRef<HTMLDetailsElement>(null);
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
@@ -298,8 +305,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     ? '正在准备工作台'
     : !state.project
       ? display
-        ? '等待创建项目'
-        : '先选择一个项目'
+        ? '聊聊你的想法吧。'
+        : '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧'
       : task
         ? {
             queued: '等待开始制作',
@@ -414,9 +421,50 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 }[task.status]
               : '等待需求'}
           </span>
+          {!display && (
+            <div className="project-toolbar">
+              <button
+                type="button"
+                disabled={running || busy}
+                onClick={() => {
+                  if (projectMenu.current) projectMenu.current.open = false;
+                  void operate('action', { action: 'new-project' });
+                }}
+              >
+                新建项目
+              </button>
+              <details className="project-menu" name="header-menu" ref={projectMenu}>
+                <summary aria-label="更多项目操作" title="打开项目或刷新作品">
+                  ▾
+                </summary>
+                <nav className="project-menu-content" aria-label="项目操作">
+                  <button
+                    type="button"
+                    disabled={running || busy}
+                    onClick={() => {
+                      if (projectMenu.current) projectMenu.current.open = false;
+                      void operate('action', { action: 'select-project' });
+                    }}
+                  >
+                    打开项目
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!state?.project || running || busy}
+                    onClick={() => {
+                      if (projectMenu.current) projectMenu.current.open = false;
+                      void operate('action', { action: 'publish-preview' });
+                    }}
+                  >
+                    刷新作品
+                  </button>
+                </nav>
+              </details>
+            </div>
+          )}
           {!display && <SettingsLink />}
           {!display && (
-            <details className="workbench-menu" ref={workspaceMenu}>
+            <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
               <summary>工作区</summary>
               <div className="workbench-menu-content">
                 <div className="live-actions">
@@ -441,36 +489,9 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   )}
                   <SetupLink />
                 </div>
-                {!display && (
-                  <nav className="project-actions">
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() => void operate('action', { action: 'new-project' })}
-                    >
-                      新建项目
-                    </button>
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() => void operate('action', { action: 'select-project' })}
-                    >
-                      打开项目
-                    </button>
-                    <span title={state?.project?.path}>
-                      {state?.project?.name ?? '选择一个项目'}
-                    </span>
-                    {state?.project && (
-                      <button
-                        type="button"
-                        disabled={running || busy}
-                        onClick={() => void operate('action', { action: 'publish-preview' })}
-                      >
-                        刷新作品
-                      </button>
-                    )}
-                  </nav>
-                )}
+                <p className="workspace-project" title={state?.project?.path}>
+                  {state?.project?.name ?? '选择一个项目'}
+                </p>
                 {!display && state?.project && (
                   <section className="conversation-bar">
                     <input
@@ -668,24 +689,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <div className="live-empty">
                   <SparklesIcon />
                   <h2>{emptyPreviewTitle}</h2>
-                  {!display && state && !state.project && (
-                    <div className="live-actions">
-                      <button
-                        type="button"
-                        disabled={busy || running}
-                        onClick={() => void operate('action', { action: 'new-project' })}
-                      >
-                        新建项目
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy || running}
-                        onClick={() => void operate('action', { action: 'select-project' })}
-                      >
-                        打开项目
-                      </button>
-                    </div>
-                  )}
                 </div>
               ) : !display && shot ? (
                 <PreviewPicker
@@ -1119,19 +1122,19 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       <footer className="live-footer">
         {display && (
           <div
+            data-microphone-open={voiceMicrophoneOpen(displayVoice)}
             className={`live-mic-state ${displayVoice?.status === 'listening' ? 'listening' : connected && displayVoiceStatus.submitted ? 'submitted' : ''}`}
           >
-            <MicrophoneIcon
-              muted={
-                !displayVoice?.conversationActive &&
-                displayVoice?.status !== 'listening' &&
-                !['armed', 'detected'].includes(displayVoice?.wake.status ?? '')
-              }
-            />
+            <MicrophoneIcon muted={!voiceMicrophoneOpen(displayVoice)} />
             <strong>
               {!connected || !displayVoice ? '正在同步麦克风状态' : displayVoiceStatus.label}
             </strong>
-            <small role="status" aria-label="语音服务连接状态">
+            <small
+              role="status"
+              aria-label="语音服务连接状态"
+              className="voice-service-state"
+              data-connected={voiceServiceConnected(displayVoice)}
+            >
               {voiceConnectionLabel(displayVoice)}
             </small>
             {displayVoice?.status === 'listening' && (

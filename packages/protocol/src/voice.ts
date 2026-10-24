@@ -113,3 +113,153 @@ export const voiceCommandSchema = z.discriminatedUnion('action', [
 export type VoiceState = z.infer<typeof voiceStateSchema>;
 export type VoiceConfig = z.infer<typeof voiceConfigSchema>;
 export type VoiceCommand = z.infer<typeof voiceCommandSchema>;
+
+export const voiceDiagnosticKindSchema = z.enum([
+  'service-connecting',
+  'service-ready',
+  'service-disconnected',
+  'service-failed',
+  'capture-started',
+  'capture-ended',
+  'asr-received',
+  'asr-discarded',
+  'tools-discovered',
+  'tool-called',
+  'tool-rejected',
+  'tool-returned',
+  'rpc-replayed',
+  'handoff-missing',
+  'task-submitted',
+  'task-status',
+  'assistant-start',
+  'assistant-sentence',
+  'assistant-stop',
+  'protocol-rejected',
+]);
+export const voiceDiagnosticCodeSchema = z.enum([
+  'voice_submit_disabled',
+  'capture_required',
+  'capture_expired',
+  'voice_context_changed',
+  'project_required',
+  'task_running',
+  'selection_stale',
+  'capture_already_submitted',
+  'mode_change_pending',
+  'invalid_arguments',
+  'unsupported_tool',
+  'operation_rejected',
+  'invalid_rpc',
+  'unsupported_method',
+  'duplicate_request',
+  'request_conflict',
+  'authentication_failed',
+  'network_failure',
+  'handshake_timeout',
+  'protocol_incompatible',
+  'audio_unavailable',
+  'no_tool_call',
+  'tts_out_of_order',
+]);
+export const voiceDiagnosticToolSchema = z.enum([
+  'workbench_status',
+  'workbench_voice_close',
+  'workbench_submit',
+  'workbench_interrupt',
+  'workbench_set_mode',
+  'workbench_context_details',
+  'unknown',
+]);
+export const voiceDiagnosticEventSchema = z.strictObject({
+  sequence: z.number().int().nonnegative(),
+  at: z.iso.datetime(),
+  kind: voiceDiagnosticKindSchema,
+  sessionId: z.uuid().nullable(),
+  captureId: z.uuid().nullable(),
+  projectId: z.uuid().nullable(),
+  conversationId: z.uuid().nullable(),
+  taskId: z.uuid().nullable(),
+  tool: voiceDiagnosticToolSchema.optional(),
+  code: voiceDiagnosticCodeSchema.optional(),
+  status: z
+    .enum([
+      'queued',
+      'starting',
+      'running',
+      'waiting',
+      'stopping',
+      'completed',
+      'failed',
+      'interrupted',
+    ])
+    .optional(),
+  characters: z.number().int().min(0).max(4000).optional(),
+});
+export type VoiceDiagnosticEvent = z.infer<typeof voiceDiagnosticEventSchema>;
+export const voiceBuildSchema = z.strictObject({
+  version: z.string().max(80),
+  commit: z
+    .string()
+    .regex(/^[a-f0-9]{40}$/)
+    .nullable(),
+  dirty: z.boolean(),
+  builtAt: z.iso.datetime().nullable(),
+});
+export const voiceDiagnosticsSchema = z.strictObject({
+  build: voiceBuildSchema.default({
+    version: 'unknown',
+    commit: null,
+    dirty: false,
+    builtAt: null,
+  }),
+  enabled: z.boolean(),
+  capacity: z.literal(128),
+  retentionMinutes: z.literal(30),
+  dropped: z.number().int().nonnegative(),
+  events: z.array(voiceDiagnosticEventSchema).max(128),
+  snapshot: z.strictObject({
+    connection: voiceStateSchema.shape.status,
+    projectSelected: z.boolean(),
+    conversationSelected: z.boolean(),
+    voiceSubmitEnabled: z.boolean(),
+    toolsListed: z.boolean(),
+    captureActive: z.boolean(),
+  }),
+});
+export type VoiceDiagnostics = z.infer<typeof voiceDiagnosticsSchema>;
+
+export const voiceMessageSchema = z.strictObject({
+  id: z.uuid(),
+  role: z.enum(['user', 'assistant']),
+  text: z.string().max(8000),
+  state: z.enum(['streaming', 'final', 'interrupted']),
+  at: z.iso.datetime(),
+});
+export const voiceTurnSchema = z.strictObject({
+  id: z.uuid(),
+  sessionId: z.uuid().nullable(),
+  captureId: z.uuid().nullable(),
+  projectId: z.uuid().nullable(),
+  conversationId: z.uuid().nullable(),
+  at: z.iso.datetime(),
+  messages: z.array(voiceMessageSchema).max(8),
+  handoff: voiceHandoffSchema.nullable(),
+  taskStatus: z
+    .enum([
+      'queued',
+      'starting',
+      'running',
+      'waiting',
+      'stopping',
+      'completed',
+      'failed',
+      'interrupted',
+    ])
+    .nullable(),
+});
+export type VoiceTurn = z.infer<typeof voiceTurnSchema>;
+export const voiceConversationSchema = z.strictObject({
+  revision: z.number().int().nonnegative(),
+  turns: z.array(voiceTurnSchema).max(24),
+});
+export type VoiceConversationState = z.infer<typeof voiceConversationSchema>;

@@ -339,3 +339,94 @@ it('returns every setup result even when individual diagnostics fail, without st
     wake: { status: 'off' },
   });
 });
+
+it('exposes bounded voice metadata and session chat with guarded clear/pause controls', async () => {
+  const app = buildApp({
+    databasePath: ':memory:',
+    desktop: {
+      async call() {
+        return null;
+      },
+    },
+  });
+  apps.push(app);
+  const result = await app.inject('/api/voice/diagnostics');
+  expect(result.statusCode).toBe(200);
+  expect(result.json()).toMatchObject({
+    enabled: true,
+    capacity: 128,
+    events: [],
+    snapshot: { projectSelected: false },
+  });
+  expect(result.headers['cache-control']).toBe('no-store');
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/diagnostics',
+        payload: { action: 'enabled', enabled: false },
+      })
+    ).statusCode,
+  ).toBe(403);
+  const headers = { origin: 'http://localhost:80' };
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/diagnostics',
+        headers,
+        payload: { action: 'enabled', enabled: false, token: 'PRIVATE' },
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/diagnostics',
+        headers,
+        payload: { action: 'enabled', enabled: false },
+      })
+    ).json().enabled,
+  ).toBe(false);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/diagnostics',
+        headers,
+        payload: { action: 'clear' },
+      })
+    ).statusCode,
+  ).toBe(200);
+  const chat = await app.inject('/api/voice/conversation');
+  expect(chat.json()).toEqual({ revision: 0, turns: [] });
+  expect(
+    (
+      await app.inject({
+        url: '/api/voice/conversation',
+        headers: { 'if-none-match': chat.headers.etag as string },
+      })
+    ).statusCode,
+  ).toBe(304);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/conversation',
+        headers,
+        payload: { action: 'clear' },
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/conversation',
+        headers,
+        payload: { action: 'clear', text: 'PRIVATE' },
+      })
+    ).statusCode,
+  ).toBe(400);
+});

@@ -828,6 +828,15 @@ try {
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
+  await reopened.getByRole('button', { name: '语音诊断', exact: true }).click();
+  await reopened.getByRole('dialog', { name: '语音交接诊断' }).waitFor();
+  await reopened.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  const diagnosticCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(diagnosticCopy.startsWith('丽塔同学语音诊断 v1'));
+  assert.ok(!diagnosticCopy.includes('Authorization') && !diagnosticCopy.includes('token='));
+  await reopened.screenshot({ path: join(root, '.local/voice-diagnostics.png') });
+  await reopened.getByRole('button', { name: '关闭诊断', exact: true }).click();
+
   assert.equal(
     await reopened
       .getByRole('link', { name: '打开七牛语音控制台 ↗', exact: true })
@@ -1069,8 +1078,12 @@ try {
   await empty.locator('.project-menu > summary').press('Enter');
   const wake = empty.getByRole('button', { name: '开始收音', exact: true });
   await wake.waitFor();
-  assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');
-  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
+  assert.equal(
+    await wake.isEnabled(),
+    true,
+    'Voice chat remains available without a project; task submission still requires one',
+  );
+  assert.equal(await wake.getAttribute('title'), null);
   assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
   await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
   assert.ok(

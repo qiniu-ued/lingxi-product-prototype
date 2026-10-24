@@ -112,6 +112,39 @@ export function buildApp(options: AppOptions) {
     reply.header('Cache-Control', 'no-store');
     return voice.read();
   });
+  app.get('/api/voice/diagnostics', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return voice.diagnostics();
+  });
+  app.post('/api/voice/diagnostics', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin || !options.desktop)
+      return reply.code(403).send({ error: 'desktop_required' });
+    const input = z
+      .discriminatedUnion('action', [
+        z.strictObject({ action: z.literal('enabled'), enabled: z.boolean() }),
+        z.strictObject({ action: z.literal('clear') }),
+      ])
+      .safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
+    return voice.diagnosticsAction(input.data);
+  });
+  app.get('/api/voice/conversation', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const value = voice.readConversation(),
+      etag = `"voice-${value.revision}"`;
+    reply.header('ETag', etag);
+    if (request.headers['if-none-match'] === etag) return reply.code(304).send();
+    return value;
+  });
+  app.post('/api/voice/conversation', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin || !options.desktop)
+      return reply.code(403).send({ error: 'desktop_required' });
+    const input = z.strictObject({ action: z.literal('clear') }).safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
+    return voice.clearConversation();
+  });
   app.post('/api/voice/:operation', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!request.headers.origin || !options.desktop)

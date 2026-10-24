@@ -26,6 +26,7 @@ import {
   voicePresentation,
   voiceServiceConnected,
 } from './VoiceControls';
+import { useVoiceConversation, VoiceTurns } from './VoiceConversation';
 import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -110,6 +111,18 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   );
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
   const thread = state?.threads.find((t) => t.id === state.selectedThreadId);
+  const voiceChat = useVoiceConversation();
+  const scopedVoice = voiceChat.turns.filter(
+    (turn) =>
+      turn.projectId === (state?.project?.id ?? null) &&
+      turn.conversationId === (state?.selectedThreadId ?? null),
+  );
+  const pendingVoice = scopedVoice.filter(
+    (turn) =>
+      !turn.handoff?.taskId || !state?.history.some((task) => task.id === turn.handoff?.taskId),
+  );
+  const projectlessVoice = state?.project ? voiceChat.turns.filter((turn) => !turn.projectId) : [];
+
   function attach(value: ContextAttachment) {
     if (composer.current) composer.current.open = true;
     setAttachments((old) => (old.length < 20 ? [...old, value] : old));
@@ -274,6 +287,13 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       clearInterval(timer);
     };
   }, [display, bindingKey, picking]);
+  useEffect(() => {
+    if (!voiceChat.revision || (!display && !followTranscript.current)) return;
+    const frame = requestAnimationFrame(() =>
+      transcript.current?.scrollTo({ top: transcript.current.scrollHeight }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [voiceChat.revision, display]);
   useEffect(() => {
     if (!state?.revision) return;
     const node = transcript.current;
@@ -742,13 +762,17 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           >
             {state?.history.length ? (
               state.history.map((turn) => (
-                <article key={turn.id} className="conversation-turn">
+                <article key={turn.id} id={`codex-turn-${turn.id}`} className="conversation-turn">
                   <div className="chat-row user">
                     <span className="chat-avatar" aria-hidden="true">
                       发
                     </span>
                     <div className="chat-message">
-                      <span className="bubble-speaker">发言人</span>
+                      <span className="bubble-speaker">
+                        {scopedVoice.some((voice) => voice.handoff?.taskId === turn.id)
+                          ? '发言人 · 语音交接'
+                          : '发言人'}
+                      </span>
                       <div
                         className="live-bubble"
                         data-history-task={turn.id}
@@ -759,6 +783,10 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       </div>
                     </div>
                   </div>
+                  <VoiceTurns
+                    turns={scopedVoice.filter((voice) => voice.handoff?.taskId === turn.id)}
+                    prompt={turn.prompt}
+                  />
                   {turn.messages.map((message) => (
                     <div className="chat-row" key={message.id}>
                       <span className="chat-avatar" aria-hidden="true">
@@ -930,7 +958,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   </div>
                 </article>
               ))
-            ) : (
+            ) : !pendingVoice.length && !projectlessVoice.length ? (
               <div className="live-empty">
                 <p>
                   {thread?.kind === 'sidechat'
@@ -938,10 +966,28 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     : '这一轮想做什么？'}
                 </p>
               </div>
-            )}
+            ) : null}
             {!display && thread?.kind === 'fork' && (
               <p>此 Fork 复制对话历史，共享当前项目文件。独立代码工作区尚未创建。</p>
             )}
+            <VoiceTurns turns={pendingVoice} />
+            {!!projectlessVoice.length && (
+              <details className="projectless-voice">
+                <summary>项目外语音 · 未用于当前项目</summary>
+                <VoiceTurns turns={projectlessVoice} />
+              </details>
+            )}
+            {!!voiceChat.turns.length && (
+              <div className="voice-chat-controls">
+                <small>语音文字仅保留本次应用运行，重连/刷新可继续查看，退出后清除。</small>
+                {!display && (
+                  <button type="button" onClick={() => void voiceChat.clear()}>
+                    清除本次语音记录
+                  </button>
+                )}
+              </div>
+            )}
+            {voiceChat.error && <small role="status">{voiceChat.error}</small>}
           </div>
           <ContextUsage
             runtime={state?.runtime ?? null}
@@ -1146,11 +1192,10 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           <VoiceControls
             onDraft={receiveVoice}
             task={task}
-            listenUnavailable={!state?.project ? '请先新建或打开项目，再开始收音。' : undefined}
             onState={setDisplayVoice}
             prepare={async () => {
+              if (!state?.project) return;
               if (
-                !state?.project ||
                 !(await operate('context', {
                   projectId: state.project.id,
                   conversationId: state.selectedThreadId,

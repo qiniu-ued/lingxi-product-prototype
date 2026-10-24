@@ -1210,3 +1210,85 @@
   text-overflow: ellipsis;
   pointer-events: none;
 }
+
+.voice-diagnostics-dialog {
+  width: min(760px, 90vw);
+  max-height: 82dvh;
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--live-line, #ddd);
+  border-radius: 14px;
+  background: var(--live-surface, #fff);
+  color: var(--live-text, #333);
+}
+.voice-diagnostics-dialog::backdrop {
+  background: #0005;
+}
+.voice-diagnostics-dialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.voice-diagnostics-dialog h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.voice-diagnostics-dialog p {
+  font-size: 13px;
+  color: var(--live-muted, #777);
+}
+.voice-diagnostic-snapshot {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  font-size: 13px;
+}
+.voice-diagnostic-snapshot div {
+  display: flex;
+  gap: 8px;
+}
+.voice-diagnostic-snapshot dd {
+  margin: 0;
+}
+.voice-diagnostic-events {
+  padding-left: 24px;
+  font-size: 12px;
+}
+.voice-diagnostic-events li {
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+.voice-diagnostic-events small {
+  color: var(--live-muted, #777);
+}
+
+.voice-chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.voice-turn-outcome {
+  margin: 0;
+  font-size: 12px;
+  color: var(--live-muted);
+}
+.voice-turn-outcome a {
+  color: var(--accent);
+}
+.voice-turn-detail {
+  color: var(--live-muted);
+  font-size: 11px;
+}
+.voice-chat-controls {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  color: var(--live-muted);
+  font-size: 11px;
+}
+.projectless-voice {
+  padding: 10px 0;
+  font-size: 12px;
+}

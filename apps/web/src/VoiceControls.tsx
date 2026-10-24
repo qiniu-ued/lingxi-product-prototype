@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { SettingsLink } from './Navigation';
+import { VoiceDiagnostics } from './VoiceDiagnostics';
 import { VoiceHandoff } from './VoiceHandoff';
 
 async function command(action: string, values: Record<string, unknown> = {}) {
@@ -1074,6 +1075,7 @@ export function VoiceControls({
           {state?.wake.error && <p role="alert">{state.wake.error}</p>}
         </WakePanel>
       )}
+      {configuration && variant !== 'wake' && <VoiceDiagnostics />}
       {state?.subtitle && <p>{state.subtitle}</p>}
       {configuration && state?.draft && <p>转写草稿：{state.draft}</p>}
       {(error || state?.error) && <p role="alert">{error || state?.error}</p>}

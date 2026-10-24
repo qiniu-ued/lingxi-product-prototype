@@ -999,3 +999,123 @@ it.each(['disconnected', 'armed', 'conversation', 'retrying'] as const)(
     });
   },
 );
+it('traces actual status calls and results separately from discovery without saving content', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: 'PRIVATE_TRANSCRIPT' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('PRIVATE_TRANSCRIPT'));
+  await f.call(1401, 'workbench_status');
+  expect(f.voice.read().handoff).toMatchObject({ status: 'handled', taskId: null });
+  const events = f.voice.diagnostics().events;
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool-called', tool: 'workbench_status' }),
+      expect.objectContaining({ kind: 'tool-returned', tool: 'workbench_status' }),
+    ]),
+  );
+  expect(JSON.stringify(f.voice.diagnostics())).not.toMatch(/PRIVATE_TRANSCRIPT|PRIVATE_TOKEN/);
+  expect(f.voice.readConversation().turns[0]?.messages[0]?.text).toBe('PRIVATE_TRANSCRIPT');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('keeps multiple voice turns when only tools are discovered and no submit tool is called', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 1402, method: 'tools/list' } });
+  await vi.waitFor(() => expect(f.voice.read().deviceToolsReady).toBe(true));
+  for (const text of ['第一轮', '第二轮']) {
+    await f.voice.command({ action: 'listen' });
+    f.send({ type: 'stt', text });
+    f.send({ type: 'tts', state: 'start' });
+    f.send({ type: 'tts', state: 'sentence_start', text: '只是语音回复' });
+    f.send({ type: 'tts', state: 'stop' });
+    await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('unhandled'));
+  }
+  expect(f.voice.readConversation().turns).toHaveLength(2);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'tool-called')).toBe(false);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(true);
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('traces rejected submission and permits projectless chat without pretending to create a task', async () => {
+  const f = await create('pcm', false);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.state({ project: null });
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '你好' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('你好'));
+  await f.call(1403, 'workbench_submit', { text: 'PRIVATE_PROMPT' });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'tool-rejected',
+      tool: 'workbench_submit',
+      code: 'voice_submit_disabled',
+    }),
+  );
+  expect(f.voice.readConversation().turns[0]).toMatchObject({
+    projectId: null,
+    handoff: { status: 'blocked' },
+  });
+  expect(JSON.stringify(f.voice.diagnostics())).not.toContain('PRIVATE_PROMPT');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('associates a submit receipt and runner outcome, and retains session text through a reconnect', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '只读检查' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('只读检查'));
+  const id = f.voice.read().captureId as string,
+    projectId = f.voice.diagnostics().events.find((event) => event.kind === 'capture-started')!
+      .projectId as string;
+  const task = {
+    id,
+    projectId,
+    threadId: randomUUID(),
+    status: 'starting',
+    prompt: '只读检查',
+  } as Task;
+  f.start.mockReturnValueOnce(task);
+  await f.call(1404, 'workbench_submit', { text: '只读检查' });
+  f.state({ task: { ...task, status: 'completed' } });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'task-submitted', taskId: id }),
+  );
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'task-status', taskId: id, status: 'completed' }),
+  );
+  expect(f.voice.readConversation().turns[0]).toMatchObject({
+    taskStatus: 'completed',
+    handoff: { taskId: id },
+  });
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.readConversation().turns[0]?.messages[0]?.text).toBe('只读检查');
+  f.voice.clearConversation();
+  expect(f.voice.readConversation().turns).toEqual([]);
+});
+
+it('reports missing handoff after a spoken reply even when the provider never supplies STT', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '口头答复' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('unhandled'));
+  expect(f.voice.read().draft).toBe('');
+  expect(f.voice.readConversation().turns[0]?.messages[0]).toMatchObject({
+    role: 'assistant',
+    text: '口头答复',
+    state: 'final',
+  });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'handoff-missing', code: 'no_tool_call' }),
+  );
+  expect(f.start).not.toHaveBeenCalled();
+});

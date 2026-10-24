@@ -5,6 +5,10 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
 
+if (process.argv.includes('--version')) {
+  console.log('codex-cli 0.999.0');
+  process.exit(0);
+}
 const [argMode, argRecord] = process.argv.slice(2);
 const mode = process.env.LINGXI_TASK_FIXTURE_MODE ?? argMode;
 const record = process.env.LINGXI_TASK_FIXTURE_RECORD ?? argRecord;
@@ -202,6 +206,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   if (record) appendFileSync(record, `${line}\n`);
   if (message.method === 'initialize') {
     if (mode !== 'hang') emit({ id: message.id, result: {} });
+  } else if (message.method === 'account/read') {
+    emit({ id: message.id, result: { account: { type: 'chatgpt' }, requiresOpenaiAuth: true } });
   } else if (message.method === 'thread/start' || message.method === 'thread/resume') {
     config = message.params.config;
     currentThread = message.params.threadId ?? `thread-${++threadSequence}`;

@@ -4,10 +4,12 @@ import fastifyStatic from '@fastify/static';
 import {
   type CodexCheck,
   codexSetupRequestSchema,
+  microphoneStatusSchema,
   type Session,
   submitCommandSchema,
   voiceCommandSchema,
   voiceConfigSchema,
+  type WakeCheck,
 } from '@lingxi/protocol';
 import Fastify from 'fastify';
 import { z } from 'zod';
@@ -16,6 +18,7 @@ import type { DesktopBridge } from './desktop-bridge.js';
 import { SessionStore, StoreConflict } from './store.js';
 import { VoiceService } from './voice.js';
 import { VoiceBinding } from './voice-binding.js';
+import { WakeModel } from './wake-model.js';
 import { Workbench } from './workbench.js';
 import { workbenchRoutes } from './workbench-routes.js';
 
@@ -30,6 +33,7 @@ interface AppOptions {
   mcpToken?: string;
   taskExecutable?: string;
   taskPrefixArgs?: string[];
+  checkWake?: () => Promise<WakeCheck>;
 }
 
 export function buildApp(options: AppOptions) {
@@ -53,8 +57,10 @@ export function buildApp(options: AppOptions) {
     ...(options.taskExecutable ? { executable: options.taskExecutable } : {}),
     ...(options.taskPrefixArgs ? { prefixArgs: options.taskPrefixArgs } : {}),
   });
+  const wake = new WakeModel(join(dirname(options.databasePath), 'wake'));
   const voice = new VoiceService({
     workbench,
+    wake,
     ...(options.desktop ? { desktop: options.desktop } : {}),
   });
   const binding = new VoiceBinding({
@@ -167,9 +173,11 @@ export function buildApp(options: AppOptions) {
     if (!z.strictObject({}).safeParse(request.body).success) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
-    const [codex, voiceCheck] = await Promise.allSettled([
+    const [codex, voiceCheck, wakeCheck, microphone] = await Promise.allSettled([
       inspectCodex(),
       options.desktop ? voice.inspect() : Promise.resolve(null),
+      options.desktop ? (options.checkWake?.() ?? wake.check()) : Promise.resolve(null),
+      options.desktop ? options.desktop.call('microphone-status') : Promise.resolve('unknown'),
     ]);
     const configured = voiceCheck.status === 'fulfilled' ? voiceCheck.value?.configured : undefined;
     const lingxi = {
@@ -184,8 +192,30 @@ export function buildApp(options: AppOptions) {
             ? 'configuration-saved'
             : 'device-binding-required',
     };
-    if (codex.status === 'rejected') throw new Error('codex_check_failed');
-    return { environment: environment(), codex: codex.value, lingxi };
+    return {
+      environment: environment(),
+      codex:
+        codex.status === 'fulfilled'
+          ? codex.value
+          : {
+              checkedAt: new Date().toISOString(),
+              status: 'failed',
+              cliVersion: null,
+              authentication: null,
+            },
+      lingxi,
+      wake:
+        wakeCheck.status === 'fulfilled' && wakeCheck.value
+          ? wakeCheck.value
+          : {
+              checkedAt: new Date().toISOString(),
+              status: 'unavailable',
+              reason: options.desktop ? 'native-unavailable' : 'desktop-required',
+            },
+      microphone: microphoneStatusSchema
+        .catch('unavailable')
+        .parse(microphone.status === 'fulfilled' ? microphone.value : 'unavailable'),
+    };
   });
   app.post('/api/setup/codex/check', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');

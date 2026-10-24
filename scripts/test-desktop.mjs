@@ -29,8 +29,8 @@ await cp(join(root, 'tests/fixtures/codex-task.mjs'), fixture);
 await chmod(fixture, 0o755);
 const record = join(temporary, 'peer.jsonl');
 let instance, liveServer;
-const launch = (mode = 'browser', directory = dataRoot) =>
-  _electron.launch({
+const launch = async (mode = 'browser', directory = dataRoot) => {
+  const application = await _electron.launch({
     executablePath: process.env.LINGXI_DESKTOP_BUNDLE
       ? join(process.env.LINGXI_DESKTOP_BUNDLE, 'Contents/MacOS/Lingxi')
       : electronBinary(),
@@ -51,6 +51,16 @@ const launch = (mode = 'browser', directory = dataRoot) =>
     },
     timeout: 25000,
   });
+  await application.evaluate(({ app, BrowserWindow }) => {
+    const identify = (window) => {
+      window.setTitle('灵矽 · 自动化检查（临时数据）');
+      window.on('page-title-updated', (event) => event.preventDefault());
+    };
+    for (const window of BrowserWindow.getAllWindows()) identify(window);
+    app.on('browser-window-created', (_event, window) => identify(window));
+  });
+  return application;
+};
 async function expand(page, selector) {
   const details = page.locator(selector);
   if (!(await details.evaluate((element) => element.open))) {
@@ -97,6 +107,9 @@ try {
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
   });
+  await operator.getByRole('heading', { name: '先检查，再配置。', exact: true }).waitFor();
+  assert.equal(new URL(operator.url()).pathname, '/setup');
+  await operator.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await operator.getByText('本机服务已连接').waitFor();
   for (const selector of ['.workbench-menu', '.keyboard-composer'])
     assert.equal(
@@ -180,7 +193,7 @@ try {
   assert.equal(started.params.approvalsReviewer, 'user');
   const summary = operator.getByRole('region', { name: '本轮用量摘要', exact: true }).first();
   await summary.waitFor();
-  assert.ok((await summary.textContent()).includes('本轮 150,000 tokens'));
+  assert.ok((await summary.textContent()).includes('150,000 Token used'));
   assert.equal(
     await operator
       .getByRole('meter', { name: '当前上下文占用', exact: true })
@@ -218,25 +231,25 @@ try {
   await operator.getByLabel('给 Codex 的本轮指令').fill('');
   assert.equal(await operator.locator('.context-attachments').count(), 0);
   await operator.locator('.keyboard-composer > summary').press('Enter');
-  await expand(operator, '.workbench-menu');
-  await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
-  assert.equal(
-    await operator
-      .getByRole('meter', { name: '上下文窗口占用', exact: true })
-      .getAttribute('aria-valuetext'),
-    '25.0% 已使用',
-  );
-  await operator.locator('.workbench-menu > summary').press('Enter');
-  await expand(operator, '.turn-tools');
-  await operator.waitForFunction(() =>
-    document.querySelector('.turn-usage-summary')?.textContent.includes('缓存命中率 35.7%'),
-  );
+  await operator.getByRole('button', { name: '复制本轮回复', exact: true }).first().click();
   assert.ok(
-    (await operator.locator('.turn-usage-summary').first().textContent()).includes(
-      '本轮 150,000 tokens',
-    ),
+    (await instance.evaluate(({ clipboard }) => clipboard.readText())).includes('本轮已完成'),
   );
-  await operator.locator('.turn-tools > summary').press('Enter');
+  assert.equal(await operator.getByRole('button', { name: 'Sidechat', exact: true }).count(), 0);
+  assert.equal(await operator.getByRole('button', { name: '添加到对话', exact: true }).count(), 0);
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).hover();
+  await operator.getByRole('tooltip').waitFor();
+  assert.equal(
+    await operator.getByRole('tooltip').evaluate((node) => getComputedStyle(node).backgroundColor),
+    'rgb(54, 51, 45)',
+  );
+  await operator.screenshot({ path: join(root, '.local/context-tooltip.png') });
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).click();
+  await operator.getByRole('table').waitFor();
+  await operator.getByRole('button', { name: '上下文使用详情', exact: true }).click();
+  await operator.waitForFunction(() =>
+    document.querySelector('.turn-usage')?.textContent.includes('35.7% Cache hit.'),
+  );
   await expand(operator, '.keyboard-composer');
   await operator.getByLabel('模型', { exact: true }).selectOption('fast-model');
   await operator.waitForFunction(() => document.querySelector('#codex-effort').value === 'low');
@@ -297,7 +310,11 @@ try {
   const persistent = records.filter((r) => r.pid && r.cwd === canonicalProject);
   const probes = records.filter((r) => r.pid && r.cwd !== canonicalProject);
   assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
-  assert.equal(probes.length, 1, 'Explicit verification must use its own temporary connection');
+  assert.equal(
+    probes.length,
+    2,
+    'Startup diagnostics and explicit verification must use separate temporary connections',
+  );
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)
     assert.throws(() => process.kill(item.pid, 0), 'Verification peer must already be stopped');
@@ -310,6 +327,7 @@ try {
   );
   instance = await launch();
   const reopened = await instance.firstWindow();
+  await reopened.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await reopened.getByText('本机服务已连接').waitFor();
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
@@ -566,9 +584,18 @@ try {
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
+  await reopened
+    .getByRole('navigation', { name: '连接步骤' })
+    .getByRole('button', { name: /配置唤醒模型/ })
+    .click();
+  await reopened
+    .getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true })
+    .waitFor();
+  await reopened.screenshot({ path: join(root, '.local/wake-setup-smoke.png') });
   await instance.close();
   instance = await launch('rich');
   const recovery = await instance.firstWindow();
+  await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await recovery.getByText('本机服务已连接').waitFor();
   const recoveryAddress = new URL(recovery.url()).origin;
   await submitTask(recovery, 'ask-repeated');
@@ -626,17 +653,26 @@ try {
   );
   assert.ok(recoveryDisplay);
   let presentationCaptureId = randomUUID();
+  let presentationStatus = 'ready';
+  const presentationWake = {
+    status: 'off',
+    keyword: '丽塔同学',
+    installed: true,
+    detectionId: null,
+    error: null,
+  };
   // Controlled voice snapshots exercise presentation without connecting a provider or capturing audio.
   await recovery.context().route('**/api/voice', (route) =>
     route.fulfill({
       json: {
         configured: true,
-        status: 'ready',
+        status: presentationStatus,
         draft: '普通转写草稿',
         captureId: presentationCaptureId,
         subtitle: '',
         error: null,
         allowVoiceSubmit: true,
+        wake: presentationWake,
       },
     }),
   );
@@ -661,6 +697,26 @@ try {
         await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
         assert.equal(await page.locator('.voice-submitted, .live-mic-state.submitted').count(), 1);
       }
+      for (const [wakeStatus, status, label] of [
+        ['armed', 'ready', '本地待唤醒 · 麦克风已开启 · 丽塔同学'],
+        ['detected', 'ready', '本地待唤醒 · 麦克风已开启 · 丽塔同学'],
+        ['armed', 'speaking', '播报中 · 本地麦克风开启，暂停唤醒'],
+      ]) {
+        presentationWake.status = wakeStatus;
+        presentationStatus = status;
+        for (const page of [recovery, recoveryDisplay]) {
+          await page.getByText(label, { exact: true }).waitFor();
+          assert.equal(
+            await page.locator('.voice-submitted, .live-mic-state.submitted').count(),
+            0,
+            'Local wake capture must not appear as a submitted task with the microphone closed',
+          );
+        }
+      }
+      presentationWake.status = 'off';
+      presentationStatus = 'ready';
+      for (const page of [recovery, recoveryDisplay])
+        await page.getByText('已提交 · 正在制作 · 麦克风已关闭', { exact: true }).waitFor();
       await expand(recovery, '.keyboard-composer');
       await recovery.getByRole('button', { name: '停止任务', exact: true }).click();
     }
@@ -690,6 +746,7 @@ try {
   await mkdir(emptyData);
   instance = await launch('rich', emptyData);
   const empty = await instance.firstWindow();
+  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
   await empty.waitForLoadState('load');
   await empty.route('**/api/voice', (route) =>
@@ -706,6 +763,7 @@ try {
     }),
   );
   await empty.reload();
+  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await empty.getByRole('heading', { name: '先选择一个项目', exact: true }).waitFor();
   for (const name of ['新建项目', '打开项目'])
     assert.equal(

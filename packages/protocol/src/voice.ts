@@ -19,7 +19,27 @@ export const voiceStateSchema = z.strictObject({
   subtitle: z.string(),
   error: z.string().nullable(),
   allowVoiceSubmit: z.boolean(),
+  contextDetailsOpen: z.boolean().default(false),
+  wake: z
+    .strictObject({
+      status: z.enum(['off', 'installing', 'loading', 'armed', 'detected', 'failed']),
+      keyword: z.string(),
+      installed: z.boolean(),
+      detectionId: z.uuid().nullable(),
+      error: z.string().nullable(),
+    })
+    .default({
+      status: 'off',
+      keyword: '丽塔同学',
+      installed: false,
+      detectionId: null,
+      error: null,
+    }),
 });
+export const wakeKeywordSchema = z
+  .string()
+  .trim()
+  .regex(/^[\u4e00-\u9fff]{2,12}$/);
 export const voiceCommandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('connect') }),
   z.strictObject({ action: z.literal('disconnect') }),
@@ -27,6 +47,10 @@ export const voiceCommandSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('stop-listening') }),
   z.strictObject({ action: z.literal('stop-speaking') }),
   z.strictObject({ action: z.literal('speak'), text: z.string().min(1).max(1000) }),
+  z.strictObject({ action: z.literal('install-wake') }),
+  z.strictObject({ action: z.literal('arm-wake'), keyword: wakeKeywordSchema }),
+  z.strictObject({ action: z.literal('stop-wake') }),
+  z.strictObject({ action: z.literal('context-details'), open: z.boolean() }),
 ]);
 export type VoiceState = z.infer<typeof voiceStateSchema>;
 export type VoiceConfig = z.infer<typeof voiceConfigSchema>;

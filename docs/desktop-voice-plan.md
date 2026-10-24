@@ -18,9 +18,9 @@
 
 [灵矽智能体配置文档](https://linx.qiniu.com/docs/xrobot/guide/agent-config) 的唤醒回复设置明确说明“它不修改设备的唤醒词”。[官方 Mac/Linux 示例](https://github.com/sunqirui1987/linx-linux) 使用 PortAudio、Opus、WebSocket 自动收音，没有证明可在 Mac 自定义本地唤醒词。不能据此承诺“丽塔同学”开箱即用。
 
-推荐验证 [sherpa-onnx keyword spotting](https://k2-fsa.github.io/sherpa/onnx/kws/index.html)：支持中文开放词汇关键词检测，有 Mac arm64/x64 运行路径。仍需验证“丽塔同学”的拼音、模型、误唤醒、漏检、CPU、噪声和回声；尚未集成或下载进桌面包。
+当前已集成 [sherpa-onnx keyword spotting](https://k2-fsa.github.io/sherpa/onnx/kws/index.html)：支持中文开放词汇关键词检测，有 Mac arm64/x64 运行路径。已验证固定模型下载、原生推理和中文测试音频，默认词可初始化；仍需在 M1 验证真人默认词、误唤醒、漏检、CPU、噪声和回声。模型在向导内按需下载，不预装到桌面包。实现与边界见 [ADR 0009](adr/0009-local-wake-and-context-controls.md)。
 
-建议状态机：未授权/完全关闭 → 本地监听唤醒词（不上传会议音频）→ 激活收音 → 草稿 → 明确提交/取消 → 返回本地唤醒监听。唤醒监听仍使用麦克风，界面不能显示“麦克风关闭”。播放 TTS 时处理回声抑制或暂停检测，避免自唤醒。优先先做界面主动激活的完整语音闭环，再增加关键词。
+建议状态机：未授权/完全关闭 → 本地监听唤醒词（不上传会议音频）→ 激活收音 → 草稿 → 明确提交/取消 → 返回本地唤醒监听。唤醒监听仍使用麦克风，界面不能显示“麦克风关闭”。播放 TTS 时处理回声抑制或暂停检测，避免自唤醒。当前已接入手动与本地关键词两条入口，下一步重点验证真实远场质量。
 
 用户在自己的 Mac 完成七牛官方网页登录与设备授权。当前向导内申请六位激活码、检查绑定、自动保存加密令牌，桌面 AudioWorklet 不需要额外 C++ helper/Homebrew。PCM 服务协商、端侧 MCP、识别/播放效果仍需真实设备验证，不能拿替身流量作为验收。详细步骤见 [Mac 指南](mac-setup.md) 与 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。
 

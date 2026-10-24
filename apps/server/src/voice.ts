@@ -8,6 +8,7 @@ import {
 import WebSocket from 'ws';
 import { z } from 'zod';
 import type { DesktopBridge } from './desktop-bridge.js';
+import type { WakeModel } from './wake-model.js';
 import type { Workbench } from './workbench.js';
 
 const envelope = z.object({ type: z.string(), session_id: z.string().optional() }).passthrough();
@@ -43,6 +44,13 @@ export class VoiceService {
   private submittedCapture: string | null = null;
   private modeInCapture: 'plan' | 'default' | null = null;
   private modePending = false;
+  private wakeEnabled = false;
+  private automaticCapture = false;
+  private wakeLease: ReturnType<typeof setInterval> | undefined;
+  private lastFrame = 0;
+  private captureFrames = 0;
+  private voicedFrames = 0;
+  private silentFrames = 0;
   private responses = new Map<string, { input: string; value: unknown }>();
   private state: VoiceState = {
     configured: false,
@@ -52,6 +60,8 @@ export class VoiceService {
     subtitle: '',
     error: null,
     allowVoiceSubmit: false,
+    contextDetailsOpen: false,
+    wake: { status: 'off', keyword: '丽塔同学', installed: false, detectionId: null, error: null },
   };
   constructor(
     private options: {
@@ -61,6 +71,10 @@ export class VoiceService {
         'read' | 'start' | 'interrupt' | 'decide' | 'subscribe' | 'voiceContext' | 'command'
       >;
       testEndpoint?: string;
+      wake?: Pick<
+        WakeModel,
+        'installed' | 'install' | 'start' | 'frame' | 'reset' | 'stop' | 'close'
+      >;
     },
   ) {
     this.unsubscribe = options.workbench.subscribe(() => this.observeTask());
@@ -111,6 +125,10 @@ export class VoiceService {
     return this.state;
   }
   private update(value: Partial<VoiceState>) {
+    if (value.status === 'ready' && this.state.status !== 'ready' && this.wakeEnabled) {
+      this.options.wake?.reset();
+      value.wake = { ...this.state.wake, status: 'armed', detectionId: null };
+    }
     this.state = { ...this.state, ...value };
   }
   async save(input: unknown) {
@@ -137,11 +155,41 @@ export class VoiceService {
     this.update({
       configured: !!this.config,
       allowVoiceSubmit: this.config?.allowVoiceSubmit ?? false,
+      wake: { ...this.state.wake, installed: (await this.options.wake?.installed()) ?? false },
     });
     return this.state;
   }
   async command(command: VoiceCommand) {
     if (!this.options.desktop) throw new Error('desktop_required');
+    if (command.action === 'context-details') {
+      this.update({ contextDetailsOpen: command.open });
+      return;
+    }
+    if (command.action === 'stop-wake') {
+      this.stopWake();
+      return;
+    }
+    if (command.action === 'install-wake') {
+      if (
+        !this.options.wake ||
+        ['installing', 'loading', 'armed', 'detected'].includes(this.state.wake.status)
+      )
+        throw new Error('wake_unavailable');
+      this.update({ wake: { ...this.state.wake, status: 'installing', error: null } });
+      try {
+        await this.options.wake.install();
+        this.update({ wake: { ...this.state.wake, status: 'off', installed: true } });
+      } catch {
+        this.update({
+          wake: {
+            ...this.state.wake,
+            status: 'failed',
+            error: '唤醒模型下载失败，请检查网络后重试。',
+          },
+        });
+      }
+      return;
+    }
     if (command.action === 'connect') {
       await this.connect();
       return;
@@ -152,9 +200,52 @@ export class VoiceService {
     }
     if (!this.socket || !['ready', 'listening', 'speaking'].includes(this.state.status))
       throw new Error('voice_not_ready');
+    if (command.action === 'arm-wake') {
+      if (
+        !this.options.wake ||
+        this.state.status !== 'ready' ||
+        this.wakeEnabled ||
+        this.state.wake.status === 'loading'
+      )
+        throw new Error('wake_unavailable');
+      this.update({
+        wake: { ...this.state.wake, status: 'loading', keyword: command.keyword, error: null },
+      });
+      try {
+        await this.options.wake.start(
+          command.keyword,
+          () => {
+            if (
+              this.wakeEnabled &&
+              this.state.status === 'ready' &&
+              this.state.wake.status === 'armed'
+            )
+              this.update({
+                wake: { ...this.state.wake, status: 'detected', detectionId: randomUUID() },
+              });
+          },
+          () => this.stopWake('本地唤醒检测已停止，请重新开启。'),
+        );
+        if (this.state.status !== 'ready' || this.read().wake.status !== 'loading')
+          throw new Error('wake_cancelled');
+        this.wakeEnabled = true;
+        this.lastFrame = Date.now();
+        this.update({ wake: { ...this.state.wake, status: 'armed' } });
+        this.wakeLease = setInterval(() => {
+          if (Date.now() - this.lastFrame > 4000)
+            this.stopWake('麦克风音频已中断，请重新开启唤醒。');
+        }, 1000);
+      } catch {
+        this.stopWake('无法启动本地唤醒，请确认模型已下载并尝试其他中文唤醒词。');
+      }
+      return;
+    }
     if (command.action === 'listen') {
       const context = this.options.workbench.voiceContext(),
         target = this.context();
+      this.pendingSpeech = '';
+      this.awaitingSpeech = false;
+      clearTimeout(this.speechDeadline);
       this.send({ type: 'abort', reason: 'wake_word_detected' });
       await this.options.desktop.call('voice-audio', { reset: true });
       if (target !== this.context()) throw new Error('voice_context_changed');
@@ -166,6 +257,8 @@ export class VoiceService {
         error: null,
       });
       this.target = target;
+      this.automaticCapture = this.wakeEnabled && this.state.wake.status === 'detected';
+      this.captureFrames = this.voicedFrames = this.silentFrames = 0;
       this.capturedContext = context;
       this.armedUntil = Date.now() + 90_000;
       this.submittedCapture = null;
@@ -180,7 +273,7 @@ export class VoiceService {
       clearTimeout(this.captureDeadline);
       this.captureDeadline = undefined;
       this.send({ type: 'listen', state: 'stop', mode: 'manual' });
-      this.armedUntil = Date.now() + 30000;
+      this.armedUntil = this.automaticCapture && this.voicedFrames < 10 ? 0 : Date.now() + 30000;
       this.update({ status: 'ready' });
       this.flushSpeech();
     } else if (command.action === 'stop-speaking') {
@@ -261,12 +354,31 @@ export class VoiceService {
     });
   }
   frame(base64: string) {
-    // Exactly 20 ms of PCM16LE mono at 16kHz, accepted only while explicitly
-    // recording. No audio is stored or uploaded in the idle state.
-    if (this.state.status !== 'listening' || !this.socket || base64.length > 900) return;
+    if (base64.length > 900) return;
     const pcm = Buffer.from(base64, 'base64');
-    if (pcm.length !== 640 || this.socket.bufferedAmount > 64000) return;
+    if (pcm.length !== 640) return;
+    if (this.wakeEnabled) this.lastFrame = Date.now();
+    if (this.state.status !== 'listening') {
+      if (this.wakeEnabled && this.state.status === 'ready' && this.state.wake.status === 'armed')
+        this.options.wake?.frame(pcm);
+      return;
+    }
+    if (!this.socket || this.socket.bufferedAmount > 64000) return;
     this.socket.send(pcm);
+    if (this.automaticCapture) {
+      this.captureFrames++;
+      let energy = 0;
+      for (let i = 0; i < pcm.length; i += 2) energy += (pcm.readInt16LE(i) / 32768) ** 2;
+      if (Math.sqrt(energy / 320) > 0.015) {
+        this.voicedFrames++;
+        this.silentFrames = 0;
+      } else this.silentFrames++;
+      if (
+        (this.voicedFrames >= 10 && this.silentFrames >= 60 && this.captureFrames >= 100) ||
+        (this.voicedFrames < 10 && this.captureFrames >= 400)
+      )
+        void this.command({ action: 'stop-listening' }).catch(() => {});
+    }
   }
   private send(value: Record<string, unknown>) {
     if (this.socket?.readyState === WebSocket.OPEN)
@@ -357,6 +469,17 @@ export class VoiceService {
             inputSchema: z.toJSONSchema(modeInput),
           },
           {
+            name: 'workbench_context_details',
+            description:
+              '用户要求打开或关闭上下文窗口用量详情时调用，同时作用于电脑和大屏。不提交开发任务。',
+            inputSchema: {
+              type: 'object',
+              properties: { open: { type: 'boolean' } },
+              required: ['open'],
+              additionalProperties: false,
+            },
+          },
+          {
             name: 'workbench_interrupt',
             description: '用户明确要求停止当前 Codex 任务时调用。不会回退代码。',
             inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -372,6 +495,7 @@ export class VoiceService {
               'workbench_submit',
               'workbench_interrupt',
               'workbench_set_mode',
+              'workbench_context_details',
             ]),
             arguments: z.unknown(),
           })
@@ -403,7 +527,15 @@ export class VoiceService {
           )
             throw new Error('not_armed');
           if (this.target !== this.context()) throw new Error('voice_context_changed');
-          if (call.name === 'workbench_set_mode') {
+          if (call.name === 'workbench_context_details') {
+            const { open } = z.strictObject({ open: z.boolean() }).parse(call.arguments);
+            this.update({ contextDetailsOpen: open });
+            result = {
+              content: [
+                { type: 'text', text: open ? '已展开上下文用量详情。' : '已收起上下文用量详情。' },
+              ],
+            };
+          } else if (call.name === 'workbench_set_mode') {
             const { mode } = modeInput.parse(call.arguments);
             if (
               this.submittedCapture ||
@@ -499,9 +631,29 @@ export class VoiceService {
   }
   close() {
     this.unsubscribe();
+    this.options.wake?.close();
     this.disconnect();
   }
+  private stopWake(error: string | null = null) {
+    const hadWake = this.wakeEnabled;
+    this.wakeEnabled = false;
+    clearInterval(this.wakeLease);
+    this.wakeLease = undefined;
+    this.options.wake?.stop();
+    if ((this.automaticCapture || hadWake) && this.state.status === 'listening')
+      void this.command({ action: 'stop-listening' }).catch(() => {});
+    if (this.automaticCapture) {
+      this.armedUntil = 0;
+      this.capturedContext = { selection: null, attachments: [] };
+      this.target = '';
+    }
+    this.automaticCapture = false;
+    this.update({
+      wake: { ...this.state.wake, status: error ? 'failed' : 'off', detectionId: null, error },
+    });
+  }
   disconnect() {
+    this.stopWake();
     clearTimeout(this.speechDeadline);
     this.awaitingSpeech = false;
     this.pendingSpeech = '';

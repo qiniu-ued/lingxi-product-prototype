@@ -41,6 +41,18 @@ export function keywordTokens(keyword: string, vocabulary: string) {
 // The model is a fixed upstream release, authenticated before any extraction.
 // No user URL, archive member, executable or argv is accepted by this adapter.
 export class WakeModel {
+  private closed = false;
+  private generation = 0;
+  private closing: Promise<void> | undefined;
+  private terminating = new Set<Promise<number>>();
+  private terminate(worker: Worker) {
+    const pending = worker.terminate();
+    this.terminating.add(pending);
+    void pending.then(
+      () => this.terminating.delete(pending),
+      () => this.terminating.delete(pending),
+    );
+  }
   private abort: AbortController | undefined;
   private worker: Worker | undefined;
   private pending = 0;
@@ -51,13 +63,14 @@ export class WakeModel {
     private testProbe?: () => Promise<boolean>,
   ) {}
   private probe() {
+    if (this.closed) return Promise.resolve(false);
     this.inspection ??= new Promise<boolean>((resolve) => {
       const worker = new Worker(new URL('./wake-probe.js', import.meta.url));
       this.probes.add(worker);
       const finish = (ready: boolean) => {
         clearTimeout(timer);
         this.probes.delete(worker);
-        void worker.terminate();
+        this.terminate(worker);
         resolve(ready);
       };
       const timer = setTimeout(() => finish(false), 8000);
@@ -94,8 +107,11 @@ export class WakeModel {
     }
   }
   async install() {
+    if (this.closed) throw new Error('wake_model_closed');
     if (this.abort) throw new Error('wake_install_busy');
-    if (await this.installed()) return;
+    const installed = await this.installed();
+    if (this.closed) throw new Error('wake_model_closed');
+    if (installed) return;
     const abort = new AbortController();
     this.abort = abort;
     const timeout = setTimeout(() => abort.abort(), 180_000);
@@ -135,11 +151,16 @@ export class WakeModel {
     }
   }
   async start(keyword: string, detected: () => void, failed: () => void) {
-    if (!(await this.installed())) throw new Error('wake_model_missing');
+    if (this.closed) throw new Error('wake_model_closed');
+    const generation = ++this.generation;
+    const installed = await this.installed();
+    if (this.closed || generation !== this.generation) throw new Error('wake_cancelled');
+    if (!installed) throw new Error('wake_model_missing');
     const line = keywordTokens(
       keyword,
       await readFile(join(this.root, modelName, 'tokens.txt'), 'utf8'),
     );
+    if (this.closed || generation !== this.generation) throw new Error('wake_cancelled');
     this.stop();
     const worker = new Worker(new URL('./wake-worker.js', import.meta.url), {
       workerData: { root: join(this.root, modelName), line, files: modelFiles },
@@ -182,14 +203,19 @@ export class WakeModel {
     this.worker?.postMessage('reset');
   }
   stop() {
+    this.generation++;
     const worker = this.worker;
     this.worker = undefined;
     this.pending = 0;
-    void worker?.terminate();
+    if (worker) this.terminate(worker);
   }
   close() {
+    if (this.closing) return this.closing;
+    this.closed = true;
     this.abort?.abort();
-    for (const probe of this.probes) void probe.terminate();
+    for (const probe of this.probes) this.terminate(probe);
     this.stop();
+    this.closing = Promise.all([...this.terminating]).then(() => {});
+    return this.closing;
   }
 }

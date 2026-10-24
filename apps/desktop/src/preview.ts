@@ -6,9 +6,12 @@ import {
   type PreviewBinding,
   type Project,
   previewActionSchema,
+  previewHighlightSchema,
+  previewInspectSchema,
 } from '@lingxi/protocol';
 import { type BrowserWindow, session, WebContentsView } from 'electron';
 import { freezePreview, inside, types } from './assets.js';
+import { inspectElement } from './inspect-element.js';
 
 const targetScript = `(() => {
  const state = globalThis.__lingxiTargets ??= {next:1, ids:new WeakMap(), nodes:new Map()};
@@ -178,20 +181,28 @@ export class Preview {
     this.queue = next.catch(() => {});
     return next;
   }
-  async pick(input: { binding: PreviewBinding; x: number; y: number }) {
+  async inspect(value: unknown) {
+    const input = previewInspectSchema.parse(value);
+    const view = this.view,
+      binding = this.binding;
     if (
-      !this.view ||
-      !this.binding ||
-      JSON.stringify(input.binding) !== JSON.stringify(this.binding)
+      !view ||
+      !binding ||
+      view.webContents.isDestroyed() ||
+      JSON.stringify(input.binding) !== JSON.stringify(binding)
     )
       throw new Error('stale_preview');
-    await this.snapshot();
-    const selected = await this.view.webContents.executeJavaScriptInIsolatedWorld(1001, [
-      {
-        code: `(() => {const el=document.elementFromPoint(innerWidth*${input.x},innerHeight*${input.y});if(!el)throw new Error('no_element');const state=globalThis.__lingxiTargets;let ref=state.ids.get(el);if(!ref){ref='r'+state.next++;state.ids.set(el,ref);state.nodes.set(ref,el);}const box=el.getBoundingClientRect();state.highlight?.remove();const mark=document.createElement('div');mark.setAttribute('aria-hidden','true');Object.assign(mark.style,{position:'fixed',left:box.x+'px',top:box.y+'px',width:box.width+'px',height:box.height+'px',border:'3px solid #efb095',borderRadius:'4px',boxSizing:'border-box',pointerEvents:'none',zIndex:'2147483647'});document.documentElement.appendChild(mark);state.highlight=mark;setTimeout(()=>mark.remove(),3000);return {ref,description:(el.getAttribute('aria-label')||el.innerText||el.tagName).slice(0,500)};})()`,
-      },
+    const selected = await view.webContents.executeJavaScriptInIsolatedWorld(1001, [
+      { code: `(${inspectElement.toString()})(${JSON.stringify(input)})` },
     ]);
-    return { binding: { ...this.binding }, ...selected };
+    if (this.view !== view || JSON.stringify(this.binding) !== JSON.stringify(binding))
+      throw new Error('stale_preview');
+    return selected ? previewHighlightSchema.parse({ binding: { ...binding }, ...selected }) : null;
+  }
+  async pick(input: { binding: PreviewBinding; x: number; y: number }) {
+    const selected = await this.inspect({ ...input, target: 'point' });
+    if (!selected) throw new Error('no_element');
+    return { binding: selected.binding, ref: selected.ref, description: selected.description };
   }
   private runtimeAllowed(url: URL) {
     if (!this.runtimeOrigin) return false;

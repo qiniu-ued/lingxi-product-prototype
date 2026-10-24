@@ -86,10 +86,39 @@ async function open(
     ({ snapshot }) => {
       Object.defineProperty(window, 'lingxiDesktop', {
         value: {
+          snapshot: async () => Reflect.get(window, 'testPreviewSnapshot') ?? null,
+          inspect: async (input: unknown) => Reflect.get(window, 'testPreviewInspect')(input),
+          scrollPreview: async (input: unknown) => {
+            Reflect.set(window, 'previewScroll', input);
+          },
           info: async () => ({ platform: 'darwin', arch: 'arm64', systemVersion: 'fixture' }),
-          microphone: async () => true,
-          audioFrame: () => {},
-          onAudio: () => () => {},
+          microphone: async () => {
+            Reflect.set(
+              window,
+              'permissionRequests',
+              (Reflect.get(window, 'permissionRequests') ?? 0) + 1,
+            );
+            return true;
+          },
+          microphoneStatus: async () =>
+            Reflect.get(window, 'testMicrophonePermission') ?? 'granted',
+          audioFrame: (pcm: ArrayBuffer) => {
+            const values = new Int16Array(pcm);
+            const frames = Reflect.get(window, 'inputFrames') ?? [];
+            frames.push({
+              at: performance.now(),
+              max: values.reduce((n, v) => Math.max(n, Math.abs(v)), 0),
+            });
+            if (frames.length > 500) frames.shift();
+            Reflect.set(window, 'inputFrames', frames);
+          },
+          onAudio: (listener: (value: unknown) => void) => {
+            Reflect.set(window, 'voiceAudioListener', listener);
+            return () => {
+              if (Reflect.get(window, 'voiceAudioListener') === listener)
+                Reflect.deleteProperty(window, 'voiceAudioListener');
+            };
+          },
           copy: async (text: string) => {
             Reflect.set(window, 'copiedReply', text);
           },
@@ -269,9 +298,47 @@ async function open(
   await page.route('**/api/voice/command', (route) => {
     const body = route.request().postDataJSON();
     voiceCommands.push(body);
-    if (body.action === 'connect') voice = { ...voice, status: 'ready', error: null };
+    if (body.action === 'wake-auto') {
+      voice = {
+        ...voice,
+        wakePreference: { version: 1, enabled: body.enabled, source: 'user' },
+        wakeAutoSuspended: !body.enabled,
+        ...(!body.enabled
+          ? { conversationActive: false, wake: { ...voice.wake, status: 'off', detectionId: null } }
+          : { wake: { ...voice.wake, status: 'off', error: null } }),
+      };
+    }
+    if (body.action === 'pause-voice')
+      voice = {
+        ...voice,
+        conversationActive: false,
+        speechId: null,
+        status: voice.status === 'disconnected' ? 'disconnected' : 'ready',
+        wakeAutoSuspended: voice.wakeAutoSuspended || (body.suspend ?? true),
+        wake: { ...voice.wake, status: 'off', detectionId: null },
+      };
+    if (body.action === 'dismiss-wake')
+      voice = { ...voice, wake: { ...voice.wake, status: 'armed', detectionId: null } };
+    if (body.action === 'connect')
+      voice = {
+        ...voice,
+        status: 'ready',
+        error: null,
+        connectionPreference: { version: 1, enabled: true, source: 'user' },
+      };
+    if (body.action === 'connection-auto')
+      voice = {
+        ...voice,
+        status: body.enabled && voice.configured ? 'ready' : 'disconnected',
+        connectionPreference: { version: 1, enabled: body.enabled, source: 'user' },
+      };
     if (body.action === 'disconnect')
-      voice = { ...voice, status: 'disconnected', deviceToolsReady: false };
+      voice = {
+        ...voice,
+        status: 'disconnected',
+        deviceToolsReady: false,
+        connectionPreference: { version: 1, enabled: false, source: 'user' },
+      };
     if (body.action === 'install-wake')
       voice = { ...voice, wake: { ...voice.wake, installed: true, status: 'off' } };
     if (body.action === 'arm-wake')
@@ -289,9 +356,12 @@ async function open(
     if (body.action === 'stop-session')
       voice = {
         ...voice,
+        wakePreference: { version: 1, enabled: false, source: 'user' },
+        wakeAutoSuspended: true,
+        connectionPreference: { version: 1, enabled: false, source: 'user' },
         conversationActive: false,
         speechId: null,
-        status: 'ready',
+        status: 'disconnected',
         wake: { ...voice.wake, status: 'off' },
       };
     if (body.action === 'stop-wake')
@@ -353,15 +423,6 @@ function historyThread() {
     archived: false,
     createdAt: new Date().toISOString(),
   };
-}
-async function openSettings(page: Page) {
-  const workspace = page.locator('.workbench-menu');
-  if (await workspace.isVisible()) {
-    if (!(await workspace.evaluate((element: HTMLDetailsElement) => element.open)))
-      await workspace.locator(':scope > summary').click();
-    await page.getByRole('button', { name: '连接向导', exact: true }).click();
-  }
-  await page.getByRole('button', { name: '设置', exact: true }).click();
 }
 async function selectExcerpt(page: Page, taskId: string, text: string, role = 'assistant') {
   const bubble = page
@@ -758,7 +819,7 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
   await page.locator('.keyboard-composer > summary').click();
   await page.getByLabel('给 Codex 的本轮指令').fill('本轮待发送草稿');
   await page.getByText('语音唤醒', { exact: true }).click();
-  await page.getByRole('button', { name: '开启语音唤醒', exact: true }).click();
+  await page.getByRole('button', { name: '启用自动唤醒', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toContainText(
     '丽塔同学',
   );
@@ -788,10 +849,10 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
       ),
     )
     .toBe(true);
-  await page.getByRole('button', { name: '开启语音唤醒', exact: true }).click();
+  await page.getByRole('button', { name: '启用自动唤醒', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
   const arms = fixture.voiceCommands.filter((command) => command.action === 'arm-wake').length;
-  await openSettings(page);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -803,12 +864,12 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
     )
     .toBe(true);
   await expect
-    .poll(() => fixture.voiceCommands.filter((command) => command.action === 'stop-wake').length)
-    .toBe(2);
+    .poll(() => fixture.voiceCommands.filter((command) => command.action === 'pause-voice').length)
+    .toBe(1);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '麦克风关闭' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
   expect(fixture.voiceCommands.filter((command) => command.action === 'arm-wake')).toHaveLength(
-    arms,
+    arms + 1,
   );
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('本轮待发送草稿');
 });
@@ -838,9 +899,14 @@ test('an explicit voice conversation keeps its microphone through responses and 
   await page.getByLabel('给 Codex 的本轮指令').fill('第一句话的草稿');
   await page.getByRole('button', { name: '开始收音', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
-  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.contexts).toHaveLength(1);
+  expect(fixture.contexts[0]).toMatchObject({
+    projectId,
+    conversationId,
+    text: '第一句话的草稿',
+  });
   fixture.publishVoice({ speechId: randomUUID() });
-  await expect.poll(() => fixture.contexts.length).toBe(1);
+  await expect.poll(() => fixture.contexts.length).toBe(2);
   fixture.publishVoice({ status: 'processing' });
   await expect(page.getByRole('status').filter({ hasText: '会话保持开启' })).toBeVisible();
   expect(
@@ -856,8 +922,8 @@ test('an explicit voice conversation keeps its microphone through responses and 
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
   await page.getByLabel('给 Codex 的本轮指令').fill('第二句话的新草稿');
   fixture.publishVoice({ speechId: randomUUID() });
-  await expect.poll(() => fixture.contexts.length).toBe(2);
-  expect(fixture.contexts[1]).toMatchObject({ text: '第二句话的新草稿' });
+  await expect.poll(() => fixture.contexts.length).toBe(3);
+  expect(fixture.contexts[2]).toMatchObject({ text: '第二句话的新草稿' });
   await page.getByRole('button', { name: '关闭语音', exact: true }).click();
   await expect
     .poll(() =>
@@ -868,6 +934,7 @@ test('an explicit voice conversation keeps its microphone through responses and 
       ),
     )
     .toBe(true);
+  await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
   await page.getByRole('button', { name: '开始收音', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
   fixture.publishVoice({
@@ -911,7 +978,7 @@ test('opening settings while microphone acquisition is pending releases the late
   await expect
     .poll(() => page.evaluate(() => typeof Reflect.get(window, 'releaseMic')))
     .toBe('function');
-  await openSettings(page);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page.evaluate(() => Reflect.get(window, 'releaseMic')());
   await expect
@@ -923,8 +990,11 @@ test('opening settings while microphone acquisition is pending releases the late
       ),
     )
     .toBe(true);
-  expect(fixture.contexts).toHaveLength(0);
+  expect(fixture.contexts).toEqual([
+    { projectId, conversationId: null, text: '', attachments: [], selection: null },
+  ]);
   expect(fixture.voiceCommands.some((command) => command.action === 'listen')).toBe(false);
+  expect(fixture.commands).toHaveLength(0);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeEnabled();
 });
@@ -974,7 +1044,7 @@ test('permanent settings keep the active composer and manage voice consent and t
   await page.getByLabel('给 Codex 的本轮指令').fill('设置前没有发送的草稿');
   await selectExcerpt(page, source.id, '保留设置前的工作的回答');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
-  await openSettings(page);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page
@@ -999,11 +1069,12 @@ test('permanent settings keep the active composer and manage voice consent and t
       ),
     )
     .toBe(true);
+  await expect(page.getByLabel('本次运行的唤醒词')).toHaveValue('你好同学');
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
   for (let cycle = 0; cycle < 2; cycle++) {
-    await openSettings(page);
+    await page.getByRole('button', { name: '设置', exact: true }).click();
     await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
     if (cycle === 0) {
       await page.goBack();
@@ -1012,7 +1083,7 @@ test('permanent settings keep the active composer and manage voice consent and t
       await expect(
         page.getByRole('heading', { name: '先检查，再配置。', exact: true }),
       ).toBeVisible();
-      await openSettings(page);
+      await page.getByRole('button', { name: '设置', exact: true }).click();
       await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
       await page.getByRole('button', { name: '返回工作台', exact: true }).click();
     }
@@ -1043,15 +1114,15 @@ test('voice connection failure can be retried and disconnected in settings witho
   await expect(page.getByRole('alert')).toContainText('操作未完成');
   await expect(page.getByRole('alert')).not.toContainText('PRIVATE_PROVIDER_ERROR');
   await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
-  await expect(page.getByRole('status').filter({ hasText: '丽塔同学已连接' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: '待唤醒 · 麦克风已关闭' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await openSettings(page);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
   await page
     .getByRole('navigation', { name: '设置分类' })
     .getByRole('button', { name: /丽塔同学与语音执行/ })
     .click();
   await expect(page.getByRole('checkbox', { name: /允许主动收音后用语音提交/ })).not.toBeChecked();
-  await page.getByRole('button', { name: '断开语音', exact: true }).click();
+  await page.getByRole('button', { name: '断开语音服务', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '语音未连接' })).toBeVisible();
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByRole('button', { name: '连接丽塔同学', exact: true })).toBeEnabled();
@@ -1101,6 +1172,342 @@ test('voice handoff distinguishes draft-only, unhandled voice replies and accept
   await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
 });
 
+async function syntheticMicrophone(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+      value: async (constraints: MediaStreamConstraints) => {
+        Reflect.set(window, 'requestedAudioConstraints', constraints);
+        Reflect.set(window, 'mediaRequests', (Reflect.get(window, 'mediaRequests') ?? 0) + 1);
+        const context = new AudioContext({ sampleRate: 16000 });
+        const source = context.createConstantSource();
+        source.offset.value = 0.05;
+        const output = context.createMediaStreamDestination();
+        source.connect(output);
+        source.start();
+        await context.resume();
+        Reflect.set(window, 'syntheticTracks', output.stream.getTracks());
+        return output.stream;
+      },
+    });
+  });
+}
+const defaultWake = { version: 1 as const, enabled: true, source: 'default' as const };
+const installedWake = {
+  status: 'off' as const,
+  keyword: '丽塔同学',
+  installed: true,
+  detectionId: null,
+  error: null,
+};
+
+test('default wake and an existing service connection stay separate; only a wake stages capture, and explicit off survives restart', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page);
+  const f = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  f.publishVoice({
+    configured: true,
+    status: 'ready',
+    connectionPreference: defaultWake,
+    wakePreference: defaultWake,
+    wake: installedWake,
+  });
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
+  expect(f.voiceCommands.filter((c) => c.action === 'arm-wake')).toHaveLength(1);
+  expect(
+    f.voiceCommands.some((c) => ['connect', 'listen', 'start-session'].includes(String(c.action))),
+  ).toBe(false);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests'))).toBeUndefined();
+  expect(await page.evaluate(() => Reflect.get(window, 'requestedAudioConstraints'))).toMatchObject(
+    {
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false,
+    },
+  );
+  f.publishVoice({ wake: { ...installedWake, status: 'detected', detectionId: randomUUID() } });
+  await expect.poll(() => f.voiceCommands.filter((c) => c.action === 'listen').length).toBe(1);
+  expect(f.voiceCommands.filter((c) => c.action === 'connect')).toHaveLength(0);
+  expect(f.contexts).toHaveLength(1);
+  await page.getByRole('button', { name: '关闭语音', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'syntheticTracks') as MediaStreamTrack[]).every(
+          (t) => t.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.reload();
+  await page.getByText('语音唤醒', { exact: true }).click();
+  await expect(page.getByRole('button', { name: '启用自动唤醒', exact: true })).toBeVisible();
+  expect(f.voiceCommands.filter((c) => c.action === 'arm-wake')).toHaveLength(1);
+});
+
+test('an enabled preference starts again on a fresh authorized app session without another toggle', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page);
+  const f = await open(page, runtime());
+  f.publishVoice({ wakePreference: defaultWake, wake: installedWake });
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
+  await expect.poll(() => f.voiceCommands.filter((c) => c.action === 'arm-wake').length).toBe(1);
+  // Simulate the fresh service state after application restart; preference remains enabled.
+  f.publishVoice({ status: 'disconnected', wake: installedWake, wakeAutoSuspended: false });
+  await page.reload();
+  await expect.poll(() => f.voiceCommands.filter((c) => c.action === 'arm-wake').length).toBe(2);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests'))).toBeUndefined();
+});
+
+for (const permission of ['denied', 'not-determined']) {
+  test(`default wake guides ${permission} authorization without requesting access or media`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      (value) => Reflect.set(window, 'testMicrophonePermission', value),
+      permission,
+    );
+    await syntheticMicrophone(page);
+    const f = await open(page, runtime());
+    f.publishVoice({ wakePreference: defaultWake, wake: installedWake });
+    await expect(page.getByRole('status').filter({ hasText: '自动唤醒待授权' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '配置默认唤醒', exact: true })).toBeVisible();
+    expect(f.voiceCommands).toHaveLength(0);
+    expect(await page.evaluate(() => Reflect.get(window, 'mediaRequests'))).toBeUndefined();
+    expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests'))).toBeUndefined();
+  });
+}
+
+test('default wake waits for a missing model and stops when microphone authorization is revoked', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page);
+  const f = await open(page, runtime());
+  f.publishVoice({ wakePreference: defaultWake });
+  await expect(page.getByRole('button', { name: '配置默认唤醒', exact: true })).toBeVisible();
+  expect(f.voiceCommands).toHaveLength(0);
+  f.publishVoice({ wake: installedWake });
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
+  await page.evaluate(() => Reflect.set(window, 'testMicrophonePermission', 'denied'));
+  await expect(page.getByRole('alert').filter({ hasText: '麦克风权限已撤销' })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (Reflect.get(window, 'syntheticTracks') as MediaStreamTrack[]).every(
+          (t) => t.readyState === 'ended',
+        ),
+      ),
+    )
+    .toBe(true);
+  expect(f.voiceCommands.filter((c) => c.action === 'arm-wake')).toHaveLength(1);
+});
+
+test('own TTS and its short echo tail mute outgoing microphone frames, then normal input resumes', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page);
+  const f = await open(page, runtime());
+  f.publishVoice({ configured: true, status: 'ready' });
+  await page.getByRole('button', { name: '开始收音', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (Reflect.get(window, 'inputFrames') ?? []).filter(
+            (frame: { max: number }) => frame.max > 0,
+          ).length,
+      ),
+    )
+    .toBeGreaterThan(5);
+  const end = await page.evaluate(() => {
+    const pcm = new Int16Array(4000).fill(5000);
+    const bytes = new Uint8Array(pcm.buffer);
+    Reflect.get(
+      window,
+      'voiceAudioListener',
+    )({ pcm: btoa(String.fromCharCode(...bytes)), sampleRate: 16000 });
+    return performance.now() + 280;
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        (after) =>
+          (Reflect.get(window, 'inputFrames') ?? []).some(
+            (frame: { at: number; max: number }) => frame.at > after + 700 && frame.max > 0,
+          ),
+        end,
+      ),
+    )
+    .toBe(true);
+  const tail = await page.evaluate(
+    (after) =>
+      (Reflect.get(window, 'inputFrames') ?? []).filter(
+        (frame: { at: number }) => frame.at > after + 50 && frame.at < after + 450,
+      ),
+    end,
+  );
+  expect(tail.length).toBeGreaterThan(5);
+  expect(tail.every((frame: { max: number }) => frame.max === 0)).toBe(true);
+  await page.getByText('语音唤醒', { exact: true }).click();
+  await page.getByText('音频来源与回声', { exact: true }).click();
+  await expect(page.getByText(/浏览器报告：回声消除/)).toBeVisible();
+  await page.getByRole('button', { name: '关闭语音', exact: true }).click();
+});
+
+test('service reconnect status is separate from local wake and explicit disconnect does not trigger an automatic reconnect', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page);
+  const f = await open(page, runtime());
+  f.publishVoice({
+    configured: true,
+    status: 'ready',
+    wakePreference: defaultWake,
+    connectionPreference: defaultWake,
+    wake: installedWake,
+  });
+  await expect(page.getByRole('status', { name: '语音服务连接状态', exact: true })).toHaveText(
+    '服务已连接',
+  );
+  await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
+  f.publishVoice({
+    status: 'failed',
+    connection: {
+      attempt: 3,
+      nextRetryAt: new Date(Date.now() + 4000).toISOString(),
+      exhausted: false,
+    },
+  });
+  await expect(page.getByRole('status', { name: '语音服务连接状态', exact: true })).toHaveText(
+    '服务重连 3/6',
+  );
+  expect(
+    await page.evaluate(() =>
+      (Reflect.get(window, 'syntheticTracks') as MediaStreamTrack[]).every(
+        (t) => t.readyState === 'live',
+      ),
+    ),
+  ).toBe(true);
+  f.publishVoice({
+    status: 'ready',
+    connection: { attempt: 3, nextRetryAt: null, exhausted: false },
+  });
+  await page.locator('summary[aria-label="更多语音操作"]').click();
+  await page.getByRole('button', { name: '断开语音服务', exact: true }).click();
+  await expect(page.getByRole('status', { name: '语音服务连接状态', exact: true })).toHaveText(
+    '服务已手动断开',
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event('online')));
+  expect(f.voiceCommands.some((c) => c.action === 'retry-connection')).toBe(false);
+  await page.getByText('语音唤醒', { exact: true }).click();
+  await page.getByRole('button', { name: '关闭语音唤醒', exact: true }).click();
+});
+
+async function previewFixture(page: Page) {
+  const binding = {
+    id: randomUUID(),
+    projectId,
+    revision: 1,
+    epoch: 1,
+    url: 'http://127.0.0.1:5174/',
+    title: 'Test preview',
+  };
+  await page.addInitScript(
+    ({ binding }) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 600;
+      const context = canvas.getContext('2d');
+      context?.fillRect(0, 0, 800, 600);
+      Reflect.set(window, 'testPreviewSnapshot', {
+        binding,
+        text: 'Preview',
+        image: canvas.toDataURL('image/png').split(',')[1],
+        width: 800,
+        height: 600,
+      });
+      Reflect.set(
+        window,
+        'testPreviewInspect',
+        async (input: { target: string; x?: number; ref?: string }) => {
+          const right = input.ref === 'r2' || (input.x ?? 0) > 0.5;
+          const value = {
+            binding,
+            ref: right ? 'r2' : 'r1',
+            description: right ? 'Right button' : 'Left button',
+            label: right ? 'button#right' : 'button#left',
+            bounds: { x: right ? 0.55 : 0.15, y: 0.3, width: 0.25, height: 0.15 },
+          };
+          if (Reflect.get(window, 'holdPreview'))
+            return new Promise((resolve) => {
+              const pending = Reflect.get(window, 'pendingPreview') ?? [];
+              pending.push(() => resolve(value));
+              Reflect.set(window, 'pendingPreview', pending);
+            });
+          return value;
+        },
+      );
+    },
+    { binding },
+  );
+  return open(page, runtime(), false, { preview: binding });
+}
+test('annotation hover switches targets, locks into the draft, scrolls only while picking and clears on cancel', async ({
+  page,
+}) => {
+  await previewFixture(page);
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  const image = await page.locator('.preview-pick img').boundingBox();
+  if (!image) throw new Error('missing preview');
+  const center = { x: image.x + image.width / 2, y: image.y + image.height / 2 };
+  await page.mouse.move(center.x - 30, center.y);
+  await expect(page.locator('.preview-element-label')).toHaveText('button#left');
+  await page.mouse.move(center.x + 30, center.y);
+  await expect(page.locator('.preview-element-label')).toHaveText('button#right');
+  await page.mouse.wheel(0, 120);
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'previewScroll')?.deltaY))
+    .toBe(120);
+  await page.mouse.click(center.x + 30, center.y);
+  await expect(page.getByLabel('给选中元素的批注', { exact: true })).toBeVisible();
+  await expect(page.locator('.preview-element-outline.locked')).toBeVisible();
+  await page.getByRole('button', { name: '清除选择', exact: true }).click();
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  await page.mouse.move(center.x, center.y);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  );
+});
+test('Esc discards late hover and click replies without selecting or submitting an element', async ({
+  page,
+}) => {
+  const f = await previewFixture(page);
+  await page.evaluate(() => Reflect.set(window, 'holdPreview', true));
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  const image = await page.locator('.preview-pick img').boundingBox();
+  if (!image) throw new Error('missing preview');
+  await page.mouse.move(image.x + image.width / 2, image.y + image.height / 2);
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'pendingPreview')?.length ?? 0))
+    .toBeGreaterThan(0);
+  await page.mouse.click(image.x + image.width / 2, image.y + image.height / 2);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    Reflect.set(window, 'holdPreview', false);
+    for (const resolve of Reflect.get(window, 'pendingPreview') ?? []) resolve();
+  });
+  await expect(page.locator('.preview-element-outline')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '清除选择', exact: true })).toHaveCount(0);
+  expect(f.commands).toHaveLength(0);
+});
+
 test('header project controls reuse existing actions and respect project and task availability', async ({
   page,
 }, testInfo) => {
@@ -1112,10 +1519,7 @@ test('header project controls reuse existing actions and respect project and tas
     return route.fulfill({ json: fixture.state() });
   });
   await expect(
-    page.getByRole('heading', {
-      name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
-      exact: true,
-    }),
+    page.getByText('点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
   await expect.poll(() => actions).toEqual(['new-project']);
@@ -1123,7 +1527,12 @@ test('header project controls reuse existing actions and respect project and tas
   await menu.click();
   await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
   fixture.publishVoice({ configured: true, status: 'ready' });
-  await expect(page.locator('.voice-status')).toHaveCSS('color', 'rgb(35, 115, 74)');
+  await expect(page.getByRole('status', { name: '语音服务连接状态', exact: true })).toHaveCSS(
+    'color',
+    'rgb(35, 115, 74)',
+  );
+  await expect(page.locator('.voice-status > svg > path').first()).toHaveAttribute('d', /^m2 2/);
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('project-header-connected.png') });
   await page.getByRole('button', { name: '打开项目', exact: true }).click();
   await expect.poll(() => actions).toEqual(['new-project', 'select-project']);
@@ -1138,4 +1547,59 @@ test('header project controls reuse existing actions and respect project and tas
   await menu.click();
   await expect(page.getByRole('button', { name: '打开项目', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
+});
+
+test('operator and display distinguish service connection, local wake and actual microphone state', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const cases = [
+    { status: 'ready', active: false, wake: 'off', muted: true, label: '服务已连接' },
+    { status: 'ready', active: false, wake: 'armed', muted: false, label: '服务已连接' },
+    { status: 'listening', active: true, wake: 'off', muted: false, label: '服务已连接' },
+    { status: 'speaking', active: true, wake: 'off', muted: false, label: '服务已连接' },
+    { status: 'disconnected', active: false, wake: 'armed', muted: false, label: '服务已手动断开' },
+    { status: 'failed', active: false, wake: 'off', muted: true, label: '服务重连 2/6' },
+  ] as const;
+  for (const path of ['/', '/display']) {
+    await page.goto(path);
+    const icon = page
+      .locator(path === '/' ? '.voice-status > svg > path' : '.live-mic-state > svg > path')
+      .first();
+    const service = page.getByRole('status', { name: '语音服务连接状态', exact: true });
+    for (const row of cases) {
+      f.publishVoice({
+        configured: true,
+        status: row.status,
+        conversationActive: row.active,
+        connectionPreference: {
+          version: 1,
+          enabled: row.status !== 'disconnected',
+          source: 'user',
+        },
+        connection: {
+          attempt: row.status === 'failed' ? 2 : 0,
+          nextRetryAt: row.status === 'failed' ? new Date(Date.now() + 4000).toISOString() : null,
+          exhausted: false,
+        },
+        wake: {
+          status: row.wake,
+          keyword: '丽塔同学',
+          installed: true,
+          detectionId: null,
+          error: null,
+        },
+      });
+      await expect(service).toHaveText(row.label);
+      await expect(icon).toBeVisible();
+      if (row.muted) await expect(icon).toHaveAttribute('d', /^m2 2/);
+      else await expect(icon).not.toHaveAttribute('d', /^m2 2/);
+      if (row.label === '服务已连接') await expect(service).toHaveCSS('color', 'rgb(35, 115, 74)');
+    }
+    if (path === '/display') {
+      await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
+    }
+  }
+  expect(f.commands).toHaveLength(0);
 });

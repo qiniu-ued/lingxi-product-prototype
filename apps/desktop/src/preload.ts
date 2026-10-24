@@ -4,8 +4,11 @@ contextBridge.exposeInMainWorld('lingxiDesktop', {
   action: (input: unknown) => ipcRenderer.invoke('desktop.action', input),
   snapshot: () => ipcRenderer.invoke('desktop.snapshot'),
   pick: (input: unknown) => ipcRenderer.invoke('desktop.pick', input),
+  inspect: (input: unknown) => ipcRenderer.invoke('desktop.inspect', input),
+  scrollPreview: (input: unknown) => ipcRenderer.invoke('desktop.preview-scroll', input),
   info: () => ipcRenderer.invoke('desktop.info'),
   microphone: () => ipcRenderer.invoke('desktop.microphone'),
+  microphoneStatus: () => ipcRenderer.invoke('desktop.microphone-status'),
   copy: (text: string) => ipcRenderer.invoke('desktop.copy', text),
   audioFrame: (pcm: ArrayBuffer) => ipcRenderer.send('voice.frame', pcm),
   onAudio: (listener: (value: unknown) => void) => {

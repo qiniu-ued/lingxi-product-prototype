@@ -6,9 +6,10 @@ import {
   workbenchSchema,
 } from '@lingxi/protocol';
 import Database from 'better-sqlite3';
+import { summarizeTurnUsage, type TurnUsageRecord, turnUsageRecordSchema } from './turn-usage.js';
 
 function legacySnapshot(state: WorkbenchState) {
-  const { runtime: _runtime, ...snapshot } = workbenchSchema.parse(state);
+  const { runtime: _runtime, turnUsage: _turnUsage, ...snapshot } = workbenchSchema.parse(state);
   return { ...snapshot, terminal: null };
 }
 
@@ -23,6 +24,7 @@ export class WorkbenchStore {
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS workspace_thread_runtime_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workspace_turn_usage_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_state (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_requests (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_state_v2 (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
@@ -88,7 +90,11 @@ export class WorkbenchStore {
     const state = workbenchSchema.parse(JSON.parse(row.value));
     const selected = state.threads.find((thread) => thread.id === state.selectedThreadId);
     const runtime = selected ? this.runtime(selected.id) : null;
-    return { ...state, runtime: runtime && runtime.codexId === selected?.codexId ? runtime : null };
+    return {
+      ...state,
+      runtime: runtime && runtime.codexId === selected?.codexId ? runtime : null,
+      turnUsage: this.turnUsage(state.history),
+    };
   }
   write(state: WorkbenchState) {
     this.db.transaction(() => {
@@ -116,6 +122,38 @@ export class WorkbenchStore {
         'INSERT INTO workspace_thread_runtime_v1(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',
       )
       .run(runtime.conversationId, JSON.stringify(runtime));
+  }
+  usageRecord(taskId: string): TurnUsageRecord | null {
+    const row = this.db
+      .prepare('SELECT value FROM workspace_turn_usage_v1 WHERE id=?')
+      .get(taskId) as { value: string } | undefined;
+    return row ? turnUsageRecordSchema.parse(JSON.parse(row.value)) : null;
+  }
+  writeUsageRecord(value: TurnUsageRecord) {
+    const record = turnUsageRecordSchema.parse(value);
+    this.db
+      .prepare(
+        'INSERT INTO workspace_turn_usage_v1(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',
+      )
+      .run(record.taskId, JSON.stringify(record));
+  }
+  turnUsage(tasks: WorkbenchState['history']) {
+    return tasks.flatMap((task) => {
+      const record = this.usageRecord(task.id);
+      if (
+        !record ||
+        record.codexId !== task.threadId ||
+        record.conversationId !== task.conversationId ||
+        record.turnId !== task.turnId
+      )
+        return [];
+      return [
+        summarizeTurnUsage(
+          record,
+          record.previousTaskId ? this.usageRecord(record.previousTaskId) : null,
+        ),
+      ];
+    });
   }
   request(id: string) {
     const row = this.db.prepare('SELECT value FROM workspace_turns_v2 WHERE id=?').get(id) as

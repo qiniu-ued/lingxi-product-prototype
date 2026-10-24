@@ -14,6 +14,7 @@ let currentThread = 'thread-1',
   turnSequence = 0,
   threadSequence = 0;
 let terminalRequest;
+let lateUsage;
 const usage = (tokens, window = 128000, threadId = currentThread, turnId = currentTurn) => ({
   method: 'thread/tokenUsage/updated',
   params: {
@@ -41,6 +42,30 @@ const usage = (tokens, window = 128000, threadId = currentThread, turnId = curre
   },
 });
 const complete = () => {
+  const roundUsage = (total) => {
+    const event = usage(120);
+    const input = (total * 5) / 6;
+    event.params.tokenUsage.last = {
+      totalTokens: 120,
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedInputTokens: 40,
+      cacheWriteInputTokens: 0,
+      reasoningOutputTokens: 10,
+    };
+    event.params.tokenUsage.total = {
+      totalTokens: total,
+      inputTokens: input,
+      outputTokens: total - input,
+      cachedInputTokens: input <= 200 ? input / 2 : 100 + (input - 200) * 0.4,
+      cacheWriteInputTokens: 0,
+      reasoningOutputTokens: total / 12,
+    };
+    return event;
+  };
+  const measure =
+    mode.startsWith('turn-usage') && !(mode === 'turn-usage-missing' && turnSequence === 1);
+  if (measure) emit(roundUsage(turnSequence * 240 - 120));
   if (mode === 'telemetry') emit(usage(64000));
   emit({
     method: 'turn/diff/updated',
@@ -93,7 +118,20 @@ const complete = () => {
       turn: { id: currentTurn, status: mode === 'failed' ? 'failed' : 'completed' },
     },
   });
-  emit(usage(32000, mode === 'usage-unknown' ? null : 128000));
+  if (measure) {
+    const final = roundUsage(turnSequence * 240);
+    if (mode === 'turn-usage-late' && turnSequence === 1) lateUsage = final;
+    else {
+      emit(final);
+      emit(final); // Duplicate notifications cannot double-count a request.
+      if (mode === 'turn-usage-reset') emit(roundUsage(120));
+    }
+  } else if (!mode.startsWith('turn-usage'))
+    emit(usage(32000, mode === 'usage-unknown' ? null : 128000));
+  if (lateUsage && turnSequence > 1) {
+    emit(lateUsage); // Arrives after the newer turn's final report.
+    lateUsage = undefined;
+  }
   if (mode === 'telemetry') {
     emit(usage(96000, 128000, 'foreign-thread'));
     emit(usage(96000, 128000, currentThread, 'old-turn'));

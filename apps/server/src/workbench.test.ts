@@ -483,3 +483,85 @@ it('keeps unknown window capacity unknown and isolates new/forked conversation u
   await wb.command({ action: 'select-thread', id: original });
   expect(wb.read().runtime?.usage?.last.totalTokens).toBe(32000);
 });
+it.each(['turn-usage', 'turn-usage-late'])(
+  'keeps per-turn consumption across multiple requests, duplicates, queueing, late reports and restart (%s)',
+  async (mode) => {
+    const { wb, root } = await create(mode);
+    const first = randomUUID(),
+      second = randomUUID();
+    wb.start(first, 'first round');
+    wb.start(second, 'second round', null, [], 'queue');
+    await until(
+      wb,
+      (state) =>
+        state.task?.id === second &&
+        state.task.status === 'completed' &&
+        state.runtime?.usage?.total.totalTokens === 480,
+    );
+    const usage = wb.read().turnUsage;
+    expect(usage).toHaveLength(2);
+    expect(usage[0]).toMatchObject({
+      taskId: first,
+      status: 'reported',
+      tokens: {
+        totalTokens: 240,
+        inputTokens: 200,
+        cachedInputTokens: 100,
+        outputTokens: 40,
+      },
+    });
+    expect(usage[1]).toMatchObject({
+      taskId: second,
+      status: 'reported',
+      tokens: {
+        totalTokens: 240,
+        inputTokens: 200,
+        cachedInputTokens: 80,
+        outputTokens: 40,
+      },
+    });
+    expect(wb.read().runtime?.usage?.last.totalTokens).toBe(120);
+    expect(wb.read().runtime?.usage?.total.totalTokens).toBe(480);
+    await wb.close();
+    const next = new Workbench({
+      databasePath: join(root, 'db.sqlite'),
+      codex: new CodexSetup({ toolsRoot: root }),
+      mcpToken: '',
+    });
+    cleanup.push(() => next.close());
+    expect(next.read().turnUsage).toEqual(usage);
+  },
+);
+it('does not turn missing reports into zero consumption or reuse a fork parent baseline', async () => {
+  const { wb } = await create('turn-usage-missing');
+  const first = randomUUID(),
+    second = randomUUID();
+  wb.start(first, 'no usage report');
+  wb.start(second, 'missing baseline', null, [], 'queue');
+  await until(
+    wb,
+    (state) =>
+      state.task?.id === second &&
+      state.task.status === 'completed' &&
+      state.runtime?.usage?.total.totalTokens === 480,
+  );
+  expect(wb.read().turnUsage.map((u) => [u.status, u.tokens])).toEqual([
+    ['waiting', null],
+    ['baseline-missing', null],
+  ]);
+  const original = wb.read().selectedThreadId as string;
+  await wb.command({ action: 'fork', taskId: second, kind: 'fork' });
+  expect(wb.read().turnUsage).toEqual([]);
+  wb.start(randomUUID(), 'fork round');
+  await until(wb, (state) => state.task?.status === 'completed' && !!state.turnUsage[0]?.updatedAt);
+  expect(wb.read().turnUsage[0]).toMatchObject({ status: 'baseline-missing', tokens: null });
+  await wb.command({ action: 'select-thread', id: original });
+  expect(wb.read().turnUsage).toHaveLength(2);
+});
+it('marks a decrease in cumulative counters unavailable instead of showing a smaller completed bill', async () => {
+  const { wb } = await create('turn-usage-reset');
+  wb.start(randomUUID(), 'reset cumulative counters');
+  await until(wb, (state) => state.turnUsage[0]?.status === 'counter-reset');
+  expect(wb.read().task?.status).toBe('completed');
+  expect(wb.read().turnUsage[0]?.tokens).toBeNull();
+});

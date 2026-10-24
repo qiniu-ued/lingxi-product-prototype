@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { reasoningEffortSchema, threadRuntimeSchema } from './model-usage.js';
+import { reasoningEffortSchema, threadRuntimeSchema, turnUsageSchema } from './model-usage.js';
 
 export const projectSchema = z.strictObject({ id: z.uuid(), name: z.string(), path: z.string() });
 export const previewBindingSchema = z.strictObject({
@@ -159,6 +159,7 @@ export const workbenchSchema = z.strictObject({
   settings: threadSettingsSchema.default({ model: null, effort: null, plan: false }),
   terminal: terminalStateSchema.nullable().default(null),
   runtime: threadRuntimeSchema.nullable().default(null),
+  turnUsage: z.array(turnUsageSchema).default([]),
 });
 export const startTaskSchema = z.strictObject({
   requestId: z.uuid(),

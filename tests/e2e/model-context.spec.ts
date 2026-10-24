@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { type ThreadRuntime, workbenchSchema } from '@lingxi/protocol';
+import {
+  type ThreadRuntime,
+  taskSchema,
+  type WorkbenchState,
+  workbenchSchema,
+} from '@lingxi/protocol';
 import { expect, type Page, test } from '@playwright/test';
 
 const projectId = randomUUID(),
@@ -59,7 +64,12 @@ function runtime(): ThreadRuntime {
     usageUpdatedAt: new Date().toISOString(),
   };
 }
-async function open(page: Page, report: ThreadRuntime | null, failModels = false) {
+async function open(
+  page: Page,
+  report: ThreadRuntime | null,
+  failModels = false,
+  extra: Partial<WorkbenchState> = {},
+) {
   let state = workbenchSchema.parse({
     schemaVersion: 1,
     revision: 1,
@@ -69,6 +79,7 @@ async function open(page: Page, report: ThreadRuntime | null, failModels = false
     preview: null,
     runtime: report,
     settings: { model: 'test-model', effort: 'high', plan: false },
+    ...extra,
   });
   await page.addInitScript(
     ({ snapshot }) => {
@@ -79,7 +90,9 @@ async function open(page: Page, report: ThreadRuntime | null, failModels = false
           onopen?: () => void;
           listener?: (event: { data: string }) => void;
           timer: ReturnType<typeof setTimeout>;
+          broadcast = (event: Event) => this.listener?.({ data: (event as CustomEvent).detail });
           constructor() {
+            window.addEventListener('fixture-snapshot', this.broadcast);
             this.timer = setTimeout(() => {
               this.onopen?.();
               this.listener?.({ data: snapshot });
@@ -90,6 +103,7 @@ async function open(page: Page, report: ThreadRuntime | null, failModels = false
           }
           close() {
             clearTimeout(this.timer);
+            window.removeEventListener('fixture-snapshot', this.broadcast);
           }
         },
       });
@@ -111,6 +125,12 @@ async function open(page: Page, report: ThreadRuntime | null, failModels = false
     state: () => state,
     allowModels: () => {
       failModels = false;
+    },
+    publish: async (change: Partial<WorkbenchState>) => {
+      state = { ...state, ...change, revision: state.revision + 1 };
+      await page.evaluate((snapshot) => {
+        window.dispatchEvent(new CustomEvent('fixture-snapshot', { detail: snapshot }));
+      }, JSON.stringify(state));
     },
   };
 }
@@ -155,4 +175,110 @@ test('no usage report is shown as waiting rather than zero consumption', async (
     '等待 Codex 报告用量',
   );
   await expect(page.getByRole('meter')).toHaveCount(0);
+});
+
+function turn(prompt: string, status = 'completed') {
+  const now = new Date().toISOString();
+  return taskSchema.parse({
+    id: randomUUID(),
+    projectId,
+    conversationId,
+    threadId: 'thread',
+    turnId: prompt,
+    prompt,
+    status,
+    messages: [{ id: 'answer', text: `${prompt}的回答` }],
+    activity: 'done',
+    approval: null,
+    error: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+test('each completed turn shows its own tokens and input cache hit rate, including late SSE updates', async ({
+  page,
+}) => {
+  const first = turn('第一轮'),
+    second = turn('第二轮'),
+    running = turn('运行中', 'running');
+  const fixture = await open(page, runtime(), false, {
+    history: [first, second, running],
+    task: running,
+    turnUsage: [{ taskId: first.id, status: 'reported', tokens: usage.last, updatedAt: null }],
+  });
+  const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
+  const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
+  await expect(firstTurn.getByRole('region', { name: '本轮 Token 用量' })).toContainText(
+    '本轮 32,000 tokens',
+  );
+  await expect(firstTurn).toContainText('缓存命中率 40.0%');
+  await expect(secondTurn).toContainText('本轮用量未报告');
+  await expect(secondTurn).not.toContainText('本轮 0 tokens');
+  await expect(
+    page
+      .locator('article.conversation-turn')
+      .filter({ hasText: '运行中' })
+      .getByRole('region', { name: '本轮 Token 用量' }),
+  ).toHaveCount(0);
+  await fixture.publish({
+    turnUsage: [
+      ...fixture.state().turnUsage,
+      {
+        taskId: second.id,
+        status: 'reported',
+        tokens: {
+          ...usage.last,
+          totalTokens: 48000,
+          inputTokens: 40000,
+          outputTokens: 8000,
+          cachedInputTokens: 10000,
+        },
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+  });
+  await expect(secondTurn).toContainText('本轮 48,000 tokens');
+  await expect(secondTurn).toContainText('缓存命中率 25.0%');
+  await expect(firstTurn).toContainText('缓存命中率 40.0%');
+  await secondTurn.getByText('本轮用量明细', { exact: true }).click();
+  await expect(secondTurn.getByRole('definition').first()).toHaveText('10,000');
+});
+test('missing baselines, cache counters and zero input do not invent cache hits', async ({
+  page,
+}) => {
+  const missing = turn('缺少基线'),
+    noCache = turn('缺少缓存'),
+    zero = turn('无输入'),
+    partial = turn('已中断', 'interrupted');
+  await open(page, null, false, {
+    history: [missing, noCache, zero, partial],
+    turnUsage: [
+      { taskId: missing.id, status: 'baseline-missing', tokens: null, updatedAt: null },
+      {
+        taskId: noCache.id,
+        status: 'reported',
+        tokens: { ...usage.last, cachedInputTokens: null },
+        updatedAt: null,
+      },
+      {
+        taskId: zero.id,
+        status: 'reported',
+        tokens: {
+          ...usage.last,
+          totalTokens: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          cachedInputTokens: 0,
+        },
+        updatedAt: null,
+      },
+      { taskId: partial.id, status: 'reported', tokens: usage.last, updatedAt: null },
+    ],
+  });
+  const article = (text: string) =>
+    page.locator('article.conversation-turn').filter({ hasText: text });
+  await expect(article('缺少基线')).toContainText('缺少起始累计值，无法计算本轮用量');
+  await expect(article('缺少缓存')).toContainText('缓存命中率 未报告');
+  await expect(article('无输入')).toContainText('缓存命中率 不适用（无输入）');
+  await expect(article('已中断')).toContainText('截至最后报告的用量');
 });

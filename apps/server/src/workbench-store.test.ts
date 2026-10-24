@@ -106,6 +106,7 @@ it('stores runtime telemetry separately and keeps v2 snapshots readable by old s
     expect(store.read().runtime).toEqual(state.runtime);
     const row = db.prepare('SELECT value FROM workspace_state_v2').get() as { value: string };
     expect(JSON.parse(row.value)).not.toHaveProperty('runtime');
+    expect(JSON.parse(row.value)).not.toHaveProperty('turnUsage');
     state.threads = state.threads.map((thread) => ({
       ...thread,
       codexId: 'different-provider-thread',

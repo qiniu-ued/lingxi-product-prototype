@@ -343,3 +343,30 @@
 .context-usage.compact {
   font-size: 18px;
 }
+.turn-usage {
+  border-top: 1px solid #514a3f;
+  margin-top: 8px;
+  padding-top: 6px;
+  color: #c9bfae;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.turn-usage-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.turn-usage details {
+  margin-top: 4px;
+}
+.turn-usage dl {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+}
+.turn-usage dd {
+  margin: 0;
+}
+.turn-usage.compact {
+  font-size: 18px;
+}

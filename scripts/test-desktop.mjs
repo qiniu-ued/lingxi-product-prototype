@@ -567,6 +567,21 @@ try {
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
+  assert.equal(
+    await reopened
+      .getByRole('link', { name: '打开灵矽控制台 ↗', exact: true })
+      .getAttribute('href'),
+    'https://xrobo.qiniu.com/',
+  );
+  await reopened.getByText('配置语音工作台角色', { exact: true }).click();
+  await reopened.getByRole('button', { name: '复制角色说明', exact: true }).click();
+  const role = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(role.includes('workbench_submit') && role.includes('把这个页面变成粉色'));
+  assert.equal(
+    (await (await fetch(`${reopenedAddress}/api/voice`)).json()).allowVoiceSubmit,
+    false,
+    'Viewing binding instructions and copying the role must not enable voice execution',
+  );
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
   await reopened
     .getByRole('navigation', { name: '连接步骤' })

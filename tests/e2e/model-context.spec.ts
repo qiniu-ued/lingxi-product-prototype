@@ -269,6 +269,9 @@ async function open(
   await page.route('**/api/voice/command', (route) => {
     const body = route.request().postDataJSON();
     voiceCommands.push(body);
+    if (body.action === 'connect') voice = { ...voice, status: 'ready', error: null };
+    if (body.action === 'disconnect')
+      voice = { ...voice, status: 'disconnected', deviceToolsReady: false };
     if (body.action === 'install-wake')
       voice = { ...voice, wake: { ...voice.wake, installed: true, status: 'off' } };
     if (body.action === 'arm-wake')
@@ -894,12 +897,66 @@ test('permanent settings keep the active composer and manage voice consent and t
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
+  for (let cycle = 0; cycle < 2; cycle++) {
+    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+    if (cycle === 0) {
+      await page.goBack();
+    } else {
+      await page.getByRole('button', { name: '连接向导', exact: true }).click();
+      await expect(
+        page.getByRole('heading', { name: '先检查，再配置。', exact: true }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: '设置', exact: true }).click();
+      await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+    }
+    await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
+    await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
+  }
   expect(fixture.commands).toHaveLength(0);
   expect(
     fixture.voiceCommands.some(
       (command) => command.action === 'listen' || command.action === 'arm-wake',
     ),
   ).toBe(false);
+});
+test('voice connection failure can be retried and disconnected in settings without microphone capture or task submission', async ({
+  page,
+}) => {
+  const fixture = await open(page, runtime());
+  fixture.publishVoice({ configured: true, status: 'disconnected', allowVoiceSubmit: false });
+  let fail = true;
+  await page.route('**/api/voice/command', (route) => {
+    if (route.request().postDataJSON().action === 'connect' && fail) {
+      fail = false;
+      return route.fulfill({ status: 503, json: { error: 'PRIVATE_PROVIDER_ERROR' } });
+    }
+    return route.fallback();
+  });
+  await page.getByRole('button', { name: '连接灵矽', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('操作未完成');
+  await expect(page.getByRole('alert')).not.toContainText('PRIVATE_PROVIDER_ERROR');
+  await page.getByRole('button', { name: '连接灵矽', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '灵矽已连接' })).toBeVisible();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /灵矽与语音执行/ })
+    .click();
+  await expect(page.getByRole('checkbox', { name: /允许主动收音后用语音提交/ })).not.toBeChecked();
+  await page.getByRole('button', { name: '断开语音', exact: true }).click();
+  await expect(page.getByRole('status').filter({ hasText: '语音未连接' })).toBeVisible();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
+  await expect(page.getByRole('button', { name: '连接灵矽', exact: true })).toBeEnabled();
+  expect(
+    fixture.voiceCommands.some(
+      (command) => command.action === 'listen' || command.action === 'arm-wake',
+    ),
+  ).toBe(false);
+  expect(fixture.commands).toHaveLength(0);
+  expect(fixture.contexts).toHaveLength(0);
 });
 test('voice handoff distinguishes draft-only, unhandled voice replies and accepted tasks on both screens', async ({
   page,

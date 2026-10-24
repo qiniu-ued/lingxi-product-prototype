@@ -69,3 +69,5 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 每轮消耗由累计值前后差计算，在结束回复下方展示总量、输入/输出、缓存命中率。`workspace_turn_usage_v1` 独立保存基线、前驱轮次和原始累计报告，快照 `turnUsage` 按当前历史派生，旧 v2 JSON 不增加字段。已知历史轮次的迟到报告只修正对应轮次及下一轮基线，不能覆盖更新的窗口占用。数据缺失和计数重置不估算。见 [ADR 0006](adr/0006-turn-token-consumption.md)。
 
 模式与权限映射、独立验证进程、只读能力发现、结构化目录及语音切换见 [ADR 0007](adr/0007-official-modes-and-readable-tools.md)。权限偏好与排队时捕获的选择存入 `workspace_permissions_v1`，旧 v2 状态与任务 JSON 格式不增加属性。
+
+历史选段作为现有 text 附件进入草稿，不扩展持久 Task。选段 Sidechat 的 fork 请求额外携带来源任务、消息与原文，服务端核对当前项目/对话，连接取得后再次检查上下文；仅创建截至来源轮次的只读对话，不自动执行模型。各项目/对话的草稿只保存在页面内存，异步操作写入原定目标。详见 [ADR 0008](adr/0008-history-quotes-and-drafts.md)。

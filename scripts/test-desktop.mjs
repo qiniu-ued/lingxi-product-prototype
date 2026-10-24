@@ -164,6 +164,46 @@ try {
     .find((message) => message.method === 'turn/start');
   assert.equal(started.params.collaborationMode.mode, 'default');
   assert.equal(started.params.approvalsReviewer, 'user');
+  const summary = operator.getByRole('region', { name: '本轮用量摘要', exact: true }).first();
+  await summary.waitFor();
+  assert.ok((await summary.textContent()).includes('本轮 150,000 tokens'));
+  assert.equal(
+    await operator
+      .getByRole('meter', { name: '当前上下文占用', exact: true })
+      .getAttribute('aria-valuetext'),
+    '25.0% 已使用',
+  );
+  const reply = operator.locator('[data-history-role="assistant"]').first();
+  await reply.selectText();
+  await reply.dispatchEvent('mouseup');
+  await operator.getByRole('button', { name: '引用到对话', exact: true }).click();
+  await operator
+    .locator('.context-attachments')
+    .getByText('引用原文：', { exact: false })
+    .waitFor();
+  assert.ok((await operator.locator('.context-attachments').textContent()).includes('本轮已完成'));
+  await operator
+    .locator('.context-attachments')
+    .getByRole('button', { name: '移除', exact: true })
+    .click();
+  await operator.getByLabel('给 Codex 的本轮指令').fill('主对话草稿保留');
+  await reply.selectText();
+  await reply.dispatchEvent('mouseup');
+  await operator.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
+  await operator.waitForFunction(
+    () => document.querySelector('#permission-mode').value === 'sidechat',
+  );
+  assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '');
+  assert.ok((await operator.locator('.context-attachments').textContent()).includes('本轮已完成'));
+  const discussion = await (await fetch(`${address}/api/workbench`)).json();
+  assert.equal(discussion.task, null, 'Selecting Sidechat must not submit a model task');
+  await expand(operator, '.workbench-menu');
+  await operator.getByLabel('切换对话').selectOption(after.task.conversationId);
+  await operator.locator('.workbench-menu > summary').press('Enter');
+  assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '主对话草稿保留');
+  await operator.getByLabel('给 Codex 的本轮指令').fill('');
+  assert.equal(await operator.locator('.context-attachments').count(), 0);
+  await operator.locator('.keyboard-composer > summary').press('Enter');
   await expand(operator, '.workbench-menu');
   await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
   assert.equal(

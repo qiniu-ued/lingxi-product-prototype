@@ -172,6 +172,7 @@ export function workbenchRoutes(
         'request_conflict',
         'readonly_sidechat',
         'fork_unavailable',
+        'quote_stale',
         'terminal_stale',
         'project_required',
         'thread_unavailable',

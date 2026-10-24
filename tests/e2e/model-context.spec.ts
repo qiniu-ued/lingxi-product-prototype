@@ -115,8 +115,65 @@ async function open(
       failModels ? { status: 503, json: { error: 'unavailable' } } : { json: models },
     );
   });
+  const commands: Array<Record<string, unknown>> = [];
+  const views = new Map<
+    string,
+    Pick<WorkbenchState, 'history' | 'task' | 'runtime' | 'turnUsage'>
+  >();
   await page.route('**/api/workbench/workspace', async (route) => {
     const body = route.request().postDataJSON();
+    commands.push(body);
+    if (body.action === 'fork') {
+      if (state.selectedThreadId)
+        views.set(state.selectedThreadId, {
+          history: state.history,
+          task: state.task,
+          runtime: state.runtime,
+          turnUsage: state.turnUsage,
+        });
+      const id = randomUUID();
+      state = {
+        ...state,
+        revision: state.revision + 1,
+        threads: [
+          ...state.threads,
+          {
+            id,
+            projectId,
+            codexId: 'sidechat',
+            title: '选段讨论',
+            kind: 'sidechat',
+            parentId: state.selectedThreadId,
+            archived: false,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        selectedThreadId: id,
+        history: [],
+        task: null,
+        runtime: null,
+        turnUsage: [],
+      };
+      await route.fulfill({ json: state });
+      return;
+    }
+    if (body.action === 'select-thread') {
+      if (state.selectedThreadId)
+        views.set(state.selectedThreadId, {
+          history: state.history,
+          task: state.task,
+          runtime: state.runtime,
+          turnUsage: state.turnUsage,
+        });
+      state = {
+        ...state,
+        ...views.get(body.id),
+        selectedThreadId: body.id,
+        revision: state.revision + 1,
+      };
+      await route.fulfill({ json: state });
+      return;
+    }
     state = {
       ...state,
       revision: state.revision + 1,
@@ -145,6 +202,7 @@ async function open(
   );
   await page.goto('/');
   return {
+    commands,
     state: () => state,
     allowModels: () => {
       failModels = false;
@@ -172,6 +230,131 @@ test('composer loads models automatically, limits effort choices and resets inco
   await expect(page.locator('#codex-effort option[value="high"]')).toHaveCount(0);
   expect(fixture.state().settings).toMatchObject({ model: 'fast-model', effort: 'low' });
 });
+
+function historyThread() {
+  return {
+    id: conversationId,
+    projectId,
+    codexId: 'thread',
+    title: '主对话',
+    kind: 'main' as const,
+    parentId: null,
+    archived: false,
+    createdAt: new Date().toISOString(),
+  };
+}
+async function selectExcerpt(page: Page, taskId: string, text: string, role = 'assistant') {
+  const bubble = page
+    .locator(`[data-history-task="${taskId}"][data-history-role="${role}"]`)
+    .first();
+  await bubble.scrollIntoViewIfNeeded();
+  await bubble.evaluate((element, excerpt) => {
+    const node = element.firstChild;
+    const start = node?.textContent?.indexOf(excerpt) ?? -1;
+    if (!node || start < 0) throw new Error('Missing excerpt');
+    const range = document.createRange();
+    range.setStart(node, start);
+    range.setEnd(node, start + excerpt.length);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  }, text);
+  await expect(page.getByRole('toolbar', { name: '所选对话文字操作' })).toBeVisible();
+}
+test('selecting an excerpt quotes only that text and preserves a written reply without starting a task', async ({
+  page,
+}) => {
+  const source = turn('原始要求');
+  source.messages = [
+    { id: 'answer', text: '第一段介绍。\n这一段需要重新设计。\n最后一段保持不变。' },
+  ];
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByLabel('给 Codex 的本轮指令').fill('请解释这里的设计考虑');
+  await selectExcerpt(page, source.id, '这一段需要重新设计。');
+  await page.getByRole('button', { name: '引用到对话', exact: true }).click();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('请解释这里的设计考虑');
+  await expect(page.locator('.context-attachments')).toContainText('这一段需要重新设计。');
+  await expect(page.locator('.context-attachments')).not.toContainText('最后一段');
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toBeFocused();
+  expect(fixture.commands).toHaveLength(0);
+});
+test('excerpt Sidechat stages a quote and keeps both conversation drafts when returning with a result', async ({
+  page,
+}) => {
+  const source = turn('保留主对话草稿');
+  source.messages = [{ id: 'answer', text: '请讨论这个按钮。其他内容不选中。' }];
+  const fixture = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByLabel('给 Codex 的本轮指令').fill('主对话未发送的草稿');
+  await selectExcerpt(page, source.id, '请讨论这个按钮。');
+  await page.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
+  await expect(page.getByLabel('权限', { exact: true })).toHaveValue('sidechat');
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('');
+  await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
+  await expect(page.locator('.context-attachments')).not.toContainText('其他内容');
+  expect(fixture.commands[0]).toMatchObject({
+    action: 'fork',
+    taskId: source.id,
+    kind: 'sidechat',
+    quote: { role: 'assistant', messageId: 'answer', text: '请讨论这个按钮。' },
+  });
+  expect(fixture.state().task).toBeNull();
+  await page.getByLabel('给 Codex 的本轮指令').fill('Sidechat 的问题草稿');
+  const sideId = fixture.state().selectedThreadId as string;
+  const answer = {
+    ...turn('讨论按钮'),
+    conversationId: sideId,
+    threadId: 'sidechat',
+    messages: [{ id: 'response', text: '讨论结论：保留这个按钮。' }],
+  };
+  await fixture.publish({ history: [answer], task: answer });
+  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '把讨论结果带回原对话' }).click();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话未发送的草稿');
+  await expect(page.locator('.context-attachments')).toContainText('讨论结论：保留这个按钮。');
+  await page.locator('.workbench-menu > summary').click();
+  await page.getByLabel('切换对话').selectOption(sideId);
+  await page.locator('.workbench-menu > summary').click();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('Sidechat 的问题草稿');
+  await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
+});
+test('usage summaries remain visible with auxiliary menus closed, including on the passive display', async ({
+  page,
+}) => {
+  const source = turn('查看统计');
+  await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+    turnUsage: [{ taskId: source.id, status: 'reported', tokens: usage.last, updatedAt: null }],
+  });
+  for (const path of ['/', '/display']) {
+    if (path !== '/') await page.goto(path);
+    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+      '本轮 32,000 tokens',
+    );
+    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+      '缓存命中率 40.0%',
+    );
+    await expect(page.getByRole('meter', { name: '当前上下文占用', exact: true })).toHaveAttribute(
+      'aria-valuetext',
+      '25.0% 已使用',
+    );
+  }
+});
 test('context meter uses the last request, with separate cumulative and cached/reasoning counts', async ({
   page,
 }) => {
@@ -185,7 +368,9 @@ test('context meter uses the last request, with separate cumulative and cached/r
   await expect(total).toContainText('150,000');
   await expect(page.getByRole('row').filter({ hasText: '缓存读取' })).toContainText('12,000');
   await expect(page.getByRole('row').filter({ hasText: '推理（输出内）' })).toContainText('800');
-  await expect(page.getByText(/剩余 96,000 tokens/)).toBeVisible();
+  await expect(
+    page.getByRole('region', { name: '上下文用量', exact: true }).getByText(/剩余 96,000 tokens/),
+  ).toBeVisible();
 });
 test('unknown usage or window capacity never appears as zero percent', async ({ page }) => {
   await open(page, { ...runtime(), usage: { ...usage, modelContextWindow: null } });

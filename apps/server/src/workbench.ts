@@ -1080,7 +1080,29 @@ export class Workbench {
         task.projectId !== this.state.project.id
       )
         throw new Error('fork_unavailable');
+      if (command.quote) {
+        const quote = command.quote;
+        const source =
+          quote.role === 'user'
+            ? quote.messageId === 'prompt'
+              ? task.prompt
+              : undefined
+            : task.messages.find((message) => message.id === quote.messageId)?.text;
+        if (
+          quote.taskId !== task.id ||
+          task.conversationId !== this.state.selectedThreadId ||
+          !source?.includes(quote.text)
+        )
+          throw new Error('quote_stale');
+      }
+      const projectId = this.state.project.id;
+      const conversationId = this.state.selectedThreadId;
       const client = await this.connection();
+      if (
+        this.state.project?.id !== projectId ||
+        (command.quote && this.state.selectedThreadId !== conversationId)
+      )
+        throw new Error('quote_stale');
       this.switching = true;
       try {
         const readonly = command.kind === 'sidechat';

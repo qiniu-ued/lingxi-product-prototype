@@ -1,6 +1,6 @@
 import {
   type ContextAttachment,
-  type PreviewSelection,
+  type HistoryQuote,
   type PreviewSnapshot,
   previewSnapshotSchema,
   type VoiceState,
@@ -12,9 +12,11 @@ import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useStat
 import { ContextUsage } from './ContextUsage';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
+import { HistoryActions } from './HistoryActions';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
 import { TurnUsage } from './TurnUsage';
+import { composerTarget, useComposerDraft } from './useComposerDraft';
 import { VoiceControls } from './VoiceControls';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -44,7 +46,6 @@ export function DesktopWorkbench() {
   const display = location.pathname === '/display';
   const [state, setState] = useState<WorkbenchState | null>(null),
     [connected, setConnected] = useState(false),
-    [text, setText] = useState(''),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [shot, setShot] = useState<PreviewSnapshot | null>(null),
@@ -56,16 +57,31 @@ export function DesktopWorkbench() {
     composer = useRef<HTMLDetailsElement>(null);
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
-  const [picking, setPicking] = useState(false),
-    [selection, setSelection] = useState<PreviewSelection | null>(null);
+  const [picking, setPicking] = useState(false);
   const [runtimeUrl, setRuntimeUrl] = useState('http://127.0.0.1:5174/');
-  const [tab, setTab] = useState('preview'),
-    [attachments, setAttachments] = useState<ContextAttachment[]>([]);
+  const [tab, setTab] = useState('preview');
   const [mode, setMode] = useState<'queue' | 'steer'>('queue'),
     [search, setSearch] = useState(''),
     [rename, setRename] = useState('');
-  const [voiceDraft, setVoiceDraft] = useState<{ text: string; id: string } | null>(null);
-  const receiveVoice = useCallback((text: string, id: string) => setVoiceDraft({ text, id }), []);
+  const target = composerTarget(state);
+  const retryTarget = useRef(target);
+  const {
+    text,
+    setText,
+    attachments,
+    setAttachments,
+    selection,
+    setSelection,
+    voiceDraft,
+    setVoiceDraft,
+    patch: patchDraft,
+  } = useComposerDraft(target);
+  const latestState = useRef(state);
+  latestState.current = state;
+  const receiveVoice = useCallback(
+    (text: string, id: string) => setVoiceDraft({ text, id }),
+    [setVoiceDraft],
+  );
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
   const thread = state?.threads.find((t) => t.id === state.selectedThreadId);
   function attach(value: ContextAttachment) {
@@ -73,6 +89,72 @@ export function DesktopWorkbench() {
     setAttachments((old) => (old.length < 20 ? [...old, value] : old));
     retry.current = null;
   }
+  function focusComposer() {
+    if (composer.current) composer.current.open = true;
+    requestAnimationFrame(() => document.getElementById('task-prompt')?.focus());
+  }
+  function quoteAttachment(quote: HistoryQuote): ContextAttachment | null {
+    const current = latestState.current;
+    const source = current?.history.find((task) => task.id === quote.taskId);
+    if (!source || source.conversationId !== current?.selectedThreadId) return null;
+    const original =
+      quote.role === 'user'
+        ? quote.messageId === 'prompt'
+          ? source.prompt
+          : undefined
+        : source.messages.find((message) => message.id === quote.messageId)?.text;
+    if (!original?.includes(quote.text)) return null;
+    const ordinal = (current?.history.findIndex((task) => task.id === source.id) ?? 0) + 1;
+    return {
+      id: crypto.randomUUID(),
+      kind: 'text',
+      title: `引用 · ${quote.role === 'user' ? '发言人' : 'Codex'} · 第 ${ordinal} 轮`,
+      text: `引用原文：\n${quote.text}\n\n来源：${thread?.title ?? '当前对话'}，第 ${ordinal} 轮。`,
+    };
+  }
+  function quoteToDraft(quote: HistoryQuote) {
+    const attachment = quoteAttachment(quote);
+    if (!attachment) {
+      setError('引用来源已变化，请重新选择文字。');
+      return;
+    }
+    attach(attachment);
+    focusComposer();
+  }
+  async function discussQuote(quote: HistoryQuote) {
+    const attachment = quoteAttachment(quote);
+    const source = latestState.current;
+    if (!attachment || !source?.project) {
+      setError('引用来源已变化，请重新选择文字。');
+      return;
+    }
+    await operate(
+      'workspace',
+      { action: 'fork', taskId: quote.taskId, kind: 'sidechat', quote },
+      (next) => {
+        const child = next.threads.find((thread) => thread.id === next.selectedThreadId);
+        const current = latestState.current;
+        if (
+          current?.project?.id !== source.project?.id ||
+          child?.parentId !== source.selectedThreadId ||
+          (current?.selectedThreadId !== source.selectedThreadId &&
+            current?.selectedThreadId !== child?.id)
+        )
+          throw new Error('quote_context_changed');
+        patchDraft(composerTarget(next), (draft) => ({
+          attachments: [...draft.attachments, attachment].slice(0, 20),
+        }));
+        focusComposer();
+      },
+    );
+  }
+  useEffect(() => {
+    if (retryTarget.current !== target) {
+      retry.current = null;
+      retryTarget.current = target;
+      followTranscript.current = true;
+    }
+  }, [target]);
   useEffect(() => {
     const events = new EventSource('/api/workbench/events');
     events.onopen = () => setConnected(true);
@@ -161,7 +243,7 @@ export function DesktopWorkbench() {
     );
   const task = state?.task,
     running = !!task && !['completed', 'failed', 'interrupted'].includes(task.status);
-  async function operate(operation: string, body: unknown) {
+  async function operate(operation: string, body: unknown, after?: (next: WorkbenchState) => void) {
     setBusy(true);
     setError('');
     try {
@@ -173,6 +255,7 @@ export function DesktopWorkbench() {
       if (!response.ok) throw new Error();
       const next = workbenchSchema.parse(await response.json());
       setState((old) => (!old || next.revision >= old.revision ? next : old));
+      after?.(next);
       return true;
     } catch {
       setError('操作未完成，输入已保留。请检查连接、当前任务和连接向导后重试。');
@@ -534,7 +617,9 @@ export function DesktopWorkbench() {
               </svg>
               与灵矽对话
             </h2>
-            <span>发言人</span>
+            <span title="选中单条消息中的文字，可引用或开启只读 Sidechat">
+              {display ? '发言人' : '选中文字引用'}
+            </span>
           </div>
           <div
             className="live-transcript"
@@ -554,7 +639,14 @@ export function DesktopWorkbench() {
                     </span>
                     <div className="chat-message">
                       <span className="bubble-speaker">发言人</span>
-                      <div className="live-bubble">{turn.prompt}</div>
+                      <div
+                        className="live-bubble"
+                        data-history-task={turn.id}
+                        data-history-role="user"
+                        data-history-message="prompt"
+                      >
+                        {turn.prompt}
+                      </div>
                     </div>
                   </div>
                   {turn.messages.map((message) => (
@@ -564,7 +656,14 @@ export function DesktopWorkbench() {
                       </span>
                       <div className="chat-message">
                         <span className="bubble-speaker">灵矽</span>
-                        <div className="live-bubble">{message.text}</div>
+                        <div
+                          className="live-bubble"
+                          data-history-task={turn.id}
+                          data-history-role="assistant"
+                          data-history-message={message.id}
+                        >
+                          {message.text}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -584,6 +683,11 @@ export function DesktopWorkbench() {
                       </div>
                     </div>
                   ))}
+                  <TurnUsage
+                    usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
+                    status={turn.status}
+                    compact
+                  />
                   {!display && (
                     <details className="turn-tools">
                       <summary aria-label="本轮详情" title="本轮详情">
@@ -724,13 +828,22 @@ export function DesktopWorkbench() {
                 onClick={() => {
                   const text =
                     state?.history.flatMap((t) => t.messages.map((m) => m.text)).join('\n') ?? '';
-                  attach({
+                  const result: ContextAttachment = {
                     id: crypto.randomUUID(),
                     kind: 'sidechat',
                     title: thread.title,
                     text: text.slice(0, 32000),
-                  });
-                  void operate('workspace', { action: 'select-thread', id: thread.parentId });
+                  };
+                  void operate(
+                    'workspace',
+                    { action: 'select-thread', id: thread.parentId },
+                    (next) => {
+                      patchDraft(composerTarget(next), (draft) => ({
+                        attachments: [...draft.attachments, result].slice(0, 20),
+                      }));
+                      focusComposer();
+                    },
+                  );
                 }}
               >
                 把讨论结果带回原对话
@@ -740,6 +853,7 @@ export function DesktopWorkbench() {
               <p>此 Fork 复制对话历史，共享当前项目文件。独立代码工作区尚未创建。</p>
             )}
           </div>
+          <ContextUsage runtime={state?.runtime ?? null} turnId={task?.turnId} compact />
           {task && (
             <section
               className="live-agents"
@@ -897,6 +1011,20 @@ export function DesktopWorkbench() {
           )}
         </aside>
       </main>
+      {!display && state && (
+        <HistoryActions
+          state={state}
+          transcript={transcript}
+          busy={busy}
+          running={running}
+          attachmentsFull={attachments.length >= 20}
+          onSelect={() => {
+            followTranscript.current = false;
+          }}
+          onQuote={quoteToDraft}
+          onSidechat={(quote) => void discussQuote(quote)}
+        />
+      )}
       <footer className="live-footer">
         {display && (
           <div

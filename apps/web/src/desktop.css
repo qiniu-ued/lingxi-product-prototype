@@ -945,3 +945,27 @@
   margin: 4px 0;
   accent-color: var(--accent);
 }
+.history-actions {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  gap: 6px;
+  max-width: calc(100vw - 16px);
+  padding: 5px;
+  border: 1px solid var(--live-line);
+  border-radius: 10px;
+  background: var(--live-surface);
+  box-shadow: 0 5px 20px var(--live-popover-shadow);
+}
+.live-workbench .history-actions button {
+  min-height: 30px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.live-discussion > .context-usage.compact {
+  margin: 0;
+  padding: 6px 0;
+}
+.live-discussion > .context-usage.compact small {
+  font-size: 10px;
+}

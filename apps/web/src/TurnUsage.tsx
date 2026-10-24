@@ -29,7 +29,10 @@ export function TurnUsage({
         ? '累计计数发生重置，本轮用量不可计算'
         : '本轮用量未报告';
   return (
-    <section className={`turn-usage ${compact ? 'compact' : ''}`} aria-label="本轮 Token 用量">
+    <section
+      className={`turn-usage ${compact ? 'compact' : ''}`}
+      aria-label={compact ? '本轮用量摘要' : '本轮 Token 用量'}
+    >
       <div className="turn-usage-summary">
         <span>{tokens ? `本轮 ${format(tokens.totalTokens)} tokens` : unavailable}</span>
         <span>缓存命中率 {cacheRate}</span>

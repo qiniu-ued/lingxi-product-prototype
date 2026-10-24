@@ -956,6 +956,8 @@ try {
         error: null,
         allowVoiceSubmit: true,
         wake: presentationWake,
+        wakePreference: { version: 1, enabled: false, source: 'user' },
+        connectionPreference: { version: 1, enabled: false, source: 'user' },
       },
     }),
   );

@@ -570,3 +570,151 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+.conversation-bar,
+.workspace-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 24px;
+}
+.conversation-bar input,
+.conversation-bar select {
+  max-width: 210px;
+}
+.workspace-tabs {
+  margin: 0 0 16px;
+}
+.workspace-tabs button[aria-pressed="true"] {
+  background: #efb197;
+  color: #282320;
+}
+.workspace-tool {
+  min-height: 530px;
+  overflow: auto;
+}
+.workspace-tool label,
+.voice-controls label {
+  display: block;
+  margin: 10px 0;
+}
+.workspace-tool select,
+.conversation-bar select,
+.live-discussion select {
+  background: #242320;
+  color: #eee5da;
+  border: 1px solid #62564c;
+  padding: 7px;
+  border-radius: 8px;
+}
+.terminal-viewport {
+  height: 400px;
+  padding: 10px;
+  background: #191b20;
+  border-radius: 10px;
+}
+.terminal-viewport .xterm {
+  height: 100%;
+}
+.diff-lines {
+  max-height: 420px;
+  overflow: auto;
+  font-size: 13px;
+  background: #191b20;
+  padding: 10px;
+}
+.diff-lines button {
+  display: flex;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  min-width: 100%;
+  padding: 1px;
+  background: transparent;
+  color: #ddd;
+  white-space: pre;
+  line-height: 1.7;
+}
+.diff-lines button span {
+  min-width: 38px;
+  color: #8e908d;
+}
+.diff-lines .added {
+  background: #193b2d;
+  color: #a9e7be;
+}
+.diff-lines .removed {
+  background: #43282a;
+  color: #f5afb1;
+}
+.conversation-turn {
+  padding-bottom: 20px;
+  border-bottom: 1px solid #534a40;
+  margin-bottom: 18px;
+}
+.workspace-tool pre,
+.conversation-turn details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+  font-size: 13px;
+}
+.conversation-turn .live-actions {
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.conversation-turn small {
+  color: #aca395;
+}
+.live-transcript {
+  overflow: auto;
+  max-height: 540px;
+}
+.voice-controls {
+  border-top: 1px solid #574d43;
+  padding: 8px 0;
+  font-size: 13px;
+}
+.voice-controls .live-actions {
+  flex-wrap: wrap;
+}
+.voice-controls input:not([type="checkbox"]) {
+  width: 100%;
+}
+.context-attachments > div,
+.voice-draft {
+  border: 1px solid #68564a;
+  border-radius: 10px;
+  padding: 8px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.live-approval label {
+  display: block;
+}
+.live-approval label button {
+  display: block;
+  margin: 5px 0;
+}
+.live-approval small {
+  display: block;
+  color: #b9afa0;
+}
+.live-approval input {
+  width: 100%;
+}
+.live-display .conversation-turn {
+  font-size: 22px;
+}
+.live-display .live-transcript {
+  max-height: 65vh;
+}
+
+.binding-code {
+  font-size: 48px;
+  letter-spacing: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #edb397;
+}

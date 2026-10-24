@@ -246,3 +246,34 @@
     grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
   }
 }
+
+.preview-surface {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.live-preview {
+  overflow: hidden;
+}
+.live-discussion {
+  overflow-y: auto;
+}
+.live-discussion form,
+.live-discussion .voice-controls {
+  flex-shrink: 0;
+}
+.live-workbench input:not([type="checkbox"]) {
+  background: #24231e;
+  color: #eee9df;
+  border: 1px solid #645343;
+  border-radius: 8px;
+  padding: 8px;
+  font: inherit;
+}
+.live-workbench .workspace-tool {
+  min-height: 0;
+  flex: 1;
+}
+.preview-surface .live-viewport {
+  min-height: 0;
+}

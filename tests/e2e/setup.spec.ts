@@ -61,7 +61,7 @@ test('one inspection reports both tools before offering only the missing steps',
   release();
   const results = page.getByRole('region', { name: '环境检查结果' });
   await expect(results).toContainText('未找到 Codex CLI');
-  await expect(results).toContainText('暂无法检测灵矽');
+  await expect(results).toContainText('需在桌面版检测灵矽');
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: '连接步骤' }).getByRole('button')).toHaveCount(
@@ -84,7 +84,7 @@ test('existing signed-in Codex skips installation and suggests Lingxi preparatio
     'href',
     'https://xrobo.qiniu.com/',
   );
-  await expect(page.getByText(/完成账号和设备绑定不会自动开启语音编程/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '获取本机绑定码', exact: true })).toBeVisible();
   await page
     .getByRole('navigation', { name: '连接步骤' })
     .getByRole('button', { name: /配置 Codex/ })
@@ -182,4 +182,39 @@ test('inspection failures can be retried before configuration is shown', async (
   await inspection(page, 'signed-out');
   await page.getByRole('button', { name: '重新检查环境' }).click();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toBeVisible();
+});
+
+test('device wizard gets an activation code and confirms binding without asking for a copied token', async ({
+  page,
+}) => {
+  await inspection(page, 'ready');
+  await page.addInitScript(() =>
+    Object.defineProperty(window, 'lingxiDesktop', {
+      value: {
+        info: async () => ({ platform: 'darwin', arch: 'arm64', systemVersion: 'test-system' }),
+        onAudio: () => () => {},
+      },
+    }),
+  );
+  const actions: string[] = [];
+  await page.route('**/api/voice/binding', async (route) => {
+    const { action } = route.request().postDataJSON() as { action: string };
+    actions.push(action);
+    await route.fulfill({
+      json: {
+        status: action === 'start' ? 'waiting' : 'bound',
+        deviceId: '02:12:34:56:78:90',
+        clientId: 'b328db8c-5dfa-4389-9035-3cd43b2868d2',
+        code: action === 'start' ? '608303' : null,
+        error: null,
+      },
+    });
+  });
+  await page.goto('/setup');
+  await page.getByRole('button', { name: '获取本机绑定码', exact: true }).click();
+  await expect(page.getByRole('status', { name: '设备激活码' })).toHaveText('608303');
+  await page.getByRole('button', { name: '我已绑定，检查连接配置', exact: true }).click();
+  await expect(page.getByText(/绑定已确认，连接配置已加密保存/)).toBeVisible();
+  expect(actions).toEqual(['start', 'check']);
+  await expect(page.getByLabel('设备访问令牌')).not.toBeVisible();
 });

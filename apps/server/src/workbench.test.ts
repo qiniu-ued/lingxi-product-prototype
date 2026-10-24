@@ -42,7 +42,7 @@ async function create(mode = 'success', publish = true) {
       mode,
       record,
     ],
-    timeoutMs: mode === 'hang' ? 150 : 5000,
+    timeoutMs: mode === 'hang' ? 150 : mode === 'steer-timeout' ? 800 : 5000,
   });
   cleanup.push(() => wb.close());
   wb.setAddress('http://127.0.0.1:1234');
@@ -56,7 +56,7 @@ async function until(wb: Workbench, predicate: (state: WorkbenchState) => boolea
   }
   throw new Error('Timed out waiting for task');
 }
-it('runs and resumes a real child protocol, streams only matching events, publishes and deduplicates', async () => {
+it('keeps one real child connection across turns, streams matching events, publishes and deduplicates', async () => {
   const { wb, project, binding, record } = await create();
   const id = randomUUID();
   const changes: number[] = [];
@@ -78,13 +78,18 @@ it('runs and resumes a real child protocol, streams only matching events, publis
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line));
-  expect(records.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(records.filter((r) => r.method === 'initialize')).toHaveLength(1);
+  expect(records.filter((r) => r.method === 'thread/start')).toHaveLength(1);
+  expect(wb.read().history).toHaveLength(2);
+  expect(wb.read().task?.diff).toContain('+new');
   expect(records.find((r) => r.method === 'thread/start').params).toMatchObject({
     cwd: project.path,
     approvalPolicy: 'on-request',
     sandbox: 'workspace-write',
   });
   expect(changes.length).toBeGreaterThan(5);
+  for (const r of records.filter((r) => r.pid)) expect(() => process.kill(r.pid, 0)).not.toThrow();
+  await wb.close();
   for (const r of records.filter((r) => r.pid)) expect(() => process.kill(r.pid, 0)).toThrow();
 });
 it.each(['approval', 'file', 'question'])(
@@ -162,7 +167,7 @@ it('rejects old selected targets and keeps request receipts across restart', asy
   cleanup.push(() => next.close());
   next.setProject(project);
   expect(next.start(id, 'once', { ...selection, binding }).status).toBe('completed');
-  expect(next.read().task).toBeNull();
+  expect(next.read().task?.id).toBe(id);
   expect(() => next.start(id, 'changed')).toThrow('request_conflict');
 });
 it('recovers unfinished persisted tasks as interrupted without automatically resuming', async () => {
@@ -196,4 +201,211 @@ it('recovers unfinished persisted tasks as interrupted without automatically res
   cleanup.push(() => wb.close());
   expect(wb.read().task?.status).toBe('interrupted');
   expect(() => wb.start(randomUUID(), 'work')).toThrow('project_required');
+});
+it('preserves concurrent questions/options, answers each RPC, and resolves them independently', async () => {
+  const { wb, record } = await create('rich');
+  wb.start(randomUUID(), 'ask-many');
+  await until(wb, (s) => s.task?.approvals?.length === 2);
+  const task = wb.read().task as NonNullable<WorkbenchState['task']>;
+  expect(task.approvals?.[0]?.questions?.[0]?.options?.[0]).toEqual({
+    label: '蓝色',
+    description: '清爽',
+  });
+  const first = task.approvals?.[0],
+    second = task.approvals?.[1];
+  if (!first || !second) throw new Error('questions missing');
+  wb.decide({
+    taskId: task.id,
+    approvalId: first.id,
+    decision: 'accept',
+    answers: { color: '绿色' },
+  });
+  expect(wb.read().task?.approval?.id).toBe(second.id);
+  wb.decide({
+    taskId: task.id,
+    approvalId: second.id,
+    decision: 'accept',
+    answers: { layout: '两栏' },
+  });
+  await until(wb, (s) => s.task?.status === 'completed');
+  const wire = await readFile(record, 'utf8');
+  expect(wire).toContain('"answers":["绿色"]');
+  expect(wire).toContain('"answers":["两栏"]');
+});
+it('queues durable turns, steers the matching active turn, cancels queues and never loses context', async () => {
+  const { wb, record } = await create('rich');
+  const first = randomUUID(),
+    queued = randomUUID(),
+    cancelled = randomUUID();
+  wb.start(first, 'hold');
+  await until(wb, (s) => s.task?.status === 'running');
+  const context = [{ id: randomUUID(), kind: 'diff' as const, title: 'Review', text: '+ heading' }];
+  wb.start(queued, 'next', null, context, 'queue');
+  wb.start(cancelled, 'cancel me', null, [], 'queue');
+  await wb.command({ action: 'cancel-queued', id: cancelled });
+  await expect(wb.command({ action: 'cancel-queued', id: cancelled })).rejects.toThrow(
+    'queue_stale',
+  );
+  const steer = randomUUID();
+  await wb.steer(steer, 'finish', null, context);
+  await until(wb, (s) => s.task?.id === queued && s.task.status === 'completed');
+  expect(wb.read().history.map((t) => t.status)).toEqual(['completed', 'completed', 'interrupted']);
+  expect(wb.read().history[0]?.additions).toMatchObject([
+    { id: steer, text: 'finish', status: 'acknowledged' },
+  ]);
+  await wb.steer(steer, 'finish', null, context);
+  await expect(wb.steer(steer, 'different', null, context)).rejects.toThrow('request_conflict');
+  expect(await readFile(record, 'utf8')).toContain('expectedTurnId');
+  expect(await readFile(record, 'utf8')).toContain('user_context');
+  await expect(wb.steer(randomUUID(), 'late', null, [])).rejects.toThrow('turn_unavailable');
+});
+it('switches durable histories, forks at completed turns, and makes Sidechat read only', async () => {
+  const { wb, record, project } = await create('rich');
+  wb.start(randomUUID(), 'first');
+  await until(wb, (s) => s.task?.status === 'completed');
+  const original = wb.read().selectedThreadId as string,
+    task = wb.read().task as NonNullable<WorkbenchState['task']>;
+  await wb.command({ action: 'fork', taskId: task.id, kind: 'sidechat' });
+  const side = wb.read().selectedThreadId as string;
+  expect(wb.read().history).toEqual([]);
+  await expect(wb.terminal({ action: 'open', requestId: randomUUID() })).rejects.toThrow(
+    'readonly_sidechat',
+  );
+  wb.start(randomUUID(), 'explain');
+  await until(wb, (s) => s.task?.status === 'completed');
+  expect(wb.read().threads.find((t) => t.id === side)?.parentId).toBe(original);
+  await wb.command({ action: 'rename-thread', id: side, title: '讨论结论' });
+  await wb.command({ action: 'archive-thread', id: side, archived: true });
+  await wb.command({ action: 'select-thread', id: original });
+  expect(wb.read().history).toHaveLength(1);
+  await wb.command({ action: 'fork', taskId: task.id, kind: 'fork' });
+  expect(wb.read().threads.at(-1)?.kind).toBe('fork');
+  await wb.command({ action: 'new-thread', title: '另一个问题' });
+  expect(wb.read().task).toBeNull();
+  await wb.command({
+    action: 'settings',
+    settings: { model: 'test-model', effort: 'high', plan: true },
+  });
+  wb.start(randomUUID(), 'plan');
+  await until(wb, (s) => s.task?.status === 'completed');
+  const catalog = await wb.catalog();
+  expect(catalog.models).toHaveProperty('data');
+  const records = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((s) => JSON.parse(s));
+  expect(
+    records.find((r) => r.method === 'turn/start' && r.params.disabledPluginIds)?.params
+      .disabledPluginIds,
+  ).toEqual(['fixture-plugin']);
+  expect(records.find((r) => r.method === 'thread/fork').params).toMatchObject({
+    sandbox: 'read-only',
+    approvalPolicy: 'never',
+    config: {
+      'mcp_servers.lingxi_preview.enabled': false,
+      'mcp_servers.second_page_tools.enabled': false,
+    },
+  });
+  expect(records.filter((r) => r.method === 'turn/start').at(-1).params).toMatchObject({
+    model: 'test-model',
+    effort: 'high',
+  });
+  expect(records.filter((r) => r.method === 'turn/start').at(-1).params.input[0].text).toContain(
+    '先制定计划',
+  );
+  await expect(wb.command({ action: 'select-thread', id: randomUUID() })).rejects.toThrow(
+    'thread_unavailable',
+  );
+  await expect(wb.command({ action: 'fork', taskId: randomUUID(), kind: 'fork' })).rejects.toThrow(
+    'fork_unavailable',
+  );
+  wb.setProject(project);
+  wb.start(randomUUID(), 'resumed');
+  await until(wb, (s) => s.task?.status === 'completed');
+  expect(await readFile(record, 'utf8')).toContain('thread/resume');
+});
+it('owns a persistent PTY independently of turns, and rejects stale PTY IDs', async () => {
+  const { wb, record } = await create('rich');
+  const id = randomUUID();
+  await wb.terminal({ action: 'open', requestId: id });
+  await until(wb, (s) => s.terminal?.status === 'running');
+  await wb.terminal({ action: 'open', requestId: id });
+  await expect(wb.terminal({ action: 'open', requestId: randomUUID() })).rejects.toThrow(
+    'terminal_running',
+  );
+  await expect(wb.terminal({ action: 'write', id: randomUUID(), data: 'bad' })).rejects.toThrow(
+    'terminal_stale',
+  );
+  await wb.terminal({ action: 'write', id, data: 'pwd\r' });
+  await wb.terminal({ action: 'resize', id, cols: 120, rows: 30 });
+  wb.start(randomUUID(), 'task');
+  await until(wb, (s) => s.task?.status === 'completed');
+  expect(wb.read().terminal?.status).toBe('running');
+  await wb.terminal({ action: 'stop', id });
+  await until(wb, (s) => s.terminal?.status === 'exited');
+  expect(wb.read().terminal?.exitCode).toBe(0);
+  expect(await readFile(record, 'utf8')).toContain(Buffer.from('pwd\r').toString('base64'));
+});
+it('reserves supplemental input before dispatch and never repeats an uncertain delivery', async () => {
+  const { wb, record } = await create('steer-timeout');
+  wb.start(randomUUID(), 'hold');
+  await until(wb, (state) => state.task?.status === 'running');
+  const id = randomUUID();
+  await expect(wb.steer(id, 'unconfirmed', null, [])).rejects.toThrow();
+  expect(wb.read().task?.additions?.[0]?.status).toBe('unconfirmed');
+  await expect(wb.steer(id, 'unconfirmed', null, [])).rejects.toThrow('steer_unconfirmed');
+  expect(() => wb.start(id, 'unconfirmed')).toThrow('request_conflict');
+  const wire = (await readFile(record, 'utf8'))
+    .split('\n')
+    .filter((line) => line.includes('"method":"turn/steer"'));
+  expect(wire).toHaveLength(1);
+});
+it('explicitly terminates a still-running PTY before closing its Codex connection', async () => {
+  const { wb, record } = await create('rich');
+  const id = randomUUID();
+  await wb.terminal({ action: 'open', requestId: id });
+  await until(wb, (state) => state.terminal?.status === 'running');
+  await wb.close();
+  const messages = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(
+    messages.find((message) => message.method === 'command/exec/terminate').params.processId,
+  ).toBe(id);
+  for (const message of messages.filter((message) => message.pid))
+    expect(() => process.kill(message.pid, 0)).toThrow();
+});
+it('captures voice context once without retargeting staged annotations to another conversation', async () => {
+  const { wb, project, binding } = await create('rich');
+  wb.setPreview(binding);
+  const selection = { binding, ref: 'r1', description: '标题' };
+  const attachment = { id: randomUUID(), kind: 'diff' as const, title: '变更', text: '+ heading' };
+  const input = {
+    projectId: project.id,
+    conversationId: null,
+    selection,
+    attachments: [attachment],
+    text: '标题写周末出游',
+  };
+  wb.setVoiceContext(input);
+  expect(wb.voiceContext()).toMatchObject({
+    selection,
+    attachments: [attachment, { title: '键盘草稿', text: input.text }],
+  });
+  expect(wb.voiceContext()).toEqual({ selection: null, attachments: [] });
+  wb.setVoiceContext(input);
+  await wb.command({ action: 'new-thread', title: 'different conversation' });
+  expect(() => wb.voiceContext()).toThrow('voice_context_changed');
+  expect(() => wb.setVoiceContext(input)).toThrow('project_changed');
+  expect(() => wb.setVoiceContext({ ...input, projectId: randomUUID() })).toThrow(
+    'project_changed',
+  );
+  expect(() =>
+    wb.setVoiceContext({
+      ...input,
+      conversationId: wb.read().selectedThreadId,
+      attachments: Array(20).fill(attachment),
+    }),
+  ).toThrow('context_limit');
 });

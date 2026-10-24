@@ -1,14 +1,27 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import {
   desktopActionSchema,
   type Project,
   previewBindingSchema,
   projectSchema,
+  voiceConfigSchema,
 } from '@lingxi/protocol';
-import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, screen, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  protocol,
+  safeStorage,
+  screen,
+  session,
+  shell,
+  systemPreferences,
+} from 'electron';
 import { z } from 'zod';
 import { Preview } from './preview.js';
 
@@ -97,6 +110,7 @@ function openDisplay() {
     preview = new Preview(display, dataRoot, () => {
       child?.send?.({ channel: 'desktop.preview', preview: preview?.binding ?? null });
     });
+    preview.protectService(address);
     display.on('close', (event) => {
       if (!quitting) {
         event.preventDefault();
@@ -152,9 +166,70 @@ async function chooseProject(create: boolean): Promise<Project | null> {
   return { id, name: path.split(/[\\/]/).at(-1) ?? 'Project', path };
 }
 async function desktopCall(method: string, params: unknown) {
+  if (method === 'voice-identity') {
+    const file = join(dataRoot, 'voice-device.json');
+    try {
+      return z
+        .object({ deviceId: voiceConfigSchema.shape.deviceId, clientId: z.uuid() })
+        .parse(JSON.parse(await readFile(file, 'utf8')));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const mac = randomBytes(6);
+    mac[0] = ((mac[0] ?? 0) | 2) & 254;
+    const identity = {
+      deviceId: [...mac].map((byte) => byte.toString(16).padStart(2, '0')).join(':'),
+      clientId: randomUUID(),
+    };
+    await writeFile(file, JSON.stringify(identity), { mode: 0o600, flag: 'wx' });
+    return identity;
+  }
+  if (method === 'voice-config-save') {
+    if (
+      !safeStorage.isEncryptionAvailable() ||
+      (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
+    )
+      throw new Error('secure_storage_unavailable');
+    const config = voiceConfigSchema.parse(params);
+    const staging = join(dataRoot, `voice-config-${randomUUID()}.tmp`);
+    await writeFile(staging, safeStorage.encryptString(JSON.stringify(config)), {
+      mode: 0o600,
+      flag: 'wx',
+    });
+    await rename(staging, join(dataRoot, 'voice-config.enc'));
+    return null;
+  }
+  if (method === 'voice-config-read') {
+    let encrypted: Buffer;
+    try {
+      encrypted = await readFile(join(dataRoot, 'voice-config.enc'));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    return voiceConfigSchema.parse(JSON.parse(safeStorage.decryptString(encrypted)));
+  }
+  if (method === 'voice-audio') {
+    const value = z
+      .object({
+        reset: z.boolean().optional(),
+        pcm: z.string().max(350000).optional(),
+        sampleRate: z.literal(16000).optional(),
+      })
+      .parse(params);
+    operator?.webContents.send('voice.audio', value);
+    return null;
+  }
   if (method === 'publish') {
     openDisplay();
     return preview?.publish(projectSchema.parse(params));
+  }
+  if (method === 'preview-connect') {
+    const input = z
+      .strictObject({ project: projectSchema, url: z.string().url().max(2000) })
+      .parse(params);
+    openDisplay();
+    return preview?.connect(input.project, input.url);
   }
   if (method === 'preview') {
     if (!preview) throw new Error('preview_missing');
@@ -307,6 +382,44 @@ else {
             })
             .parse(input),
         );
+      });
+      session.defaultSession.setPermissionRequestHandler(
+        (contents, permission, callback, details) => {
+          callback(
+            contents === operator?.webContents &&
+              contents.getURL().startsWith(`${address}/`) &&
+              permission === 'media' &&
+              'mediaTypes' in details &&
+              details.mediaTypes.every((type) => type === 'audio'),
+          );
+        },
+      );
+      session.defaultSession.setPermissionCheckHandler(
+        (contents, permission, requestingOrigin) =>
+          contents === operator?.webContents &&
+          permission === 'media' &&
+          requestingOrigin === address,
+      );
+      ipcMain.handle('desktop.microphone', async (event) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents) return false;
+        return process.platform === 'darwin'
+          ? systemPreferences.askForMediaAccess('microphone')
+          : true;
+      });
+      ipcMain.on('voice.frame', (event, input) => {
+        try {
+          trusted(event);
+        } catch {
+          return;
+        }
+        if (
+          event.sender !== operator?.webContents ||
+          !(input instanceof ArrayBuffer) ||
+          input.byteLength !== 640
+        )
+          return;
+        child?.send?.({ channel: 'desktop.audio', pcm: Buffer.from(input).toString('base64') });
       });
       ipcMain.handle('desktop.info', (event) => {
         trusted(event);

@@ -166,3 +166,55 @@ it('streams full workbench snapshots and closes the stream on shutdown', async (
   await app.close();
   expect((await reader.read()).done).toBe(true);
 });
+it('supports validated workspace commands and refuses runtime URLs without a selected project', async () => {
+  const { app, post } = create();
+  expect(
+    (await post('workspace', { action: 'new-thread', title: 'before project' })).statusCode,
+  ).toBe(409);
+  expect((await post('terminal', { action: 'open', requestId: randomUUID() })).statusCode).toBe(
+    409,
+  );
+  expect((await post('preview-url', { url: 'http://127.0.0.1:5555' })).statusCode).toBe(409);
+  expect((await app.inject('/api/workbench/catalog')).statusCode).toBe(409);
+  expect((await app.inject('/api/workbench/git')).statusCode).toBe(409);
+  await post('action', { action: 'select-project' });
+  expect((await post('workspace', { action: 'new-thread', title: 'A new chat' })).statusCode).toBe(
+    200,
+  );
+  const state = (await app.inject('/api/workbench')).json();
+  expect(state.threads[0].title).toBe('A new chat');
+  expect(
+    (
+      await post('workspace', {
+        action: 'settings',
+        settings: { model: 'test', effort: 'high', plan: true },
+      })
+    ).json().settings.model,
+  ).toBe('test');
+  expect((await post('workspace', { action: 'select-thread', id: 'not-id' })).statusCode).toBe(400);
+});
+it('stages mixed voice input only for the current project and conversation', async () => {
+  const { post, app, project } = create();
+  await post('action', { action: 'select-project' });
+  const response = await post('context', {
+    projectId: project.id,
+    conversationId: null,
+    selection: null,
+    attachments: [],
+    text: '精确键盘文案',
+  });
+  expect(response.statusCode).toBe(200);
+  expect(app.workbench.voiceContext().attachments[0]?.text).toBe('精确键盘文案');
+  expect(
+    (
+      await post('context', {
+        projectId: project.id,
+        conversationId: null,
+        selection: null,
+        attachments: [],
+        text: 'x',
+        shell: 'arbitrary',
+      })
+    ).statusCode,
+  ).toBe(400);
+});

@@ -213,8 +213,94 @@ describe('local command API', () => {
     expect(results[0]).toEqual(inspection.codex);
     expect(inspection.lingxi).toMatchObject({
       status: 'unavailable',
-      reason: 'adapter-not-connected',
+      reason: 'desktop-required',
     });
     expect(checkCodex).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('desktop voice configuration boundary', () => {
+  it('inspects both providers without registering a device, and keeps credentials out of responses', async () => {
+    let config: unknown = null;
+    const native: string[] = [];
+    const app = buildApp({
+      databasePath: ':memory:',
+      checkCodex: async () => ({
+        status: 'not-installed',
+        cliVersion: null,
+        authentication: null,
+        checkedAt: new Date().toISOString(),
+      }),
+      desktop: {
+        async call(method, params) {
+          native.push(method);
+          if (method === 'voice-config-read') return config;
+          if (method === 'voice-config-save') config = params;
+          return null;
+        },
+      },
+    });
+    apps.push(app);
+    const post = (url: string, payload: unknown, origin = 'http://localhost:80') =>
+      app.inject({ method: 'POST', url, headers: { origin }, payload: JSON.stringify(payload) });
+    // Explicit JSON content type is also part of the boundary.
+    const json = (url: string, payload: unknown) =>
+      app.inject({
+        method: 'POST',
+        url,
+        headers: { origin: 'http://localhost:80', 'content-type': 'application/json' },
+        payload: JSON.stringify(payload),
+      });
+    const check = await json('/api/setup/check', {});
+    expect(check.json().lingxi.status).toBe('not-configured');
+    expect(native).toEqual(['voice-config-read']);
+    expect((await json('/api/voice/config', { token: 'bad' })).statusCode).toBe(400);
+    expect((await json('/api/voice/command', { action: 'listen' })).statusCode).toBe(409);
+    expect((await post('/api/voice/config', {})).statusCode).toBe(415);
+    const saved = await json('/api/voice/config', {
+      endpoint: 'wss://xrobo-io.qiniuapi.com/v1/ws/',
+      deviceId: '02:12:34:56:78:90',
+      clientId: 'b328db8c-5dfa-4389-9035-3cd43b2868d2',
+      token: 'PRIVATE_VOICE_TOKEN',
+      allowVoiceSubmit: false,
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.body).not.toContain('PRIVATE_VOICE_TOKEN');
+    expect((await app.inject('/api/voice')).json().configured).toBe(true);
+    expect((await json('/api/voice/inspect', {})).json().configured).toBe(true);
+    expect(
+      (await json('/api/voice/preferences', { allowVoiceSubmit: true })).json().allowVoiceSubmit,
+    ).toBe(true);
+    expect((await json('/api/setup/check', {})).json().lingxi.status).toBe('configured');
+    expect((await app.inject('/api/voice/binding')).json().status).toBe('idle');
+    expect((await json('/api/voice/binding', { action: 'cancel' })).json().status).toBe(
+      'cancelled',
+    );
+    expect((await json('/api/voice/binding', { action: 'arbitrary' })).statusCode).toBe(400);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/voice/command',
+          payload: { action: 'disconnect' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect((await json('/api/voice/command', { action: 'disconnect' })).statusCode).toBe(200);
+  });
+  it('does not expose desktop configuration or binding mutations in browser-only mode', async () => {
+    const app = buildApp({ databasePath: ':memory:' });
+    apps.push(app);
+    for (const url of ['/api/voice/config', '/api/voice/binding'])
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url,
+            headers: { origin: 'http://localhost:80' },
+            payload: {},
+          })
+        ).statusCode,
+      ).toBe(403);
   });
 });

@@ -10,6 +10,7 @@ import {
   setupInspectionSchema,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { VoiceControls } from './VoiceControls';
 
 const steps = ['配置 Codex', '配置灵矽'];
 const finished = (action: CodexSetupAction) =>
@@ -347,8 +348,14 @@ export function SetupPage() {
             </div>
             <div className="panel">
               <p className="eyebrow">灵矽 AI</p>
-              <h2>{lingxi?.status === 'unavailable' ? '暂无法检测灵矽' : '等待检查'}</h2>
-              <p>检测接口尚未接入，无法确认账号和设备状态。可继续按下方步骤准备。</p>
+              <h2>
+                {lingxi?.status === 'configured'
+                  ? '灵矽配置已保存'
+                  : lingxi?.status === 'not-configured'
+                    ? '需要绑定灵矽设备'
+                    : '需在桌面版检测灵矽'}
+              </h2>
+              <p>检查仅读取本机配置，不上传声音、不申请绑定码。连接服务与收音都需要主动点击。</p>
             </div>
           </section>
           <main className="setup-layout">
@@ -492,34 +499,12 @@ export function SetupPage() {
                 </>
               ) : (
                 <>
-                  <div className="setup-result" role="status">
-                    <strong>灵矽连接尚未验证</strong>
-                    <p>工作台尚未接入灵矽检测接口，暂时无法自动确认账号、客户端和设备绑定状态。</p>
-                  </div>
-                  <h3>1. 准备账号与智能体</h3>
+                  <VoiceControls configuration />
                   <p>
-                    已有账号和智能体可直接使用；尚未准备时，在七牛灵矽控制台注册或登录并创建智能体。
+                    首次使用先完成官方账号与智能体配置，再按向导申请激活码。不需要单独安装音频客户端。
                   </p>
-                  <ExternalLink href="https://xrobo.qiniu.com/">打开灵矽控制台</ExternalLink>
-                  <h3>2. 运行并绑定 Mac 音频客户端</h3>
-                  <p>
-                    按官方文档安装 C++ / PortAudio
-                    客户端，用设备验证码绑定智能体。已有绑定可跳过这一步。
-                  </p>
-                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/client-demo">
-                    Mac 音频客户端安装文档
-                  </ExternalLink>
-                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/guide/quick-start">
-                    智能体与设备绑定步骤
-                  </ExternalLink>
-                  <h3>3. 确认能听和说</h3>
-                  <p>
-                    在 macOS「系统设置 → 隐私与安全性 →
-                    麦克风」允许客户端录音；说一句测试话，确认有识别结果并能听到回复。
-                  </p>
-                  <p>完成账号和设备绑定不会自动开启语音编程，还需要接入工作台的任务工具。</p>
-                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/mcp/hardware-mcp">
-                    端侧 MCP 工具通道文档
+                  <ExternalLink href="https://linx.qiniu.com/docs/xrobot/platform/OTA">
+                    官方设备绑定协议
                   </ExternalLink>
                 </>
               )}

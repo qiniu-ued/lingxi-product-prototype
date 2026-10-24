@@ -58,6 +58,9 @@ try {
     electronVersion: require('electron/package.json').version,
     extraResource: [runtime],
     overwrite: true,
+    extendInfo: {
+      NSMicrophoneUsageDescription: '主动收音时将语音发送给七牛灵矽，用于转写和语音控制 Codex。',
+    },
     asar: false,
     ...(process.env.electron_config_cache
       ? { download: { cacheRoot: process.env.electron_config_cache } }

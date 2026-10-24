@@ -3,6 +3,7 @@ import {
   LINGXI_WORKBENCH_ROLE,
   type VoiceCommand,
   type VoiceConfig,
+  type VoiceDebugEvent,
   type VoiceDiagnosticEvent,
   type VoiceState,
   voiceConfigSchema,
@@ -14,6 +15,7 @@ import { z } from 'zod';
 import { readBuildInfo } from './build-info.js';
 import type { DesktopBridge } from './desktop-bridge.js';
 import { VoiceConversation } from './voice-conversation.js';
+import { VoiceDebug } from './voice-debug.js';
 import { VoiceDiagnostics } from './voice-diagnostics.js';
 import type { WakeModel } from './wake-model.js';
 import type { WakePreferences } from './wake-preferences.js';
@@ -28,6 +30,10 @@ const rpc = z.object({
 });
 const textInput = z.strictObject({ text: z.string().trim().min(1).max(4000) });
 const modeInput = z.strictObject({ mode: z.enum(['plan', 'default']) });
+type ConnectionDetail = Pick<
+  VoiceDiagnosticEvent,
+  'source' | 'reason' | 'closeCode' | 'explicitClose' | 'retryAttempt'
+>;
 const toolErrors: Record<string, string> = {
   voice_submit_disabled:
     '本机尚未开启语音执行。请在设置 → 丽塔同学与语音执行勾选允许语音提交，保存后重新连接丽塔同学；本轮未交给 Codex。',
@@ -44,6 +50,11 @@ const toolErrors: Record<string, string> = {
 // the outbound WSS. It is separate from Codex's authenticated preview MCP.
 export class VoiceService {
   private journal = new VoiceDiagnostics();
+  private debugJournal = new VoiceDebug(() => [
+    this.config?.token ?? '',
+    this.config?.deviceId ?? '',
+    this.config?.clientId ?? '',
+  ]);
   private conversation = new VoiceConversation();
   private traceSession: string | null = null;
   private voiceTasks = new Map<string, { sessionId: string | null; captureId: string }>();
@@ -67,6 +78,33 @@ export class VoiceService {
       kind,
       ...extra,
     });
+    this.debug('local', 'state', { kind, ...extra }, extra);
+  }
+  private debug(
+    direction: VoiceDebugEvent['direction'],
+    event: VoiceDebugEvent['event'],
+    payload: unknown,
+    extra: Partial<Pick<VoiceDebugEvent, 'captureId' | 'taskId' | 'sessionId'>> = {},
+  ) {
+    if (this.closed) return;
+    this.debugJournal.record({
+      ...this.scope(),
+      sessionId: extra.sessionId === undefined ? this.traceSession : extra.sessionId,
+      captureId: extra.captureId === undefined ? this.state.captureId : extra.captureId,
+      taskId: extra.taskId ?? null,
+      direction,
+      event,
+      payload,
+    });
+  }
+  readDebug() {
+    return { ...this.debugJournal.read(), build: readBuildInfo() };
+  }
+  debugAction(input: { action: 'enabled'; enabled: boolean } | { action: 'clear' }) {
+    if (this.closed) throw new Error('voice_closed');
+    if (input.action === 'enabled') this.debugJournal.setEnabled(input.enabled);
+    else this.debugJournal.clear();
+    return this.readDebug();
   }
   diagnostics() {
     return {
@@ -80,6 +118,11 @@ export class VoiceService {
         toolsListed: this.state.deviceToolsReady,
         captureActive:
           !!this.state.captureId && Date.now() <= this.armedUntil && this.target === this.context(),
+        conversationActive: this.state.conversationActive,
+        wakeStatus: this.state.wake.status,
+        autoReconnectEnabled: this.state.connectionPreference.enabled,
+        retryAttempt: this.state.connection.attempt,
+        retryExhausted: this.state.connection.exhausted,
       },
     };
   }
@@ -295,6 +338,7 @@ export class VoiceService {
     this.lastFrame = Date.now();
     this.wakeLease = setInterval(() => {
       if (Date.now() - this.lastFrame <= 4000) return;
+      this.diagnostic('voice-paused', { source: 'microphone', reason: 'audio_frames_lost' });
       this.stopConversation('麦克风音频已中断，请手动重新开启语音。');
       this.stopWake('麦克风音频已中断，请重新开启唤醒。');
     }, 1000);
@@ -353,7 +397,11 @@ export class VoiceService {
     const config = voiceConfigSchema.parse(input);
     await this.options.desktop.call('voice-config-save', config);
     const suspended = this.state.wakeAutoSuspended;
-    this.disconnect();
+    this.disconnect({
+      source: 'configuration',
+      reason: 'configuration_saved',
+      explicitClose: false,
+    });
     this.update({ wakeAutoSuspended: suspended });
     this.config = config;
     this.update({ configured: true, allowVoiceSubmit: config.allowVoiceSubmit });
@@ -402,6 +450,11 @@ export class VoiceService {
     if (this.closed) throw new Error('voice_closed');
     if (!this.options.desktop) throw new Error('desktop_required');
     if (command.action === 'stop-session') {
+      this.diagnostic('service-stop-requested', {
+        source: 'operator',
+        reason: 'voice_close',
+        explicitClose: true,
+      });
       this.stopWake();
       this.stopConversation();
       this.update({ wakeAutoSuspended: true });
@@ -411,13 +464,18 @@ export class VoiceService {
         try {
           this.setConnectionPreference(false);
         } finally {
-          this.disconnect();
+          this.disconnect({ source: 'operator', reason: 'voice_close', explicitClose: true });
           await this.options.desktop.call('voice-audio', { reset: true });
         }
       }
       return;
     }
     if (command.action === 'pause-voice') {
+      this.diagnostic('voice-paused', {
+        source: 'operator',
+        reason: 'voice_paused',
+        explicitClose: false,
+      });
       const suspended = this.state.wakeAutoSuspended;
       this.stopWake();
       this.stopConversation();
@@ -428,7 +486,12 @@ export class VoiceService {
     if (command.action === 'connection-auto') {
       this.setConnectionPreference(command.enabled);
       if (command.enabled) await this.startAutoConnection();
-      else this.disconnectTransport();
+      else
+        this.disconnectTransport({
+          source: 'operator',
+          reason: 'connection_disabled',
+          explicitClose: true,
+        });
       return;
     }
     if (command.action === 'retry-connection') {
@@ -497,8 +560,17 @@ export class VoiceService {
       return;
     }
     if (command.action === 'disconnect') {
+      this.diagnostic('service-stop-requested', {
+        source: 'operator',
+        reason: 'manual_disconnect',
+        explicitClose: true,
+      });
       this.setConnectionPreference(false);
-      this.disconnectTransport();
+      this.disconnectTransport({
+        source: 'operator',
+        reason: 'manual_disconnect',
+        explicitClose: true,
+      });
       return;
     }
     if (command.action === 'arm-wake') {
@@ -693,12 +765,21 @@ export class VoiceService {
     const delays = [1000, 2000, 4000, 8000, 16000, 30000];
     const delay = delays[this.retryAttempt];
     if (delay === undefined) {
+      this.diagnostic('service-retry-paused', {
+        retryAttempt: this.retryAttempt,
+        explicitClose: false,
+      });
       this.update({
         connection: { attempt: this.retryAttempt, nextRetryAt: null, exhausted: true },
       });
       return;
     }
     this.retryAttempt++;
+    this.diagnostic('service-retry-scheduled', {
+      retryAttempt: this.retryAttempt,
+      retryDelayMs: delay,
+      explicitClose: false,
+    });
     this.update({
       connection: {
         attempt: this.retryAttempt,
@@ -719,7 +800,7 @@ export class VoiceService {
     if (!this.config) throw new Error('voice_config_required');
     const config = this.config;
     this.traceSession = randomUUID();
-    this.diagnostic('service-connecting');
+    this.diagnostic('service-connecting', { retryAttempt: this.retryAttempt });
     this.update({ status: 'connecting', error: null });
     const socket = new WebSocket(this.options.testEndpoint ?? config.endpoint, {
       headers: {
@@ -734,7 +815,11 @@ export class VoiceService {
     });
     this.socket = socket;
     this.deadline = setTimeout(
-      () => this.fail('语音握手超时，请检查设备绑定与网络。', true, 'handshake_timeout'),
+      () =>
+        this.fail('语音握手超时，请检查设备绑定与网络。', true, 'handshake_timeout', {
+          source: 'handshake',
+          reason: 'handshake_timeout',
+        }),
       10000,
     );
     socket.on('open', () =>
@@ -762,34 +847,66 @@ export class VoiceService {
         if (this.state.status === 'speaking' && data instanceof Buffer && data.length % 2 === 0) {
           void this.options.desktop
             ?.call('voice-audio', { pcm: data.toString('base64'), sampleRate: 16000 })
-            .catch(() => this.fail('无法播放语音，请重新连接。', false, 'audio_unavailable'));
+            .catch(() =>
+              this.fail('无法播放语音，请重新连接。', false, 'audio_unavailable', {
+                source: 'app',
+                reason: 'audio_playback_failed',
+              }),
+            );
         }
         return;
       }
       try {
-        this.receive(JSON.parse(data.toString()));
+        const message: unknown = JSON.parse(data.toString());
+        this.debug('inbound', 'message', message);
+        this.receive(message);
       } catch {
-        this.fail('丽塔同学返回了不兼容的消息，请检查服务配置。', false, 'protocol_incompatible');
+        this.debug('inbound', 'error', { invalidMessage: data.toString() });
+        this.fail('丽塔同学返回了不兼容的消息，请检查服务配置。', false, 'protocol_incompatible', {
+          source: 'websocket',
+          reason: 'protocol_incompatible',
+        });
       }
     });
     socket.on('unexpected-response', (_request, response) => {
       if (this.socket !== socket) return;
+      this.debug('inbound', 'http-response', {
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+        headers: response.headers,
+      });
       const denied = response.statusCode === 401 || response.statusCode === 403;
       response.destroy();
       this.fail(
         denied ? '语音设备认证未通过，请在设置检查绑定；已暂停自动重连。' : '语音网关暂不可用。',
         !denied,
         denied ? 'authentication_failed' : 'network_failure',
+        { source: 'handshake', reason: denied ? 'authentication_failed' : 'transport_error' },
       );
     });
     socket.on('pong', () => {
       if (this.socket === socket) this.lastPong = Date.now();
     });
-    socket.on('error', () => {
-      if (this.socket === socket) this.fail('无法连接丽塔同学，请核对设备绑定与网络。', true);
+    socket.on('error', (error) => {
+      if (this.socket !== socket) return;
+      this.debug('inbound', 'error', {
+        name: error.name,
+        code: (error as NodeJS.ErrnoException).code,
+        message: error.message,
+      });
+      this.fail('无法连接丽塔同学，请核对设备绑定与网络。', true, 'network_failure', {
+        source: 'websocket',
+        reason: 'transport_error',
+      });
     });
-    socket.on('close', () => {
-      if (this.socket === socket) this.fail('丽塔同学连接已断开。', true);
+    socket.on('close', (closeCode, reason) => {
+      if (this.socket !== socket) return;
+      this.debug('inbound', 'close', { closeCode, reason: reason.toString('utf8') });
+      this.fail('丽塔同学连接已断开。', true, 'network_failure', {
+        source: 'websocket',
+        reason: 'transport_close',
+        closeCode,
+      });
     });
   }
   frame(base64: string) {
@@ -836,11 +953,13 @@ export class VoiceService {
     }
   }
   private send(value: Record<string, unknown>, sent?: () => void) {
-    if (this.socket?.readyState === WebSocket.OPEN)
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.debug('outbound', 'message', value);
       this.socket.send(
         JSON.stringify({ ...(this.sessionId ? { session_id: this.sessionId } : {}), ...value }),
         sent,
       );
+    }
   }
   private receive(input: unknown) {
     const message = envelope.parse(input);
@@ -853,6 +972,9 @@ export class VoiceService {
       if (!audio.success) {
         this.fail(
           '服务未协商 PCM 16kHz 单声道，请在丽塔同学配置 PCM；本版不把 Opus 音频当 PCM 播放。',
+          false,
+          'protocol_incompatible',
+          { source: 'handshake', reason: 'protocol_incompatible' },
         );
         return;
       }
@@ -865,11 +987,14 @@ export class VoiceService {
         error: null,
         connection: { attempt: this.retryAttempt, nextRetryAt: null, exhausted: false },
       });
-      this.diagnostic('service-ready');
+      this.diagnostic('service-ready', { retryAttempt: this.retryAttempt });
       this.heartbeat = setInterval(() => {
         if (this.socket?.readyState !== WebSocket.OPEN) return;
         if (Date.now() - this.lastPong > 45000) {
-          this.fail('语音服务保活响应超时。', true);
+          this.fail('语音服务保活响应超时。', true, 'network_failure', {
+            source: 'heartbeat',
+            reason: 'keepalive_timeout',
+          });
           return;
         }
         if (Date.now() - this.connectedAt >= 30000) this.retryAttempt = 0;
@@ -1069,6 +1194,11 @@ export class VoiceService {
             this.target !== this.context()
           )
             throw new Error('capture_required');
+          this.diagnostic('service-stop-requested', {
+            source: 'device-tool',
+            reason: 'voice_close',
+            explicitClose: true,
+          });
           this.stopWake();
           this.stopConversation();
           this.update({ wakeAutoSuspended: true });
@@ -1238,7 +1368,12 @@ export class VoiceService {
       { type: 'mcp', payload: value },
       closeAfterReply
         ? () => {
-            if (this.socket === closing) this.disconnectTransport();
+            if (this.socket === closing)
+              this.disconnectTransport({
+                source: 'device-tool',
+                reason: 'voice_close',
+                explicitClose: true,
+              });
           }
         : undefined,
     );
@@ -1247,10 +1382,16 @@ export class VoiceService {
     error: string,
     recoverable = false,
     code: VoiceDiagnosticEvent['code'] = 'network_failure',
+    detail: ConnectionDetail = { source: 'app', reason: 'transport_error' },
   ) {
-    this.diagnostic('service-failed', { code });
+    this.diagnostic('service-failed', {
+      code,
+      explicitClose: false,
+      retryAttempt: this.retryAttempt,
+      ...detail,
+    });
     if (this.connectedAt && Date.now() - this.connectedAt >= 30000) this.retryAttempt = 0;
-    this.disconnectTransport();
+    this.disconnectTransport({ explicitClose: false, ...detail });
     this.update({ status: 'failed', error });
     if (recoverable) this.retryConnection();
   }
@@ -1259,9 +1400,10 @@ export class VoiceService {
     this.closed = true;
     this.connectionLoop = false;
     this.unsubscribe();
-    this.disconnect();
+    this.disconnect({ source: 'app', reason: 'shutdown', explicitClose: false });
     this.conversation.clear();
     this.journal.close();
+    this.debugJournal.close();
     this.voiceTasks.clear();
     this.closing = Promise.resolve(this.options.wake?.close());
     return this.closing;
@@ -1286,14 +1428,25 @@ export class VoiceService {
       wake: { ...this.state.wake, status: error ? 'failed' : 'off', detectionId: null, error },
     });
   }
-  disconnect() {
+  disconnect(
+    detail: ConnectionDetail = {
+      source: 'operator',
+      reason: 'manual_disconnect',
+      explicitClose: true,
+    },
+  ) {
     this.update({ wakeAutoSuspended: true });
     this.stopConversation();
     this.stopWake();
-    this.disconnectTransport();
+    this.disconnectTransport(detail);
   }
-  private disconnectTransport() {
-    if (this.socket) this.diagnostic('service-disconnected');
+  private disconnectTransport(detail: ConnectionDetail = { source: 'app' }) {
+    if (this.socket)
+      this.diagnostic('service-disconnected', {
+        explicitClose: false,
+        retryAttempt: this.retryAttempt,
+        ...detail,
+      });
     this.connectionEpoch++;
     clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
@@ -1322,6 +1475,9 @@ export class VoiceService {
     this.responses.clear();
     this.update({
       status: 'disconnected',
+      captureId: null,
+      draft: '',
+      subtitle: '',
       deviceToolsReady: false,
       connection: { ...this.state.connection, nextRetryAt: null },
     });

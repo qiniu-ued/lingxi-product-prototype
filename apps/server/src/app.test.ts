@@ -359,6 +359,59 @@ it('exposes bounded voice metadata and session chat with guarded clear/pause con
     snapshot: { projectSelected: false },
   });
   expect(result.headers['cache-control']).toBe('no-store');
+  const debug = await app.inject('/api/voice/debug');
+  expect(debug.headers['cache-control']).toBe('no-store');
+  expect(debug.json()).toMatchObject({ enabled: false, capacity: 64, events: [] });
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/debug',
+        payload: { action: 'enabled', enabled: true },
+      })
+    ).statusCode,
+  ).toBe(403);
+  const debugHeaders = { origin: 'http://localhost:80' };
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/debug',
+        headers: debugHeaders,
+        payload: { action: 'enabled', enabled: true, token: 'PRIVATE' },
+      })
+    ).statusCode,
+  ).toBe(400);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/debug',
+        headers: debugHeaders,
+        payload: { action: 'enabled', enabled: true },
+      })
+    ).json().enabled,
+  ).toBe(true);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/debug',
+        headers: debugHeaders,
+        payload: { action: 'clear' },
+      })
+    ).statusCode,
+  ).toBe(200);
+  expect(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/voice/debug',
+        headers: debugHeaders,
+        payload: { action: 'enabled', enabled: false },
+      })
+    ).json().enabled,
+  ).toBe(false);
   expect(
     (
       await app.inject({

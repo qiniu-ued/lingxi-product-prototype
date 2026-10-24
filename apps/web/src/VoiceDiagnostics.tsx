@@ -4,12 +4,17 @@ import {
   voiceDiagnosticsSchema,
 } from '@lingxi/protocol';
 import { useEffect, useRef, useState } from 'react';
+import { VoiceDebug } from './VoiceDebug';
 
 const labels: Record<VoiceDiagnosticEvent['kind'], string> = {
   'service-connecting': '开始连接服务',
   'service-ready': '语音握手成功',
   'service-disconnected': '服务断开',
   'service-failed': '连接失败',
+  'service-retry-scheduled': '已安排服务重连',
+  'service-retry-paused': '连续重连已暂停',
+  'service-stop-requested': '收到关闭服务操作',
+  'voice-paused': '本地收音暂停',
   'capture-started': '新一轮收音已绑定上下文',
   'capture-ended': '会话收音停止',
   'asr-received': '收到语音转写',
@@ -26,6 +31,51 @@ const labels: Record<VoiceDiagnosticEvent['kind'], string> = {
   'assistant-sentence': '收到播报文字',
   'assistant-stop': '播报结束',
   'protocol-rejected': '协议消息未接受',
+};
+const origins: Record<string, string> = {
+  websocket: 'WebSocket',
+  heartbeat: '本地保活',
+  handshake: '连接握手',
+  operator: '界面操作',
+  'device-tool': '语音关闭工具',
+  configuration: '配置保存',
+  system: '系统',
+  microphone: '音频输入',
+  app: '本机应用',
+};
+const activities: Record<string, string> = {
+  disconnected: '服务未连接',
+  connecting: '连接中',
+  ready: '服务已连接',
+  listening: '正在收音',
+  processing: '处理本句话',
+  speaking: '正在播报',
+  failed: '连接故障',
+};
+const wakeLabels: Record<string, string> = {
+  off: '已关闭',
+  installing: '下载模型中',
+  loading: '启动中',
+  armed: '本地待唤醒',
+  detected: '已识别唤醒词',
+  failed: '唤醒已暂停',
+};
+const connectionReasons: Record<string, string> = {
+  transport_close: '收到连接关闭事件',
+  transport_error: '传输错误',
+  keepalive_timeout: '等待 pong 超时',
+  handshake_timeout: '等待握手超时',
+  authentication_failed: '认证未通过',
+  protocol_incompatible: '协议不兼容',
+  audio_playback_failed: '播报播放失败',
+  manual_disconnect: '手动断开服务',
+  voice_close: '关闭语音',
+  connection_disabled: '关闭自动连接',
+  configuration_saved: '配置已保存',
+  system_suspend: '系统休眠',
+  shutdown: '应用退出',
+  audio_frames_lost: '连续 4 秒未收到音频帧',
+  voice_paused: '操作台暂停收音',
 };
 const reasons: Record<string, string> = {
   voice_submit_disabled: '未开启语音执行',
@@ -148,6 +198,20 @@ export function VoiceDiagnostics() {
           <>
             <dl className="voice-diagnostic-snapshot">
               <div>
+                <dt>服务 / 会话</dt>
+                <dd>
+                  {activities[state.snapshot.connection]} /{' '}
+                  {state.snapshot.conversationActive ? '会话开启' : '会话关闭'}
+                </dd>
+              </div>
+              <div>
+                <dt>本地唤醒 / 自动重连</dt>
+                <dd>
+                  {wakeLabels[state.snapshot.wakeStatus]} /{' '}
+                  {state.snapshot.autoReconnectEnabled ? '允许' : '已关闭'}
+                </dd>
+              </div>
+              <div>
                 <dt>项目</dt>
                 <dd>{state.snapshot.projectSelected ? '已选择' : '未选择，不能执行开发任务'}</dd>
               </div>
@@ -198,7 +262,7 @@ export function VoiceDiagnostics() {
                     `Enabled: ${state.enabled}; dropped: ${state.dropped}; events: ${state.events.length}`,
                     ...state.events.map(
                       (event) =>
-                        `#${event.sequence} ${event.at} ${event.kind} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} tool=${event.tool ?? '-'} code=${event.code ?? '-'} status=${event.status ?? '-'} characters=${event.characters ?? '-'}`,
+                        `#${event.sequence} ${event.at} ${event.kind} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} tool=${event.tool ?? '-'} code=${event.code ?? '-'} status=${event.status ?? '-'} characters=${event.characters ?? '-'} source=${event.source ?? '-'} reason=${event.reason ?? '-'} closeCode=${event.closeCode ?? '-'} explicitClose=${event.explicitClose ?? '-'} retryAttempt=${event.retryAttempt ?? '-'} retryDelayMs=${event.retryDelayMs ?? '-'}`,
                     ),
                   ].join('\n');
                   try {
@@ -215,6 +279,7 @@ export function VoiceDiagnostics() {
                 复制诊断日志
               </button>
             </div>
+            {open && <VoiceDebug />}
             {!!state.dropped && (
               <p>
                 旧记录已轮转或过期 {state.dropped} 条，当前保留 {state.events.length} 条。
@@ -230,6 +295,18 @@ export function VoiceDiagnostics() {
                     <strong>{labels[event.kind]}</strong>
                     {event.tool && <span> · {event.tool}</span>}
                     {event.code && <span> · {reasons[event.code] ?? '操作未接受'}</span>}
+                    {event.source && <span> · 来源：{origins[event.source]}</span>}
+                    {event.reason && <span> · {connectionReasons[event.reason]}</span>}
+                    {event.closeCode !== undefined && <span> · WebSocket {event.closeCode}</span>}
+                    {event.explicitClose !== undefined && (
+                      <span> · {event.explicitClose ? '关闭操作' : '非关闭操作'}</span>
+                    )}
+                    {event.retryAttempt !== undefined && (
+                      <span> · 重连 {event.retryAttempt}/6</span>
+                    )}
+                    {event.retryDelayMs !== undefined && (
+                      <span> · {event.retryDelayMs / 1000} 秒后</span>
+                    )}
                     {event.status && <span> · {event.status}</span>}
                     <small
                       title={`session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} task=${event.taskId ?? '-'}`}

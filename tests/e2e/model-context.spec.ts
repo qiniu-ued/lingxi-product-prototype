@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type ThreadRuntime,
   taskSchema,
+  type VoiceDebugState,
   voiceStateSchema,
   type WorkbenchState,
   workbenchSchema,
@@ -284,6 +285,19 @@ async function open(
   });
   await page.route('**/api/voice', (route) => route.fulfill({ json: voice }));
   await page.route('**/api/voice/inspect', (route) => route.fulfill({ json: voice }));
+  await page.route('**/api/voice/debug', (route) =>
+    route.fulfill({
+      json: {
+        build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
+        enabled: false,
+        capacity: 64,
+        retentionMinutes: 10,
+        maxPayloadCharacters: 8192,
+        dropped: 0,
+        events: [],
+      },
+    }),
+  );
   const voiceCommands: Array<Record<string, unknown>> = [];
   await page.route('**/api/voice/preferences', (route) => {
     const body = route.request().postDataJSON();
@@ -1711,6 +1725,99 @@ test('voice diagnostics show actual status calls and copy only bounded metadata'
   await page.getByRole('button', { name: '关闭诊断', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   expect(f.commands).toHaveLength(0);
+});
+
+test('detailed voice logs require opt-in, copy separately with a warning, and clear on disable', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  let debug: VoiceDebugState = {
+    build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
+    enabled: false,
+    capacity: 64,
+    retentionMinutes: 10,
+    maxPayloadCharacters: 8192,
+    dropped: 0,
+    events: [],
+  };
+  const actions: unknown[] = [];
+  await page.route('**/api/voice/debug', (route) => {
+    if (route.request().method() === 'POST') {
+      const action = route.request().postDataJSON();
+      actions.push(action);
+      debug = {
+        ...debug,
+        enabled: action.action === 'enabled' ? action.enabled : debug.enabled,
+        events: action.enabled
+          ? [
+              {
+                sequence: 1,
+                at: new Date().toISOString(),
+                direction: 'inbound',
+                event: 'message',
+                sessionId: randomUUID(),
+                captureId: randomUUID(),
+                projectId,
+                conversationId,
+                taskId: null,
+                payload: JSON.stringify({
+                  type: 'mcp',
+                  params: {
+                    name: 'workbench_submit',
+                    arguments: { text: 'PRIVATE_DIALOG_CONTENT', token: '[REDACTED]' },
+                  },
+                  result: { status: 'accepted' },
+                }),
+                truncated: true,
+              },
+            ]
+          : [],
+      };
+    }
+    return route.fulfill({ json: debug });
+  });
+  f.publishVoice({ configured: true, status: 'ready' });
+  await page.getByRole('button', { name: '语音诊断', exact: true }).click();
+  const panel = page.getByRole('region', { name: '详细语音调试' });
+  const enabled = panel.getByRole('checkbox', { name: '开启详细调试（包含对话和项目内容）' });
+  await expect(enabled).not.toBeChecked();
+  await expect(panel).toContainText('默认关闭');
+  expect(actions).toHaveLength(0);
+  await enabled.click();
+  await expect(enabled).toBeChecked();
+  await expect(panel).toContainText('部分 payload 已截断');
+  await panel.getByText('预览详细日志（含对话内容）', { exact: true }).click();
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await panel.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await expect(panel.getByRole('status')).toContainText('已复制详细日志，包含对话内容');
+  let copied = await page.evaluate(() => Reflect.get(window, 'copiedReply'));
+  expect(copied).toContain('PRIVATE_DIALOG_CONTENT');
+  expect(copied).toContain('[REDACTED]');
+  expect(copied).toContain('不是未经修改的原始网络包');
+  expect(copied).toContain('truncated=true');
+  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  copied = await page.evaluate(() => Reflect.get(window, 'copiedReply'));
+  expect(copied).not.toContain('PRIVATE_DIALOG_CONTENT');
+  await page.evaluate(() => Reflect.set(window, 'failCopy', true));
+  await panel.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await expect(panel.getByLabel('详细日志文本（可手动复制）')).toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await expect(panel).toContainText('无法自动复制详细日志');
+  await panel.getByRole('button', { name: '清空详细调试' }).click();
+  await expect(enabled).toBeChecked();
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).not.toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await enabled.click();
+  await expect(enabled).not.toBeChecked();
+  await expect(panel).toContainText('详细调试未开启');
+  await expect(panel.getByLabel('详细日志文本（可手动复制）')).toHaveCount(0);
+  expect(f.commands).toHaveLength(0);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
 });
 
 test('projectless voice messages stream, settle once and survive a page refresh without becoming tasks', async ({

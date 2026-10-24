@@ -162,6 +162,7 @@ async function create(
   return {
     voice,
     drop: () => peer?.terminate(),
+    remoteClose: (code: number, reason: string) => peer?.close(code, reason),
     connections: () => connections,
     denyAuthentication: () => {
       deniedAuthentication = true;
@@ -696,6 +697,14 @@ it('ends the active microphone lease when audio is lost, not when frames are sil
   await vi.advanceTimersByTimeAsync(6000);
   expect(f.voice.read()).toMatchObject({ conversationActive: false, status: 'ready' });
   expect(f.voice.read().error).toContain('麦克风音频已中断');
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'voice-paused',
+      source: 'microphone',
+      reason: 'audio_frames_lost',
+    }),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'service-failed')).toBe(false);
 });
 it('does not reopen a capture whose audio setup finishes after an explicit close', async () => {
   let release = () => {};
@@ -950,6 +959,14 @@ it('detects an unresponsive connection through missing pongs and clears heartbea
     error: '语音服务保活响应超时。',
     connection: { attempt: 1 },
   });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      source: 'heartbeat',
+      reason: 'keepalive_timeout',
+      explicitClose: false,
+    }),
+  );
   expect(f.audio).toHaveLength(0);
   f.voice.close();
   await vi.advanceTimersByTimeAsync(120000);
@@ -1118,4 +1135,106 @@ it('reports missing handoff after a spoken reply even when the provider never su
     expect.objectContaining({ kind: 'handoff-missing', code: 'no_tool_call' }),
   );
   expect(f.start).not.toHaveBeenCalled();
+});
+
+it('distinguishes a peer close after TTS from idle capture, and reconnects without an old capture identity', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  const capture = f.voice.read().captureId;
+  f.voice.debugAction({ action: 'enabled', enabled: true });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().conversationActive).toBe(true);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'service-failed')).toBe(false);
+  vi.useFakeTimers();
+  f.remoteClose(1000, 'idle timeout token=PRIVATE_TOKEN');
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read()).toMatchObject({ captureId: null, conversationActive: false });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      source: 'websocket',
+      reason: 'transport_close',
+      closeCode: 1000,
+      explicitClose: false,
+      captureId: capture,
+    }),
+  );
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-retry-scheduled',
+      retryAttempt: 1,
+      retryDelayMs: 1000,
+      captureId: null,
+    }),
+  );
+  const detailedClose = f.voice.readDebug().events.find((event) => event.event === 'close');
+  expect(detailedClose?.payload).toContain('idle timeout');
+  expect(detailedClose?.payload).not.toContain('PRIVATE_TOKEN');
+  await vi.advanceTimersByTimeAsync(1000);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  const latest = f.voice
+    .diagnostics()
+    .events.filter((event) => event.kind === 'service-ready')
+    .at(-1);
+  expect(latest?.captureId).toBeNull();
+  expect(f.voice.read().conversationActive).toBe(false);
+  await f.voice.command({ action: 'disconnect' });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-disconnected',
+      source: 'operator',
+      reason: 'manual_disconnect',
+      explicitClose: true,
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.connections()).toBe(2);
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('records redacted protocol bodies only after detailed debugging is explicitly enabled', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: 'before debug' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('before debug'));
+  expect(f.voice.readDebug()).toMatchObject({ enabled: false, events: [] });
+  f.voice.debugAction({ action: 'enabled', enabled: true });
+  await f.voice.command({ action: 'listen' });
+  f.send({
+    type: 'stt',
+    text: '把标题变粉色',
+    provider_extra: { token: 'UNRELATED_PROVIDER_SECRET' },
+  });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '收到，交给 Codex' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('把标题变粉色'));
+  await f.call(1601, 'workbench_status');
+  await f.call(1602, 'workbench_submit', { text: '把标题变粉色' });
+  const detailed = JSON.stringify(f.voice.readDebug());
+  expect(detailed).toContain('把标题变粉色');
+  expect(detailed).toContain('收到，交给 Codex');
+  expect(detailed).toContain('arguments');
+  expect(detailed).toContain('result');
+  expect(detailed).not.toMatch(
+    /PRIVATE_TOKEN|UNRELATED_PROVIDER_SECRET|02:12:34:56:78:90|before debug/,
+  );
+  expect(JSON.stringify(f.voice.diagnostics())).not.toMatch(/把标题变粉色|收到，交给/);
+  f.voice.debugAction({ action: 'enabled', enabled: false });
+  await f.call(1603, 'workbench_status');
+  expect(f.voice.readDebug()).toMatchObject({ enabled: false, events: [] });
 });

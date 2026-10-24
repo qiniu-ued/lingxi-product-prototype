@@ -137,6 +137,23 @@ export function buildApp(options: AppOptions) {
     if (request.headers['if-none-match'] === etag) return reply.code(304).send();
     return value;
   });
+  app.get('/api/voice/debug', async (_request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return voice.readDebug();
+  });
+  app.post('/api/voice/debug', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    if (!request.headers.origin || !options.desktop)
+      return reply.code(403).send({ error: 'desktop_required' });
+    const input = z
+      .discriminatedUnion('action', [
+        z.strictObject({ action: z.literal('enabled'), enabled: z.boolean() }),
+        z.strictObject({ action: z.literal('clear') }),
+      ])
+      .safeParse(request.body);
+    if (!input.success) return reply.code(400).send({ error: 'invalid_request' });
+    return voice.debugAction(input.data);
+  });
   app.post('/api/voice/conversation', async (request, reply) => {
     reply.header('Cache-Control', 'no-store');
     if (!request.headers.origin || !options.desktop)

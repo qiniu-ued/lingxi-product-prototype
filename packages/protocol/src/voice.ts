@@ -119,6 +119,10 @@ export const voiceDiagnosticKindSchema = z.enum([
   'service-ready',
   'service-disconnected',
   'service-failed',
+  'service-retry-scheduled',
+  'service-retry-paused',
+  'service-stop-requested',
+  'voice-paused',
   'capture-started',
   'capture-ended',
   'asr-received',
@@ -170,6 +174,34 @@ export const voiceDiagnosticToolSchema = z.enum([
   'workbench_context_details',
   'unknown',
 ]);
+export const voiceDiagnosticSourceSchema = z.enum([
+  'websocket',
+  'heartbeat',
+  'handshake',
+  'operator',
+  'device-tool',
+  'configuration',
+  'system',
+  'microphone',
+  'app',
+]);
+export const voiceDiagnosticReasonSchema = z.enum([
+  'transport_close',
+  'transport_error',
+  'keepalive_timeout',
+  'handshake_timeout',
+  'authentication_failed',
+  'protocol_incompatible',
+  'audio_playback_failed',
+  'manual_disconnect',
+  'voice_close',
+  'connection_disabled',
+  'configuration_saved',
+  'system_suspend',
+  'shutdown',
+  'audio_frames_lost',
+  'voice_paused',
+]);
 export const voiceDiagnosticEventSchema = z.strictObject({
   sequence: z.number().int().nonnegative(),
   at: z.iso.datetime(),
@@ -181,6 +213,12 @@ export const voiceDiagnosticEventSchema = z.strictObject({
   taskId: z.uuid().nullable(),
   tool: voiceDiagnosticToolSchema.optional(),
   code: voiceDiagnosticCodeSchema.optional(),
+  source: voiceDiagnosticSourceSchema.optional(),
+  reason: voiceDiagnosticReasonSchema.optional(),
+  closeCode: z.number().int().min(1000).max(4999).optional(),
+  explicitClose: z.boolean().optional(),
+  retryAttempt: z.number().int().min(0).max(6).optional(),
+  retryDelayMs: z.number().int().min(1000).max(30000).optional(),
   status: z
     .enum([
       'queued',
@@ -224,9 +262,40 @@ export const voiceDiagnosticsSchema = z.strictObject({
     voiceSubmitEnabled: z.boolean(),
     toolsListed: z.boolean(),
     captureActive: z.boolean(),
+    conversationActive: z.boolean().default(false),
+    wakeStatus: voiceStateSchema.shape.wake.unwrap().shape.status.default('off'),
+    autoReconnectEnabled: z.boolean().default(false),
+    retryAttempt: z.number().int().min(0).max(6).default(0),
+    retryExhausted: z.boolean().default(false),
   }),
 });
 export type VoiceDiagnostics = z.infer<typeof voiceDiagnosticsSchema>;
+
+// Explicit opt-in content debugging is separate from default metadata exports.
+export const voiceDebugEventSchema = z.strictObject({
+  sequence: z.number().int().positive(),
+  at: z.iso.datetime(),
+  direction: z.enum(['inbound', 'outbound', 'local']),
+  event: z.enum(['message', 'close', 'error', 'http-response', 'state']),
+  sessionId: z.uuid().nullable(),
+  captureId: z.uuid().nullable(),
+  projectId: z.uuid().nullable(),
+  conversationId: z.uuid().nullable(),
+  taskId: z.uuid().nullable(),
+  payload: z.string().max(8192),
+  truncated: z.boolean(),
+});
+export type VoiceDebugEvent = z.infer<typeof voiceDebugEventSchema>;
+export const voiceDebugSchema = z.strictObject({
+  build: voiceBuildSchema,
+  enabled: z.boolean(),
+  capacity: z.literal(64),
+  retentionMinutes: z.literal(10),
+  maxPayloadCharacters: z.literal(8192),
+  dropped: z.number().int().nonnegative(),
+  events: z.array(voiceDebugEventSchema).max(64),
+});
+export type VoiceDebugState = z.infer<typeof voiceDebugSchema>;
 
 export const voiceMessageSchema = z.strictObject({
   id: z.uuid(),

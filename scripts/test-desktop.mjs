@@ -835,6 +835,24 @@ try {
   assert.ok(diagnosticCopy.startsWith('丽塔同学语音诊断 v1'));
   assert.ok(!diagnosticCopy.includes('Authorization') && !diagnosticCopy.includes('token='));
   await reopened.screenshot({ path: join(root, '.local/voice-diagnostics.png') });
+  const detailed = reopened.getByRole('region', { name: '详细语音调试' });
+  const detailedSwitch = detailed.getByRole('checkbox', {
+    name: '开启详细调试（包含对话和项目内容）',
+  });
+  await detailedSwitch.waitFor({ state: 'visible' });
+  assert.equal(await detailedSwitch.isChecked(), false);
+  await detailedSwitch.click();
+  await detailed.getByText('详细调试正在记录', { exact: false }).waitFor();
+  await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await detailed.getByRole('status').waitFor();
+  const detailedCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(detailedCopy.startsWith('丽塔同学详细调试 v1'));
+  assert.ok(detailedCopy.includes('分享前请检查') && detailedCopy.includes('Enabled: true'));
+  await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
+  await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
+  await detailedSwitch.click();
+  await detailed.getByText('详细调试未开启', { exact: false }).waitFor();
+  assert.equal(await detailedSwitch.isChecked(), false);
   await reopened.getByRole('button', { name: '关闭诊断', exact: true }).click();
 
   assert.equal(

@@ -44,3 +44,4 @@
 区域截图标记、独立 Git worktree、并发 Sidechat、官方 Skills 调用/MCP 配置管理、真实子 Agent 树、源码定位/高亮、成果回退/快照清理、Developer ID 签名与公证、自动更新。Plan/权限需完成用户 Mac 的真实 CLI 和模型验收。AirPlay 自动连接需原生固定操作、系统授权和兼容性矩阵；A2UI 可后续用于确认卡片，不代替预览和系统能力。详见 [设计对齐计划](desktop-voice-plan.md)。
 
 多执行引擎：已完成 OpenCode / DeepSeek Harness 官方协议静态评估，适配器、能力声明与各引擎验收尚未实现，见[提案](multi-engine-options.md)。
+- [x] 主动语音会话跨静音保持、逐句暂存、明确关闭与故障释放；预览旁批注文字进入真实任务；无项目默认大屏；UI 品牌改为丽塔同学。真实云端语音闭环仍待 M1 验收。

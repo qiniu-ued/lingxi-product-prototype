@@ -112,7 +112,7 @@ test('startup sends all configuration problems to the wizard without installing,
   await expect(page).toHaveURL(/\/setup$/);
   const overview = page.getByRole('region', { name: '环境检查结果' });
   await expect(overview).toContainText('Codex 尚未登录');
-  await expect(overview).toContainText('需要绑定灵矽设备');
+  await expect(overview).toContainText('需要绑定丽塔同学设备');
   await expect(overview).toContainText('需要下载唤醒模型');
   await page
     .getByRole('navigation', { name: '连接步骤' })
@@ -169,9 +169,13 @@ test('settings can always be opened directly and remain open after every configu
   const f = await fixture(page);
   await page.goto('/settings#lingxi');
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '灵矽与语音执行', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: '重新检查全部配置', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '灵矽与语音执行', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }),
+  ).toBeVisible();
   await expect(page).toHaveURL(/\/settings#lingxi$/);
   expect(f.actions).toEqual([]);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();

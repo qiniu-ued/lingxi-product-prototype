@@ -14,7 +14,9 @@ export function VoiceHandoff({
       <strong>{state.allowVoiceSubmit ? '语音执行已开启' : '仅转写草稿 · 语音执行未开启'}</strong>
       {!['disconnected', 'failed'].includes(state.status) && (
         <small>
-          {state.deviceToolsReady ? '灵矽已读取工作台工具列表' : '尚未收到灵矽的工作台工具发现请求'}
+          {state.deviceToolsReady
+            ? '丽塔同学已读取工作台工具列表'
+            : '尚未收到丽塔同学的工作台工具发现请求'}
         </small>
       )}
       {state.handoff && (

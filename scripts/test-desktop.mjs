@@ -29,7 +29,7 @@ await cp(join(root, 'tests/fixtures/codex-task.mjs'), fixture);
 await chmod(fixture, 0o755);
 const record = join(temporary, 'peer.jsonl');
 let instance, liveServer;
-const launch = () =>
+const launch = (directory = dataRoot) =>
   _electron.launch({
     executablePath: process.env.LINGXI_DESKTOP_BUNDLE
       ? join(process.env.LINGXI_DESKTOP_BUNDLE, 'Contents/MacOS/Lingxi')
@@ -43,7 +43,7 @@ const launch = () =>
     env: {
       ...process.env,
       LINGXI_NODE_BIN: process.execPath,
-      LINGXI_DESKTOP_DATA: dataRoot,
+      LINGXI_DESKTOP_DATA: directory,
       LINGXI_CODEX_BIN: fixture,
       LINGXI_TASK_FIXTURE_MODE: 'browser',
       LINGXI_TASK_FIXTURE_RECORD: record,
@@ -142,12 +142,14 @@ try {
     return page.executeJavaScript(`({desktop:typeof window.lingxiDesktop,node:typeof process})`);
   });
   assert.deepEqual(isolation, { desktop: 'undefined', node: 'undefined' });
-  await expand(operator, '.workbench-menu');
-  await operator.getByRole('button', { name: '点选修改', exact: true }).click();
+  await operator.getByRole('button', { name: '批注修改', exact: true }).click();
   await operator
     .getByRole('img', { name: '大屏中同一个作品页面的实时画面' })
     .click({ position: { x: 150, y: 65 } });
   await operator.getByRole('button', { name: '清除选择' }).waitFor();
+  await operator
+    .getByLabel('给选中元素的批注', { exact: true })
+    .fill('保留这段文字，把背景改成粉色');
   await expand(operator, '.keyboard-composer');
   await operator.getByLabel('给 Codex 的本轮指令').fill('vote and type');
   await operator.getByRole('button', { name: '提交给 Codex' }).click();
@@ -158,6 +160,7 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(after.task.status, 'completed', JSON.stringify(after.task));
+  assert.ok(after.task.prompt.includes('保留这段文字，把背景改成粉色'));
   assert.equal(after.task.settings.model, 'test-model');
   assert.equal(after.task.settings.effort, 'high');
   const started = (await readFile(record, 'utf8'))
@@ -565,13 +568,13 @@ try {
   }
   await reopened.goto(`${reopenedAddress}/setup`);
   await reopened
-    .getByRole('button', { name: /配置灵矽/ })
+    .getByRole('button', { name: /配置丽塔同学/ })
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
   assert.equal(
     await reopened
-      .getByRole('link', { name: '打开灵矽控制台 ↗', exact: true })
+      .getByRole('link', { name: '打开七牛语音控制台 ↗', exact: true })
       .getAttribute('href'),
     'https://xrobo.qiniu.com/',
   );
@@ -593,6 +596,25 @@ try {
     .getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true })
     .waitFor();
   await reopened.screenshot({ path: join(root, '.local/wake-setup-smoke.png') });
+  await instance.close();
+  instance = undefined;
+  const emptyData = join(temporary, 'empty-data');
+  await mkdir(emptyData);
+  instance = await launch(emptyData);
+  const emptyOperator = await instance.firstWindow();
+  await emptyOperator.getByRole('heading', { name: '先检查，再配置。', exact: true }).waitFor();
+  await emptyOperator.waitForFunction(async () => {
+    const state = await (await fetch('/api/workbench')).json();
+    return state.project === null;
+  });
+  const defaultDisplay = await instance
+    .waitForEvent('window', { predicate: (page) => page.url().endsWith('/display'), timeout: 3000 })
+    .catch(() => null);
+  const windows = await instance.windows();
+  assert.ok(
+    defaultDisplay || windows.some((page) => page.url().endsWith('/display')),
+    'A fresh installation must open the display without a project or AirPlay',
+  );
   console.log(
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, shutdown and restart. Screenshot: ${screenshot}`,
   );

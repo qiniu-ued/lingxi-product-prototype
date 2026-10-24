@@ -70,6 +70,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const retryTarget = useRef(target);
   const {
     text,
+    annotation,
+    setAnnotation,
     setText,
     attachments,
     setAttachments,
@@ -79,6 +81,12 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     setVoiceDraft,
     patch: patchDraft,
   } = useComposerDraft(target);
+  const composedText = [
+    text.trim(),
+    selection && annotation.trim() ? `元素批注：${annotation.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
   const latestState = useRef(state);
   latestState.current = state;
   const lastVoice = useRef('');
@@ -300,8 +308,12 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   }
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const draft = text.trim();
+    const draft = composedText;
     if (!draft) return;
+    if (draft.length > 4000) {
+      setError('本轮指令与元素批注合计最多 4,000 字符，请缩短后提交。');
+      return;
+    }
     if (retry.current?.text !== draft) retry.current = { text: draft, id: crypto.randomUUID() };
     if (
       await operate('start', {
@@ -314,6 +326,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     ) {
       if (composer.current) composer.current.open = false;
       setText('');
+      setAnnotation('');
       setAttachments([]);
       setVoiceDraft(null);
       setSelection(null);
@@ -328,7 +341,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
             <SparklesIcon />
           </span>
           <span>
-            灵矽
+            丽塔同学
             <small role="status">
               <svg
                 aria-hidden="true"
@@ -604,7 +617,22 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           >
             <div className="live-heading">
               <h1>项目预览</h1>
+              {!display && state?.preview && (
+                <button
+                  type="button"
+                  aria-pressed={picking}
+                  onClick={() => {
+                    setPicking((value) => !value);
+                    retry.current = null;
+                  }}
+                >
+                  {picking ? '取消批注点选' : '批注修改'}
+                </button>
+              )}
             </div>
+            {!display && picking && (
+              <p role="status">点击预览中的元素，选中后填写修改要求；点选不会触发页面按钮。</p>
+            )}
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
                 <div className="live-empty">
@@ -667,7 +695,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               >
                 <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" />
               </svg>
-              与灵矽对话
+              与丽塔同学对话
             </h2>
             <span title="选中单条消息中的文字，可引用或开启只读 Sidechat">
               {display ? '发言人' : '选中文字引用'}
@@ -707,7 +735,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                         灵
                       </span>
                       <div className="chat-message">
-                        <span className="bubble-speaker">灵矽</span>
+                        <span className="bubble-speaker">丽塔同学</span>
                         <div
                           className="live-bubble"
                           data-history-task={turn.id}
@@ -1073,6 +1101,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           >
             <MicrophoneIcon
               muted={
+                !displayVoice?.conversationActive &&
                 !['ready', 'listening', 'speaking'].includes(displayVoice?.status ?? '') &&
                 !['armed', 'detected'].includes(displayVoice?.wake.status ?? '')
               }
@@ -1080,15 +1109,23 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
             <strong>
               {!connected || !displayVoice
                 ? '正在同步麦克风状态'
-                : ['armed', 'detected'].includes(displayVoice.wake.status) &&
-                    displayVoice.status === 'ready'
-                  ? `本地待唤醒 · 麦克风已开启 · ${displayVoice.wake.keyword}`
-                  : displayVoice.status === 'speaking' &&
-                      ['armed', 'detected'].includes(displayVoice.wake.status)
-                    ? '播报中 · 本地麦克风开启，暂停唤醒'
-                    : displayVoice.status === 'listening'
-                      ? '收音中 · 麦克风已开启'
-                      : '麦克风已关闭'}
+                : displayVoice.conversationActive
+                  ? displayVoice.status === 'ready'
+                    ? '语音会话开启 · 本机待说话 · 麦克风已开启'
+                    : displayVoice.status === 'processing'
+                      ? '正在处理这句话 · 语音会话保持开启'
+                      : displayVoice.status === 'speaking'
+                        ? '播报中 · 语音会话保持开启'
+                        : '收音中 · 语音会话保持开启'
+                  : ['armed', 'detected'].includes(displayVoice.wake.status) &&
+                      displayVoice.status === 'ready'
+                    ? `本地待唤醒 · 麦克风已开启 · ${displayVoice.wake.keyword}`
+                    : displayVoice.status === 'speaking' &&
+                        ['armed', 'detected'].includes(displayVoice.wake.status)
+                      ? '播报中 · 本地麦克风开启，暂停唤醒'
+                      : displayVoice.status === 'listening'
+                        ? '收音中 · 麦克风已开启'
+                        : '麦克风已关闭'}
             </strong>
             {displayVoice?.status === 'listening' && (
               <span>{displayVoice.draft || '正在听取本次指令…'}</span>
@@ -1107,7 +1144,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   conversationId: state.selectedThreadId,
                   selection,
                   attachments,
-                  text,
+                  text: composedText,
                 }))
               )
                 throw new Error('context_unavailable');
@@ -1160,6 +1197,18 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               {selection && (
                 <div className="selection-tools">
                   <p>已选：{selection.description.slice(0, 80)}</p>
+                  <label>
+                    给选中元素的批注
+                    <textarea
+                      value={annotation}
+                      maxLength={4000}
+                      onChange={(event) => setAnnotation(event.target.value)}
+                      placeholder="例如：背景改成粉色，保留文字"
+                    />
+                  </label>
+                  <p>
+                    可添加带批注的标记，也可在下方输入本轮指令直接提交；都会携带这个元素的上下文。
+                  </p>
                   <button
                     type="button"
                     onClick={() => {
@@ -1167,10 +1216,11 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                         id: crypto.randomUUID(),
                         kind: 'browser',
                         title: selection.description.slice(0, 100),
-                        text: `预览点选：${selection.description}`,
+                        text: `预览点选：${selection.description}${annotation.trim() ? `\n修改要求：${annotation.trim()}` : ''}`,
                         selection,
                       });
                       setSelection(null);
+                      setAnnotation('');
                     }}
                   >
                     把此标记加入上下文
@@ -1179,6 +1229,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     type="button"
                     onClick={() => {
                       setSelection(null);
+                      setAnnotation('');
                       retry.current = null;
                     }}
                   >
@@ -1207,7 +1258,13 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <button
                   className="send-task"
                   type="submit"
-                  disabled={busy || staleSelection || !state?.project || !text.trim() || !connected}
+                  disabled={
+                    busy ||
+                    staleSelection ||
+                    !state?.project ||
+                    (!text.trim() && !(selection && annotation.trim())) ||
+                    !connected
+                  }
                 >
                   {running ? (mode === 'queue' ? '排队发送' : '补充当前任务') : '提交给 Codex'}
                 </button>

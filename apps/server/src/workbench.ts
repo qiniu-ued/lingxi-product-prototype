@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { CodexClient, type RpcMessage } from './codex-client.js';
 import type { CodexSetup } from './codex-setup.js';
 import type { DesktopBridge } from './desktop-bridge.js';
+import { countersDecreased, zeroTokens } from './turn-usage.js';
 import { WorkbenchStore } from './workbench-store.js';
 
 const done = (task: Task | null) =>
@@ -122,6 +123,7 @@ export class Workbench {
   }
   private update(change: Partial<WorkbenchState> = {}) {
     this.state = { ...this.state, ...change, revision: this.state.revision + 1 };
+    this.state.turnUsage = this.store.turnUsage(this.state.history);
     this.store.write(this.state);
     for (const listener of this.listeners) listener(this.state);
   }
@@ -439,6 +441,7 @@ export class Workbench {
         return;
       }
       const thread = this.conversation();
+      const freshThread = !thread.codexId;
       if (!this.loaded.has(thread.id)) {
         const readonly = thread.kind === 'sidechat';
         const result = threadResult.parse(
@@ -466,6 +469,25 @@ export class Workbench {
         });
       }
       this.taskUpdate({ threadId: thread.codexId, activity: '正在提交需求…' });
+      const previous = this.store
+        .history(thread.id)
+        .findLast((t) => t.id !== task.id && t.threadId === thread.codexId && t.turnId);
+      const runtime = this.runtimeFor(thread);
+      this.store.writeUsageRecord({
+        taskId: task.id,
+        conversationId: thread.id,
+        codexId: thread.codexId as string,
+        turnId: null,
+        previousTaskId: previous?.id ?? null,
+        baseline: freshThread
+          ? zeroTokens
+          : previous?.turnId && runtime.usageTurnId === previous.turnId
+            ? (runtime.usage?.total ?? null)
+            : null,
+        total: null,
+        counterReset: false,
+        updatedAt: null,
+      });
       this.turnTimer = setTimeout(() => {
         this.interrupt();
       }, this.options.timeoutMs ?? 1_800_000);
@@ -493,6 +515,8 @@ export class Workbench {
         }),
       );
       if (this.state.task?.id !== task.id || done(this.state.task)) return;
+      const usageRecord = this.store.usageRecord(task.id);
+      if (usageRecord) this.store.writeUsageRecord({ ...usageRecord, turnId: result.turn.id });
       const stopping = this.read().task?.status === 'stopping';
       this.taskUpdate({
         turnId: result.turn.id,
@@ -771,21 +795,41 @@ export class Workbench {
           .object({ turnId: z.string(), tokenUsage: threadTokenUsageSchema })
           .safeParse(p);
         if (!event.success) return;
-        const task =
-          this.state.task?.conversationId === thread.id
-            ? this.state.task
-            : this.store.history(thread.id).findLast((t) => t.turnId);
-        if (task && !task.turnId && ['starting', 'stopping'].includes(task.status)) {
+        const history = this.store.history(thread.id);
+        const task = history.find(
+          (t) => t.threadId === thread.codexId && t.turnId === event.data.turnId,
+        );
+        const active = this.state.task;
+        if (
+          !task &&
+          active?.conversationId === thread.id &&
+          !active.turnId &&
+          ['starting', 'stopping'].includes(active.status)
+        ) {
           this.bufferEvent(message);
           return;
         }
-        if (task?.turnId && task.turnId !== event.data.turnId) return;
-        this.saveRuntime({
-          ...this.runtimeFor(thread),
-          usage: event.data.tokenUsage,
-          usageTurnId: event.data.turnId,
-          usageUpdatedAt: new Date().toISOString(),
-        });
+        if (!task) return;
+        const now = new Date().toISOString();
+        const usageRecord = this.store.usageRecord(task.id);
+        if (usageRecord?.turnId === event.data.turnId && usageRecord.codexId === thread.codexId)
+          this.store.writeUsageRecord({
+            ...usageRecord,
+            total: event.data.tokenUsage.total,
+            counterReset:
+              usageRecord.counterReset ||
+              (!!usageRecord.total &&
+                countersDecreased(event.data.tokenUsage.total, usageRecord.total)),
+            updatedAt: now,
+          });
+        if (history.findLast((t) => t.turnId)?.id === task.id)
+          this.saveRuntime({
+            ...this.runtimeFor(thread),
+            usage: event.data.tokenUsage,
+            usageTurnId: event.data.turnId,
+            usageUpdatedAt: now,
+          });
+        else this.update();
       }
       return;
     }

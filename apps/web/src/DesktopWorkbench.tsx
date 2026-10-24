@@ -10,6 +10,7 @@ import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useStat
 import { ContextUsage } from './ContextUsage';
 import { DiffPanel } from './DiffPanel';
 import { ModelControls } from './ModelControls';
+import { TurnUsage } from './TurnUsage';
 import { VoiceControls } from './VoiceControls';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -515,6 +516,11 @@ export function DesktopWorkbench() {
                   <small>
                     {turn.status} · {new Date(turn.createdAt).toLocaleString()}
                   </small>
+                  <TurnUsage
+                    usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
+                    status={turn.status}
+                    compact={display}
+                  />
                   {!display && (
                     <div className="live-actions">
                       <button

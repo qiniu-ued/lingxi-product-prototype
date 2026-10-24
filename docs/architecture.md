@@ -64,3 +64,5 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 安全边界、Sidechat MCP 禁用、音频帧、存储兼容与协议来源见 [ADR 0004](adr/0004-persistent-workspace-and-voice.md)。
 
 输入区模型选择器、上下文最近/累计统计及独立元数据表兼容见 [ADR 0005](adr/0005-model-controls-and-context-usage.md)。快照 runtime 字段来自当前对话对应的真实通知；旧 v2 状态 JSON 不写入该新字段。
+
+每轮消耗由累计值前后差计算，在结束回复下方展示总量、输入/输出、缓存命中率。`workspace_turn_usage_v1` 独立保存基线、前驱轮次和原始累计报告，快照 `turnUsage` 按当前历史派生，旧 v2 JSON 不增加字段。已知历史轮次的迟到报告只修正对应轮次及下一轮基线，不能覆盖更新的窗口占用。数据缺失和计数重置不估算。见 [ADR 0006](adr/0006-turn-token-consumption.md)。

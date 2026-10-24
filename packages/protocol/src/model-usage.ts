@@ -52,3 +52,12 @@ export const threadRuntimeSchema = z.strictObject({
 export type ModelCatalog = z.infer<typeof modelCatalogSchema>;
 export type ModelDescriptor = z.infer<typeof modelDescriptorSchema>;
 export type ThreadRuntime = z.infer<typeof threadRuntimeSchema>;
+export type TokenBreakdown = z.infer<typeof tokenBreakdownSchema>;
+
+export const turnUsageSchema = z.strictObject({
+  taskId: z.uuid(),
+  status: z.enum(['waiting', 'reported', 'baseline-missing', 'counter-reset']),
+  tokens: tokenBreakdownSchema.nullable(),
+  updatedAt: z.string().datetime().nullable(),
+});
+export type TurnUsage = z.infer<typeof turnUsageSchema>;

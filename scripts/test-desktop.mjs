@@ -103,6 +103,14 @@ try {
   assert.equal(after.task.settings.model, 'test-model');
   assert.equal(after.task.settings.effort, 'high');
   await operator.getByRole('meter', { name: '上下文窗口占用', exact: true }).waitFor();
+  await operator.waitForFunction(() =>
+    document.querySelector('.turn-usage-summary')?.textContent.includes('缓存命中率 35.7%'),
+  );
+  assert.ok(
+    (await operator.locator('.turn-usage-summary').first().textContent()).includes(
+      '本轮 150,000 tokens',
+    ),
+  );
   assert.equal(
     await operator
       .getByRole('meter', { name: '上下文窗口占用', exact: true })

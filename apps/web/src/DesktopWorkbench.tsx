@@ -573,7 +573,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               </details>
             </div>
           )}
-          {!display && <SettingsLink />}
+          {!display && <SettingsLink variant="surface" />}
           {!display && (
             <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
               <summary>

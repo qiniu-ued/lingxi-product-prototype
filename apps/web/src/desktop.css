@@ -236,30 +236,30 @@
   position: relative;
 }
 .project-menu > summary {
-  padding: 7px 11px;
-  border: 1px solid var(--live-line);
-  border-radius: 7px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--live-line);
+  border-radius: 0 6px 6px 0;
   background: var(--live-surface);
   color: var(--live-text);
   font-size: 12px;
   white-space: nowrap;
-}
-.project-toolbar {
-  display: inline-flex;
-  align-items: stretch;
-  flex-shrink: 0;
-}
-.project-toolbar > button {
-  border-radius: 7px 0 0 7px;
-}
-.project-menu > summary {
   display: grid;
   place-items: center;
   list-style: none;
-  height: 100%;
-  min-width: 32px;
-  border-left: 0;
-  border-radius: 0 7px 7px 0;
+  height: 32px;
+  width: 36px;
+  box-sizing: border-box;
+}
+.project-toolbar {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  height: 34px;
+  border: 1px solid var(--live-line);
+  border-radius: 7px;
+  box-sizing: border-box;
+  background: var(--live-surface);
 }
 .project-menu > summary::-webkit-details-marker {
   display: none;
@@ -511,6 +511,8 @@
 }
 
 .workbench-menu > summary {
+  height: 34px;
+  box-sizing: border-box;
   padding: 7px 11px;
   border: 1px solid var(--live-line);
   border-radius: 7px;
@@ -627,7 +629,8 @@
   flex: 1;
   min-height: 80px;
   max-height: none;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -970,7 +973,7 @@
   font-weight: 500;
 }
 .live-mic-state.listening {
-  color: var(--accent);
+  color: var(--live-success);
 }
 .live-footer .voice-controls {
   flex: 1;
@@ -998,7 +1001,7 @@
   font-weight: 500;
 }
 .live-footer .voice-listening > p[role="status"] {
-  color: var(--accent);
+  color: var(--live-success);
 }
 
 .live-mic-state.submitted,
@@ -1306,6 +1309,7 @@
   gap: 4px;
 }
 .live-workbench .turn-icons button {
+  margin: 0;
   display: inline-flex;
   align-items: center;
   padding: 5px;
@@ -1562,6 +1566,16 @@
   color: var(--live-text);
   background: var(--live-surface);
   box-shadow: inset 0 0 0 1px var(--live-line);
+}
+.workbench-theme .live-workbench .project-toolbar > .rt-Button {
+  height: 32px;
+  min-height: 32px;
+  border-radius: 6px 0 0 6px;
+  box-shadow: none;
+}
+.live-header .settings-link,
+.live-header .project-toolbar > button {
+  font-weight: 500;
 }
 .workbench-theme .live-workbench :is(.rt-TextFieldRoot, .rt-TextAreaRoot) {
   min-width: 0;

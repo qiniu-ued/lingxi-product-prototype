@@ -1665,12 +1665,50 @@ test('header project controls reuse existing actions and respect project and tas
     actions.push(route.request().postDataJSON().action);
     return route.fulfill({ json: fixture.state() });
   });
+  const project = page.locator('.project-toolbar');
+  const create = page.getByRole('button', { name: '新建项目', exact: true });
+  const menu = page.getByLabel('更多项目操作');
+  const settings = page.getByRole('button', { name: '设置', exact: true });
+  const workspace = page.locator('.workbench-menu > summary');
+  await expect(settings).toHaveClass(/rt-variant-surface/);
+  for (const width of [1440, 998, 759]) {
+    await page.setViewportSize({ width, height: 940 });
+    const group = await project.boundingBox();
+    const button = await create.boundingBox();
+    const arrow = await menu.boundingBox();
+    const settingsBox = await settings.boundingBox();
+    const workspaceBox = await workspace.boundingBox();
+    if (!group || !button || !arrow || !settingsBox || !workspaceBox)
+      throw new Error('Header control is missing');
+    expect(Math.abs(button.y - arrow.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.height - arrow.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.x + button.width - arrow.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.x - group.x - 1)).toBeLessThanOrEqual(1);
+    expect(Math.abs(arrow.x + arrow.width - (group.x + group.width - 1))).toBeLessThanOrEqual(1);
+    for (const control of [settingsBox, workspaceBox]) {
+      expect(Math.abs(group.y - control.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(group.height - control.height)).toBeLessThanOrEqual(1);
+    }
+    await menu.click();
+    expect(await project.boundingBox()).toEqual(group);
+    expect(await create.boundingBox()).toEqual(button);
+    expect(await menu.boundingBox()).toEqual(arrow);
+    expect(await settings.boundingBox()).toEqual(settingsBox);
+    expect(await workspace.boundingBox()).toEqual(workspaceBox);
+    const popup = await page.locator('.project-menu-content').boundingBox();
+    if (!popup) throw new Error('Project menu is missing');
+    expect(popup.x).toBeGreaterThanOrEqual(0);
+    expect(popup.x + popup.width).toBeLessThanOrEqual(width);
+    expect(popup.y + popup.height).toBeLessThanOrEqual(940);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.project-menu')).not.toHaveAttribute('open');
+    await page.screenshot({ path: testInfo.outputPath(`project-header-grouped-${width}.png`) });
+  }
   await expect(
     page.getByText('点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
   await expect.poll(() => actions).toEqual(['new-project']);
-  const menu = page.getByLabel('更多项目操作');
   await menu.click();
   await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
   fixture.publishVoice({ configured: true, status: 'ready' });
@@ -1698,7 +1736,7 @@ test('header project controls reuse existing actions and respect project and tas
 
 test('operator and display distinguish service connection, local wake and actual microphone state', async ({
   page,
-}) => {
+}, testInfo) => {
   const f = await open(page, runtime());
   const cases = [
     { status: 'ready', active: false, wake: 'off', muted: true, label: '服务已连接' },
@@ -1742,10 +1780,145 @@ test('operator and display distinguish service connection, local wake and actual
       if (row.muted) await expect(icon).toHaveAttribute('d', /^m2 2/);
       else await expect(icon).not.toHaveAttribute('d', /^m2 2/);
       if (row.label === '服务已连接') await expect(service).toHaveCSS('color', 'rgb(35, 115, 74)');
+      if (row.status === 'listening') {
+        await expect(page.locator(path === '/' ? '.voice-status' : '.live-mic-state')).toHaveCSS(
+          'color',
+          'rgb(35, 115, 74)',
+        );
+        await page.screenshot({
+          path: testInfo.outputPath(
+            `microphone-listening-${path === '/' ? 'operator' : 'display'}.png`,
+          ),
+        });
+      }
     }
     if (path === '/display') {
       await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
+    }
+  }
+  expect(f.commands).toHaveLength(0);
+});
+
+test('long conversation content and turn controls never create horizontal scrolling on either screen', async ({
+  page,
+}, testInfo) => {
+  const path = `/Users/designer/${'long-project-folder/'.repeat(18)}final-artifact.html`;
+  const word = `${'UnbrokenConversationContent'.repeat(28)}ReadableEnd`;
+  const completed = turn('检查完整对话');
+  completed.messages = [{ id: 'long-answer', text: `${path}\n${word}` }];
+  const f = await open(page, runtime(), false, {
+    task: completed,
+    history: [completed],
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  const currentTurn = {
+    id: randomUUID(),
+    sessionId: randomUUID(),
+    captureId: randomUUID(),
+    projectId,
+    conversationId,
+    at: new Date().toISOString(),
+    handoff: { captureId: null, status: 'unhandled', taskId: null, message: '本轮未交给 Codex' },
+    taskStatus: null,
+    messages: [
+      {
+        id: randomUUID(),
+        role: 'user',
+        text: path,
+        state: 'final',
+        at: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        role: 'assistant',
+        text: word,
+        state: 'final',
+        at: new Date().toISOString(),
+      },
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) =>
+    route.fulfill({
+      json: {
+        revision: 1,
+        turns: [
+          currentTurn,
+          { ...currentTurn, id: randomUUID(), projectId: null, conversationId: null },
+        ],
+      },
+    }),
+  );
+  for (const screen of ['/', '/display']) {
+    await page.goto(screen);
+    await expect(page.locator('.voice-chat-turn')).toHaveCount(2);
+    await page.locator('.projectless-voice > summary').click();
+    for (const width of [1440, 998, 759]) {
+      await page.setViewportSize({ width, height: 767 });
+      const transcript = page.locator('.live-transcript');
+      const bounds = await transcript.boundingBox();
+      if (!bounds) throw new Error('Conversation viewport is missing');
+      const metrics = await transcript.evaluate((element) => ({
+        width: element.clientWidth,
+        content: element.scrollWidth,
+      }));
+      expect(metrics.content).toBeLessThanOrEqual(metrics.width + 1);
+      const children = await transcript
+        .locator(
+          '.conversation-turn, .chat-row, .chat-message, .live-bubble, .turn-icons, .turn-icons button, .voice-chat-turn, .voice-chat-controls, .voice-chat-controls button',
+        )
+        .evaluateAll((elements) =>
+          elements.map((element) => {
+            const rect = element.getBoundingClientRect();
+            return { className: element.className, left: rect.left, right: rect.right };
+          }),
+        );
+      for (const child of children) {
+        expect(child.left, child.className).toBeGreaterThanOrEqual(bounds.x - 1);
+        expect(child.right, child.className).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+      }
+      const bubbles = transcript.locator(
+        '[data-history-message="long-answer"], [data-voice-message]',
+      );
+      await expect(transcript).toContainText('final-artifact.html');
+      await expect(transcript).toContainText('ReadableEnd');
+      for (const bubble of await bubbles.all()) {
+        const fullText = await bubble.evaluate((element) => {
+          const range = document.createRange();
+          const text = element.firstChild;
+          if (!text) throw new Error('Message text is missing');
+          const length = text.textContent?.length ?? 0;
+          range.setStart(text, Math.max(0, length - 16));
+          range.setEnd(text, length);
+          const tail = range.getBoundingClientRect(),
+            rect = element.getBoundingClientRect();
+          return {
+            left: tail.left - rect.left,
+            right: tail.right - rect.left,
+            width: rect.width,
+            clipped: element.scrollHeight > element.clientHeight + 1,
+          };
+        });
+        expect(fullText.left).toBeGreaterThanOrEqual(-1);
+        expect(fullText.right).toBeLessThanOrEqual(fullText.width + 1);
+        expect(fullText.clipped).toBe(false);
+      }
+      await transcript.hover();
+      await page.mouse.wheel(900, 0);
+      await expect.poll(() => transcript.evaluate((element) => element.scrollLeft)).toBe(0);
+      await expect(transcript.locator('.voice-chat-controls')).toContainText(
+        '语音文字仅保留本次应用运行',
+      );
+      const copy = page.getByRole('button', { name: '复制本轮回复', exact: true });
+      const fork = page.getByRole('button', { name: 'Fork 对话', exact: true });
+      await expect(copy).toHaveCount(screen === '/' ? 1 : 0);
+      await expect(fork).toHaveCount(screen === '/' ? 1 : 0);
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `conversation-no-horizontal-${screen === '/' ? 'operator' : 'display'}-${width}.png`,
+        ),
+      });
     }
   }
   expect(f.commands).toHaveLength(0);

@@ -10,16 +10,18 @@ export const Navigation = createContext({
 export function SettingsLink({
   section,
   label = '设置',
+  variant = 'ghost',
 }: {
   section?: SettingsSection;
   label?: string;
+  variant?: 'ghost' | 'surface';
 }) {
   const navigation = useContext(Navigation);
   return (
     <ConfigurationButton
       type="button"
       className="settings-link"
-      variant="ghost"
+      variant={variant}
       onClick={() => navigation.settings(section)}
     >
       {label}

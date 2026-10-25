@@ -26,7 +26,7 @@ async function create(mode = 'success', publish = true) {
     title: 'Test',
   };
   const record = join(root, 'messages.jsonl');
-  const wb = new Workbench({
+  const options = {
     databasePath: join(root, 'db.sqlite'),
     codex: new CodexSetup({ toolsRoot: root }),
     desktop: {
@@ -43,12 +43,30 @@ async function create(mode = 'success', publish = true) {
       record,
     ],
     timeoutMs:
-      mode === 'hang' || mode.startsWith('settings-') ? 150 : mode === 'steer-timeout' ? 800 : 5000,
-  });
+      mode === 'hang' || mode.startsWith('settings-') || mode.startsWith('resume-noop-')
+        ? 150
+        : mode === 'steer-timeout'
+          ? 800
+          : 5000,
+  } satisfies ConstructorParameters<typeof Workbench>[0];
+  const wb = new Workbench(options);
   cleanup.push(() => wb.close());
   wb.setAddress('http://127.0.0.1:1234');
   wb.setProject(project);
-  return { wb, root, project, binding, record };
+  return {
+    wb,
+    root,
+    project,
+    binding,
+    record,
+    restart: async () => {
+      await wb.close();
+      const resumed = new Workbench(options);
+      cleanup.push(() => resumed.close());
+      resumed.setAddress('http://127.0.0.1:1234');
+      return resumed;
+    },
+  };
 }
 async function until(wb: Workbench, predicate: (state: WorkbenchState) => boolean) {
   for (let i = 0; i < 300; i++) {
@@ -137,6 +155,40 @@ it.each(['rpc-error', 'failed', 'hang'])(
     await until(wb, (s) => s.task?.status === 'failed');
     expect(wb.read().task?.error).not.toContain('PRIVATE');
     expect(wb.read().preview).toBeNull();
+  },
+);
+it('restarts a client, resumes its persisted thread and submits only after matching effective settings despite a no-op update', async () => {
+  const f = await create('resume-noop');
+  f.wb.start(randomUUID(), 'first turn');
+  await until(f.wb, (s) => s.task?.status === 'completed');
+  const conversation = f.wb.read().selectedThreadId,
+    codexThread = f.wb.read().task?.threadId;
+  const resumed = await f.restart();
+  expect(resumed.read().selectedThreadId).toBe(conversation);
+  resumed.start(randomUUID(), 'after restart');
+  await until(resumed, (s) => s.task?.status === 'completed');
+  expect(resumed.read().task?.threadId).toBe(codexThread);
+  expect(resumed.read().task?.turnId).toBeTruthy();
+  const requests = (await readFile(f.record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(requests.filter((event) => event.method === 'initialize')).toHaveLength(2);
+  expect(requests.filter((event) => event.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((event) => event.method === 'turn/start')).toHaveLength(2);
+});
+it.each(['resume-noop-missing', 'resume-noop-mismatch', 'resume-noop-error'])(
+  'never starts a model turn without compatible confirmed configuration (%s)',
+  async (mode) => {
+    const f = await create(mode);
+    f.wb.start(randomUUID(), 'must not run');
+    await until(f.wb, (s) => s.task?.status === 'failed');
+    const requests = (await readFile(f.record, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(requests.some((event) => event.method === 'turn/start')).toBe(false);
+    expect(f.wb.read().task?.turnId).toBeNull();
   },
 );
 it('allows completed work without a preview and rejects a different project binding', async () => {

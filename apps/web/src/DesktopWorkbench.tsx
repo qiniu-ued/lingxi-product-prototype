@@ -6,7 +6,15 @@ import {
   type WorkbenchState,
   workbenchSchema,
 } from '@lingxi/protocol';
-import { ChevronDown, MessageSquare, Monitor, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import {
+  ChevronDown,
+  MessageSquare,
+  Monitor,
+  Plus,
+  Route,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ConfigurationButton,
@@ -22,7 +30,7 @@ import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { ModelControls } from './ModelControls';
-import { SettingsLink, SetupLink } from './Navigation';
+import { SettingsLink } from './Navigation';
 import { PreviewPicker } from './PreviewPicker';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
@@ -569,7 +577,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               </details>
             </div>
           )}
-          {!display && <SettingsLink variant="surface" />}
           {!display && (
             <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
               <summary>
@@ -590,20 +597,11 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     >
                       <Monitor aria-hidden="true" /> 打开大屏
                     </ConfigurationButton>
-                    {state?.preview && (
-                      <ConfigurationButton
-                        type="button"
-                        onClick={() => {
-                          setTab('preview');
-                          setPicking((value) => !value);
-                          retry.current = null;
-                          if (workspaceMenu.current) workspaceMenu.current.open = false;
-                        }}
-                      >
-                        {picking ? '取消点选' : '点选修改'}
-                      </ConfigurationButton>
-                    )}
-                    <SetupLink />
+                    <SettingsLink
+                      label="连接向导"
+                      variant="surface"
+                      icon={<Route aria-hidden="true" />}
+                    />
                   </div>
                 </section>
                 {state?.project && (
@@ -673,8 +671,10 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     </div>
                   </details>
                 )}
-                <section className="workbench-section">
-                  <h2>项目工具</h2>
+                <details className="workspace-project-tools workbench-section">
+                  <summary>
+                    项目工具 <ChevronDown aria-hidden="true" />
+                  </summary>
                   <nav className="workspace-tabs" aria-label="项目工作区">
                     {[
                       ['preview', '预览'],
@@ -694,6 +694,19 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                         {label}
                       </ConfigurationButton>
                     ))}
+                    {state?.preview && (
+                      <ConfigurationButton
+                        type="button"
+                        onClick={() => {
+                          setTab('preview');
+                          setPicking((value) => !value);
+                          retry.current = null;
+                          if (workspaceMenu.current) workspaceMenu.current.open = false;
+                        }}
+                      >
+                        {picking ? '取消点选' : '点选修改'}
+                      </ConfigurationButton>
+                    )}
                   </nav>
                   {tab === 'preview' && (
                     <details className="workspace-preview-connection">
@@ -720,7 +733,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       </div>
                     </details>
                   )}
-                </section>
+                </details>
               </div>
             </details>
           )}

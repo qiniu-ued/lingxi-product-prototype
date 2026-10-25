@@ -80,13 +80,13 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 
 本地检测 Worker、固定模型下载、麦克风生命周期与双端上下文详情命令见 [ADR 0009](adr/0009-local-wake-and-context-controls.md)。模型按需存于用户数据目录，启用状态不持久化；公开 VoiceState 增加默认值，旧 VoiceConfig 与工作区持久格式不变。
 
-桌面启动门控、三步向导、显式继续与只读原生/权限检查见 [ADR 0010](adr/0010-startup-configuration-checks.md)。OpenCode / DeepSeek Harness 的后续适配边界见[多引擎评估](multi-engine-options.md)，当前尚未实现这些后端。
+桌面启动门控先只读检查原生/权限配置，缺项进入 `/setup` 对应分类，点击「返回工作台」可在当前页继续，刷新/重启重新检查；旧 `/settings` 保留分类 hash 并兼容归一到 `/setup`。只读检查沿用 [ADR 0010](adr/0010-startup-configuration-checks.md)，入口合并见 [ADR 0021](adr/0021-unified-setup-entry.md)。OpenCode / DeepSeek Harness 的后续适配边界见[多引擎评估](multi-engine-options.md)，当前尚未实现这些后端。
 
-常驻 `/settings` 复用向导表单和检查，内部切换保留工作台内存草稿、卸载音频所有者，返回按偏好、模型与既有授权恢复本地唤醒，不恢复旧云端收音。VoiceState 的工具发现和交接回执为临时诊断，不改变持久配置或任务格式。云端角色/工具描述与实际执行许可分别处理；只有真实任务回执显示已提交。见 [ADR 0011](adr/0011-settings-and-voice-handoff.md)。
+`/setup` 是唯一配置 UI，从「工作区 → 连接向导」进入；旧设置内容并入向导，保留实际表单、检查和显式操作，使用同套 Radix 组件与统一排版，三个分类直接切换，不提供重复上下步导航。工作台顶栏和向导页顶栏不再提供独立设置互跳；检查通过不关闭页面。内部切换保留工作台挂载与内存草稿、卸载音频所有者，返回按偏好、模型与既有授权恢复本地唤醒，不恢复旧云端收音。原生菜单「连接向导」使用既有 `loadURL` 加载 `/setup`，不承诺保留内存草稿。VoiceState 的工具发现和交接回执为临时诊断，不改变持久配置或任务格式。云端角色/工具描述与实际执行许可分别处理；只有真实任务回执显示已提交。见 [ADR 0011](adr/0011-settings-and-voice-handoff.md) 与 [ADR 0021](adr/0021-unified-setup-entry.md)。
 
 主动语音会话跨静音/播报保持，逐句重新暂存当前上下文，手动或设备工具可关闭；故障断连仅重连服务，不恢复旧收音。预览旁「批注修改」提供元素批注并进入真实任务，大屏启动默认打开，即使无项目也有空状态；AirPlay 仍由系统管理。可见品牌统一「丽塔同学」，技术标识与数据目录不变。详见 [ADR 0012](adr/0012-continuous-voice-and-preview-annotations.md)。
 
-新安装启动即自动连接已有绑定的语音服务，并在模型与现有麦克风授权满足时本地监听“丽塔同学”；待唤醒音频不上传。连接通过保活与最多六次退避重试维护，失败状态如实显示。连接与唤醒选择分别保存在 voice-connection-preferences.v1.json、wake-preferences.v1.json；新安装与旧配置缺字段时默认开启，可识别的 legacy-review 旧默认也迁移为开启；保留已存 false，损坏/无法保存时关闭。关闭语音会保存两项关闭；仅关闭唤醒或断开服务可分别操作。设置返回可按偏好恢复本地唤醒，重连不能恢复旧收音或重放任务。连接行为见 [ADR 0013](adr/0013-default-local-wake.md)，最新默认值与日志策略见 [ADR 0014](adr/0014-default-voice-and-always-on-diagnostics.md)，输入来源和物理回声验收见 [音频审计](audio-input-and-echo.md)。
+新安装启动即自动连接已有绑定的语音服务，并在模型与现有麦克风授权满足时本地监听“丽塔同学”；待唤醒音频不上传。连接通过保活与最多六次退避重试维护，失败状态如实显示。连接与唤醒选择分别保存在 voice-connection-preferences.v1.json、wake-preferences.v1.json；新安装与旧配置缺字段时默认开启，可识别的 legacy-review 旧默认也迁移为开启；保留已存 false，损坏/无法保存时关闭。关闭语音会保存两项关闭；仅关闭唤醒或断开服务可分别操作。向导返回可按偏好恢复本地唤醒，重连不能恢复旧收音或重放任务。连接行为见 [ADR 0013](adr/0013-default-local-wake.md)，最新默认值与日志策略见 [ADR 0014](adr/0014-default-voice-and-always-on-diagnostics.md)，输入来源和物理回声验收见 [音频审计](audio-input-and-echo.md)。
 
 
 ## 公开时间线与截图同步恢复

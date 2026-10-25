@@ -86,7 +86,7 @@ test('desktop startup checks configuration before mounting the workspace; passiv
   const f = await fixture(page);
   await page.goto('/');
   await expect(page.getByText('本机服务已连接', { exact: true })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '先检查，再配置。' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toHaveCount(0);
   expect(f.checks()).toBeGreaterThan(0);
   const before = f.checks();
   await page.goto('/display');
@@ -95,7 +95,7 @@ test('desktop startup checks configuration before mounting the workspace; passiv
   expect(f.actions).toEqual([]);
   expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
 });
-test('startup sends all configuration problems to the wizard without installing, logging in or asking for microphone access', async ({
+test('startup sends all configuration problems to the connection guide without installing, logging in or asking for microphone access', async ({
   page,
 }) => {
   const report = ready();
@@ -109,24 +109,28 @@ test('startup sends all configuration problems to the wizard without installing,
   report.microphone = 'denied';
   const f = await fixture(page, report);
   await page.goto('/');
-  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page).toHaveURL(/\/setup(?:#codex)?$/);
+  await expect(page.getByRole('heading', { name: 'Codex', exact: true })).toBeVisible();
+  await expect(page.getByText('本机服务已连接', { exact: true })).toHaveCount(0);
   const overview = page.getByRole('region', { name: '环境检查结果' });
-  await expect(overview).toContainText('Codex 尚未登录');
+  await expect(overview).toContainText('Codex');
+  await expect(page.locator('.setup-content')).toContainText('Codex 尚未登录');
   await expect(overview).toContainText('需要绑定丽塔同学设备');
   await expect(overview).toContainText('需要下载唤醒模型');
   await page
-    .getByRole('navigation', { name: '连接步骤' })
-    .getByRole('button', { name: /配置唤醒模型/ })
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /语音唤醒与麦克风/ })
     .click();
   await expect(page.getByText('麦克风权限被系统阻止', { exact: false })).toBeVisible();
   expect(f.actions).toEqual([]);
   expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
-  await page.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByText('本机服务已连接', { exact: true })).toBeVisible();
   await page.reload();
-  await expect(page).toHaveURL(/\/setup$/);
+  await expect(page).toHaveURL(/\/setup(?:#codex)?$/);
+  await expect(page.getByRole('heading', { name: 'Codex', exact: true })).toBeVisible();
 });
-test('the model is a visible wizard step, downloads only on click and rechecks readiness without enabling wake', async ({
+test('startup selects the missing wake configuration, downloads only on click and rechecks readiness without enabling wake', async ({
   page,
 }) => {
   const report = ready();
@@ -137,7 +141,8 @@ test('the model is a visible wizard step, downloads only on click and rechecks r
   };
   const f = await fixture(page, report);
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: '配置唤醒模型', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/setup(?:#wake)?$/);
+  await expect(page.getByRole('heading', { name: '语音唤醒与麦克风', exact: true })).toBeVisible();
   const download = page.getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true });
   await expect(download).toBeVisible();
   expect(f.actions).toEqual([]);
@@ -146,10 +151,10 @@ test('the model is a visible wizard step, downloads only on click and rechecks r
   expect(f.actions).toEqual(['install-wake']);
   await expect(page.getByRole('button', { name: '开启语音唤醒', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
-  await page.getByRole('button', { name: '进入工作台', exact: true }).first().click();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByText('本机服务已连接', { exact: true })).toBeVisible();
 });
-test('a failed startup inspection opens a retryable wizard instead of a redirect loop', async ({
+test('a failed startup inspection opens a retryable connection guide instead of a redirect loop', async ({
   page,
 }) => {
   const f = await fixture(page, ready(), true);
@@ -163,7 +168,42 @@ test('a failed startup inspection opens a retryable wizard instead of a redirect
   expect(f.actions).toEqual([]);
 });
 
-test('settings can always be opened directly and remain open after every configuration check succeeds', async ({
+test('legacy settings URLs use the connection guide while explicit categories take priority over missing configuration', async ({
+  page,
+}) => {
+  const report = ready();
+  report.lingxi = { ...report.lingxi, status: 'not-configured', reason: 'device-binding-required' };
+  const f = await fixture(page, report);
+  for (const [route, category] of [
+    ['/setup', '丽塔同学与语音执行'],
+    ['/setup#codex', 'Codex'],
+    ['/setup#lingxi', '丽塔同学与语音执行'],
+    ['/setup#wake', '语音唤醒与麦克风'],
+    ['/settings', '丽塔同学与语音执行'],
+    ['/settings#lingxi', '丽塔同学与语音执行'],
+    ['/settings#wake', '语音唤醒与麦克风'],
+  ] as const) {
+    await page.goto(route);
+    await expect(page).toHaveURL(
+      new RegExp(`/setup${route.includes('#') ? route.slice(route.indexOf('#')) : ''}$`),
+    );
+    await expect(page.getByRole('heading', { name: category, exact: true })).toBeVisible();
+    await expect(page.locator('.settings-navigation .brand')).toContainText('/ 连接向导');
+    await expect(page.getByRole('button', { name: '返回工作台', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '连接向导', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: '连接步骤' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^(上一步|下一步)/ })).toHaveCount(0);
+    const recheck = page.getByRole('button', { name: '重新检查全部配置', exact: true });
+    await recheck.click();
+    await expect(recheck).toBeEnabled();
+    await expect(page.getByRole('heading', { name: category, exact: true })).toBeVisible();
+  }
+  expect(f.actions).toEqual([]);
+  expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
+});
+
+test('the connection guide can always be opened directly and remain open after every configuration check succeeds', async ({
   page,
 }) => {
   const f = await fixture(page);
@@ -176,13 +216,15 @@ test('settings can always be opened directly and remain open after every configu
   await expect(
     page.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/settings#lingxi$/);
+  await expect(page).toHaveURL(/\/setup#lingxi$/);
   expect(f.actions).toEqual([]);
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
-  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+  await page.locator('.workbench-menu > summary').click();
+  await expect(page.getByRole('button', { name: '连接向导', exact: true })).toBeVisible();
 });
 
-test('settings navigation and actions stay separate at desktop and compact widths', async ({
+test('connection guide navigation and actions stay separate at desktop and compact widths', async ({
   page,
 }) => {
   await fixture(page);
@@ -193,13 +235,13 @@ test('settings navigation and actions stay separate at desktop and compact width
   for (const width of [1440, 998, 759]) {
     await page.setViewportSize({ width, height: 767 });
     const back = await page.getByRole('button', { name: '返回工作台', exact: true }).boundingBox();
-    const guide = await page.getByRole('button', { name: '连接向导', exact: true }).boundingBox();
+    const brand = await page.locator('.settings-navigation .brand').boundingBox();
     const title = await page.getByRole('heading', { name: '配置概览', exact: true }).boundingBox();
     const check = await page
       .getByRole('button', { name: '重新检查全部配置', exact: true })
       .boundingBox();
-    if (!back || !guide || !title || !check) throw new Error('Settings navigation is missing');
-    expect(back.x + back.width).toBeLessThan(guide.x);
+    if (!back || !brand || !title || !check) throw new Error('Settings navigation is missing');
+    expect(back.x + back.width).toBeLessThan(brand.x);
     expect(back.y + back.height).toBeLessThan(check.y);
     expect(title.x + title.width).toBeLessThan(check.x);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(

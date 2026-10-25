@@ -3,20 +3,21 @@ import { useEffect, useState } from 'react';
 import { App } from './App';
 import { Navigation, type SettingsSection } from './Navigation';
 import { SettingsPage } from './SettingsPage';
-import { SetupPage } from './SetupPage';
 
 export function RuntimeApp() {
-  const [phase, setPhase] = useState<'checking' | 'setup' | 'settings' | 'ready'>(() =>
-    location.pathname === '/settings'
+  const [phase, setPhase] = useState<'checking' | 'settings' | 'ready'>(() =>
+    location.pathname === '/settings' || location.pathname === '/setup'
       ? 'settings'
-      : location.pathname === '/setup'
-        ? 'setup'
-        : window.lingxiDesktop && location.pathname !== '/display'
-          ? 'checking'
-          : 'ready',
+      : window.lingxiDesktop && location.pathname !== '/display'
+        ? 'checking'
+        : 'ready',
   );
+  const [selectMissing, setSelectMissing] = useState(true);
   const [hasWorkspace, setHasWorkspace] = useState(phase === 'ready');
   const [inspection, setInspection] = useState<SetupInspection | null>(null);
+  useEffect(() => {
+    if (location.pathname === '/settings') history.replaceState(null, '', `/setup${location.hash}`);
+  }, []);
   useEffect(() => {
     if (phase !== 'checking') return;
     const controller = new AbortController();
@@ -32,13 +33,14 @@ export function RuntimeApp() {
         if (!response.ok) throw new Error('inspection_unavailable');
         result = setupInspectionSchema.parse(await response.json());
       } catch {
-        /* Failed diagnostics belong in the wizard, not a redirect loop. */
+        /* Failed diagnostics belong in settings, not a redirect loop. */
       }
       if (controller.signal.aborted) return;
       setInspection(result);
       if (!result || setupIssues(result).length) {
         history.replaceState(null, '', '/setup');
-        setPhase('setup');
+        setSelectMissing(true);
+        setPhase('settings');
       } else {
         setHasWorkspace(true);
         setPhase('ready');
@@ -48,13 +50,9 @@ export function RuntimeApp() {
     return () => controller.abort();
   }, [phase]);
   const openSettings = (section?: SettingsSection) => {
-    history.pushState(null, '', `/settings${section ? `#${section}` : ''}`);
+    history.pushState(null, '', `/setup${section ? `#${section}` : ''}`);
+    setSelectMissing(!section);
     setPhase('settings');
-  };
-  const openSetup = () => {
-    history.pushState(null, '', '/setup');
-    setInspection(null);
-    setPhase('setup');
   };
   const closeConfiguration = () => {
     history.replaceState(null, '', '/');
@@ -65,21 +63,16 @@ export function RuntimeApp() {
   useEffect(() => {
     const back = () => {
       setInspection(null);
-      setPhase(
-        location.pathname === '/settings'
-          ? 'settings'
-          : location.pathname === '/setup'
-            ? 'setup'
-            : hasWorkspace
-              ? 'ready'
-              : 'checking',
-      );
+      const legacy = location.pathname === '/settings';
+      setSelectMissing(true);
+      if (legacy) history.replaceState(null, '', `/setup${location.hash}`);
+      setPhase(location.pathname === '/setup' ? 'settings' : hasWorkspace ? 'ready' : 'checking');
     };
     window.addEventListener('popstate', back);
     return () => window.removeEventListener('popstate', back);
   }, [hasWorkspace]);
   return (
-    <Navigation.Provider value={{ settings: openSettings, setup: openSetup }}>
+    <Navigation.Provider value={{ settings: openSettings }}>
       {hasWorkspace && (
         <div hidden={phase !== 'ready'}>
           <App active={phase === 'ready'} />
@@ -95,10 +88,13 @@ export function RuntimeApp() {
           </section>
         </main>
       )}
-      {phase === 'setup' && (
-        <SetupPage initialInspection={inspection} onContinue={closeConfiguration} />
+      {phase === 'settings' && (
+        <SettingsPage
+          initialInspection={inspection}
+          selectMissing={selectMissing}
+          onClose={closeConfiguration}
+        />
       )}
-      {phase === 'settings' && <SettingsPage onClose={closeConfiguration} />}
     </Navigation.Provider>
   );
 }

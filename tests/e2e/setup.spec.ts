@@ -41,7 +41,7 @@ function fixtureAction(
   };
 }
 
-test('one inspection reports both tools before offering only the missing steps', async ({
+test('one connection guide inspection reports both tools before offering the missing configuration actions', async ({
   page,
 }) => {
   let release: () => void = () => {};
@@ -54,19 +54,20 @@ test('one inspection reports both tools before offering only the missing steps',
     await route.fallback();
   });
   await page.goto('/');
-  await page.getByRole('link', { name: '连接向导', exact: true }).click();
+  await page.getByRole('button', { name: '连接向导', exact: true }).click();
   await expect(
     page.getByText('正在检查 Codex、丽塔同学和语音唤醒…', { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('navigation', { name: '连接步骤' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toHaveCount(0);
   release();
   const results = page.getByRole('region', { name: '环境检查结果' });
-  await expect(results).toContainText('未找到 Codex CLI');
+  await expect(results).toContainText('Codex');
+  await expect(page.locator('.setup-content')).toContainText('未找到 Codex CLI');
   await expect(results).toContainText('需在桌面版检测丽塔同学');
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: '连接步骤' }).getByRole('button')).toHaveCount(
+  await expect(page.getByRole('navigation', { name: '设置分类' }).getByRole('button')).toHaveCount(
     3,
   );
   await expect(page.getByText('git clone', { exact: false })).toHaveCount(0);
@@ -76,20 +77,23 @@ test('one inspection reports both tools before offering only the missing steps',
   ).toBeVisible();
 });
 
-test('existing signed-in Codex skips installation and suggests Lingxi preparation', async ({
+test('the connection guide selects missing Lingxi configuration when Codex is already signed in', async ({
   page,
 }) => {
   await inspection(page, 'ready');
   await page.goto('/setup');
-  await expect(page.getByRole('heading', { name: '配置丽塔同学', exact: true })).toBeVisible();
+  await expect(page).toHaveURL(/\/setup(?:#lingxi)?$/);
+  await expect(
+    page.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('link', { name: '打开七牛语音控制台' })).toHaveAttribute(
     'href',
     'https://xrobo.qiniu.com/',
   );
   await expect(page.getByRole('button', { name: '获取本机绑定码', exact: true })).toBeVisible();
   await page
-    .getByRole('navigation', { name: '连接步骤' })
-    .getByRole('button', { name: /配置 Codex/ })
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /Codex/ })
     .click();
   await expect(page.getByRole('button', { name: '一键安装最新版 Codex' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
@@ -148,7 +152,7 @@ test('opens only the official OAuth URL and reports verified login completion', 
   current = { ...fixtureAction('login', 'succeeded'), check: check('ready') };
   await expect(page.getByText('官方授权已完成，认证配置复查通过。')).toBeVisible();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toHaveCount(0);
-  await page.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByText('Codex 待连接', { exact: true })).toBeVisible();
 });
 
@@ -179,14 +183,14 @@ test('inspection failures can be retried before configuration is shown', async (
   await page.route('**/api/setup/check', (route) => route.abort('failed'));
   await page.goto('/setup');
   await expect(page.getByRole('alert')).toContainText('未收到检测结果');
-  await expect(page.getByRole('navigation', { name: '连接步骤' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: '设置分类' })).toHaveCount(0);
   await page.unroute('**/api/setup/check');
   await inspection(page, 'signed-out');
   await page.getByRole('button', { name: '重新检查环境' }).click();
   await expect(page.getByRole('button', { name: '在浏览器登录 Codex' })).toBeVisible();
 });
 
-test('device wizard gets an activation code and confirms binding without asking for a copied token', async ({
+test('the connection guide gets an activation code and confirm binding without asking for a copied token', async ({
   page,
 }) => {
   await inspection(page, 'ready');

@@ -323,7 +323,7 @@ export function VoiceControls({
       if (!state.configured || listenUnavailable) {
         setError(
           !state.configured
-            ? '已识别唤醒词，请先在设置绑定语音设备；当前仅本地监听，没有上传语音。'
+            ? '已识别唤醒词，请先在连接向导绑定语音设备；当前仅本地监听，没有上传语音。'
             : (listenUnavailable as string),
         );
         void command('dismiss-wake')
@@ -579,7 +579,7 @@ export function VoiceControls({
       setError('');
       setAutoRefresh((n) => n + 1);
     } catch {
-      setError('未能保存自动唤醒偏好，请在设置中重试。');
+      setError('未能保存自动唤醒偏好，请在连接向导中重试。');
     }
   }
   useEffect(() => {
@@ -605,8 +605,8 @@ export function VoiceControls({
         if (permission !== 'granted') {
           setAutoNotice(
             permission === 'denied' || permission === 'restricted'
-              ? '麦克风权限未获准，请到设置 → 语音唤醒与麦克风处理。'
-              : '首次使用请在设置中允许麦克风；授权后会自动监听唤醒词。',
+              ? '麦克风权限未获准，请到连接向导 → 语音唤醒与麦克风处理。'
+              : '首次使用请在连接向导中允许麦克风；授权后会自动监听唤醒词。',
           );
           return;
         }
@@ -614,7 +614,7 @@ export function VoiceControls({
         void automaticWake.current();
       })
       .catch(() => {
-        if (active) setAutoNotice('无法读取麦克风授权状态，请在设置中检查。');
+        if (active) setAutoNotice('无法读取麦克风授权状态，请在连接向导中检查。');
       });
     return () => {
       active = false;
@@ -699,7 +699,7 @@ export function VoiceControls({
           </label>
         )}
         {state?.wakePreference.source === 'unavailable' && (
-          <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在设置中检查。</p>
+          <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在连接向导中检查。</p>
         )}
         {autoNotice && (
           <p role="status">
@@ -873,7 +873,7 @@ export function VoiceControls({
                   {binding.code}
                 </p>
               )}
-              <p>3. 在官方页面完成绑定后，点击检查；向导自动获取连接信息并加密保存。</p>
+              <p>3. 在官方页面完成绑定后，点击检查；工作台自动获取连接信息并加密保存。</p>
               <div className="configuration-actions">
                 <ConfigurationButton
                   type="button"

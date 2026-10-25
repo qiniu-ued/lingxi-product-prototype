@@ -8,23 +8,22 @@ import {
   type SetupInspection,
   type SetupStatus,
   setupInspectionSchema,
-  setupIssues,
   type VoiceState,
 } from '@lingxi/protocol';
-import { ArrowLeft, RefreshCw, Route } from 'lucide-react';
-import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ConfigurationButton } from './ConfigurationControls';
 import { SparklesIcon } from './DesktopWorkbench';
-import { Navigation, SettingsLink } from './Navigation';
 import { VoiceControls } from './VoiceControls';
 
-const steps = ['配置 Codex', '配置丽塔同学', '配置唤醒模型'];
+const sections = ['codex', 'lingxi', 'wake'];
+const titles = ['Codex', '丽塔同学与语音执行', '语音唤醒与麦克风'];
 const finished = (action: CodexSetupAction) =>
   ['succeeded', 'failed', 'cancelled'].includes(action.state);
 const codexMessages: Record<CodexCheck['status'], { title: string; detail: string }> = {
   ready: {
     title: 'Codex 环境检查通过',
-    detail: 'CLI、App Server 与认证配置可用，可以继续配置丽塔同学。桌面版可回到工作台执行任务。',
+    detail: 'CLI、App Server 与认证配置可用，可回到工作台执行任务。',
   },
   'not-installed': {
     title: '未找到 Codex CLI',
@@ -109,21 +108,26 @@ async function readCheck(signal?: AbortSignal) {
 export function SetupPage({
   initialInspection = null,
   onContinue,
-  mode = 'wizard',
+  selectMissing = false,
 }: {
   initialInspection?: SetupInspection | null;
   onContinue: () => void;
-  mode?: 'wizard' | 'settings';
+  selectMissing?: boolean;
 }) {
-  const navigation = useContext(Navigation);
   const seeded = useRef(initialInspection);
   const [wake, setWake] = useState<SetupInspection['wake']>(null);
   const [microphone, setMicrophone] = useState<SetupInspection['microphone']>('unknown');
   const modelObserved = useRef(false);
-  const [step, setStep] = useState(() =>
-    mode === 'settings' ? Math.max(0, ['#codex', '#lingxi', '#wake'].indexOf(location.hash)) : 0,
-  );
-  const titles = mode === 'settings' ? ['Codex', '丽塔同学与语音执行', '语音唤醒与麦克风'] : steps;
+  const [step, setStep] = useState(() => Math.max(0, sections.indexOf(location.hash.slice(1))));
+  useEffect(() => {
+    const selectSection = () => setStep(Math.max(0, sections.indexOf(location.hash.slice(1))));
+    window.addEventListener('hashchange', selectSection);
+    window.addEventListener('popstate', selectSection);
+    return () => {
+      window.removeEventListener('hashchange', selectSection);
+      window.removeEventListener('popstate', selectSection);
+    };
+  }, []);
   const [desktopInfo, setDesktopInfo] = useState<{
     platform: string;
     arch: string;
@@ -145,7 +149,7 @@ export function SetupPage({
   const openedUrl = useRef('');
   const busy = submitting || !!(action && !finished(action));
 
-  const inspectEnvironment = useCallback(async (signal?: AbortSignal, selectStep = true) => {
+  const inspectEnvironment = useCallback(async (signal?: AbortSignal, selectStep = false) => {
     setLoading(true);
     setError('');
     try {
@@ -196,11 +200,6 @@ export function SetupPage({
     },
     [inspectEnvironment],
   );
-  const allReady =
-    runtime &&
-    check &&
-    lingxi &&
-    !setupIssues({ environment: runtime, codex: check, lingxi, wake, microphone }).length;
   async function requestMicrophone() {
     try {
       if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission denied');
@@ -211,9 +210,12 @@ export function SetupPage({
   }
   useEffect(() => {
     const controller = new AbortController();
-    void inspectEnvironment(controller.signal, mode === 'wizard');
+    void inspectEnvironment(
+      controller.signal,
+      selectMissing && !sections.includes(location.hash.slice(1)),
+    );
     return () => controller.abort();
-  }, [inspectEnvironment, mode]);
+  }, [inspectEnvironment, selectMissing]);
 
   useEffect(() => {
     if (!action || finished(action)) return;
@@ -345,56 +347,27 @@ export function SetupPage({
 
   return (
     <div className="workbench setup">
-      {mode === 'settings' ? (
-        <header className="settings-topbar">
-          <nav className="settings-navigation" aria-label="设置页导航">
-            <div className="settings-navigation-start">
-              <ConfigurationButton type="button" onClick={onContinue}>
-                <ArrowLeft size={16} aria-hidden="true" />
-                返回工作台
-              </ConfigurationButton>
-              <span className="settings-navigation-divider" aria-hidden="true" />
-              <div className="brand">
-                <span className="brand-mark">
-                  <SparklesIcon />
-                </span>
-                <span>
-                  丽塔同学 <span className="brand-detail">/ 设置</span>
-                </span>
-              </div>
-            </div>
-            <ConfigurationButton type="button" onClick={() => navigation.setup()}>
-              <Route size={16} aria-hidden="true" />
-              连接向导
+      <header className="settings-topbar">
+        <nav className="settings-navigation" aria-label="连接向导导航">
+          <div className="settings-navigation-start">
+            <ConfigurationButton type="button" onClick={onContinue}>
+              <ArrowLeft size={16} aria-hidden="true" />
+              返回工作台
             </ConfigurationButton>
-          </nav>
-        </header>
-      ) : (
-        <header className="topbar">
-          <a
-            className="brand"
-            href="/"
-            onClick={(event) => {
-              event.preventDefault();
-              onContinue();
-            }}
-          >
-            <span className="brand-mark">
-              <SparklesIcon />
-            </span>
-            <span>
-              丽塔同学 <span className="brand-detail">/ 连接向导</span>
-            </span>
-          </a>
-          <ConfigurationButton className="button secondary" type="button" onClick={onContinue}>
-            {allReady ? '进入工作台' : '暂时用文字进入工作台'}
-          </ConfigurationButton>
-          <SettingsLink />
-        </header>
-      )}
+            <span className="settings-navigation-divider" aria-hidden="true" />
+            <div className="brand">
+              <span className="brand-mark">
+                <SparklesIcon />
+              </span>
+              <span>
+                丽塔同学 <span className="brand-detail">/ 连接向导</span>
+              </span>
+            </div>
+          </div>
+        </nav>
+      </header>
       <section className="intro">
-        <p className="eyebrow">{mode === 'settings' ? '应用设置' : '连接你的工具'}</p>
-        <h1>{mode === 'settings' ? '配置与连接' : '先检查，再配置。'}</h1>
+        <h1>配置与连接</h1>
         <p className="intro-detail">
           根据这台电脑的实际状态，准备 Codex、丽塔同学、唤醒模型与麦克风权限。
         </p>
@@ -410,26 +383,29 @@ export function SetupPage({
           <ConfigurationButton
             type="button"
             className="button secondary"
-            onClick={() => void inspectEnvironment()}
+            onClick={() =>
+              void inspectEnvironment(
+                undefined,
+                selectMissing && !sections.includes(location.hash.slice(1)),
+              )
+            }
           >
             重新检查环境
           </ConfigurationButton>
         </div>
       ) : (
         <>
-          {mode === 'settings' && (
-            <div className="settings-overview-heading">
-              <h2>配置概览</h2>
-              <ConfigurationButton
-                type="button"
-                disabled={busy || loading}
-                onClick={() => void inspectEnvironment(undefined, false)}
-              >
-                <RefreshCw size={16} aria-hidden="true" />
-                {loading ? '正在检查全部配置…' : '重新检查全部配置'}
-              </ConfigurationButton>
-            </div>
-          )}
+          <div className="settings-overview-heading">
+            <h2>配置概览</h2>
+            <ConfigurationButton
+              type="button"
+              disabled={busy || loading}
+              onClick={() => void inspectEnvironment(undefined, false)}
+            >
+              <RefreshCw size={16} aria-hidden="true" />
+              {loading ? '正在检查全部配置…' : '重新检查全部配置'}
+            </ConfigurationButton>
+          </div>
           <div className="setup-scope">
             <strong>环境检查已完成</strong> ·{' '}
             {runtime.host.platform === 'darwin' ? 'macOS' : runtime.host.platform} ·{' '}
@@ -454,7 +430,6 @@ export function SetupPage({
             <div className="panel">
               <p className="eyebrow">Codex</p>
               <h2>{check ? codexMessages[check.status].title : '操作进行中'}</h2>
-              <p>{check ? codexMessages[check.status].detail : '正在准备本地接口。'}</p>
             </div>
             <div className="panel">
               <p className="eyebrow">丽塔同学 AI</p>
@@ -467,9 +442,6 @@ export function SetupPage({
                       ? '无法读取丽塔同学本机配置'
                       : '需在桌面版检测丽塔同学'}
               </h2>
-              <p>
-                检查仅读取本机配置，不上传声音、不申请绑定码。已有绑定按连接偏好启动服务；待唤醒音频只在本机处理。
-              </p>
             </div>
             <div className="panel">
               <p className="eyebrow">语音唤醒</p>
@@ -482,21 +454,10 @@ export function SetupPage({
                       ? '需在桌面版检测唤醒'
                       : '需要下载唤醒模型'}
               </h2>
-              <p>约 33 MB，下载一次后在本机检测“丽塔同学”；检查本身不下载模型、不打开麦克风。</p>
             </div>
           </section>
-          {mode === 'wizard' && (
-            <ConfigurationButton
-              className="button secondary"
-              type="button"
-              disabled={busy}
-              onClick={() => void inspectEnvironment(undefined, false)}
-            >
-              重新检查全部配置
-            </ConfigurationButton>
-          )}
           <main className="setup-layout">
-            <nav className="setup-steps" aria-label={mode === 'settings' ? '设置分类' : '连接步骤'}>
+            <nav className="setup-steps" aria-label="设置分类">
               {titles.map((title, index) => (
                 <ConfigurationButton
                   type="button"
@@ -504,12 +465,7 @@ export function SetupPage({
                   aria-current={step === index ? 'step' : undefined}
                   onClick={() => {
                     setStep(index);
-                    if (mode === 'settings')
-                      history.replaceState(
-                        null,
-                        '',
-                        `/settings#${['codex', 'lingxi', 'wake'][index]}`,
-                      );
+                    history.replaceState(null, '', `/setup#${sections[index]}`);
                   }}
                 >
                   <span className="step-number">0{index + 1}</span>
@@ -518,11 +474,6 @@ export function SetupPage({
               ))}
             </nav>
             <section className="panel setup-content" aria-labelledby="setup-step-title">
-              {mode === 'wizard' && (
-                <p className="eyebrow">
-                  步骤 {step + 1} / {steps.length}
-                </p>
-              )}
               <h2 id="setup-step-title">{titles[step]}</h2>
               {step === 0 ? (
                 <>
@@ -650,7 +601,7 @@ export function SetupPage({
                 <>
                   <VoiceControls configuration variant="connection" />
                   <p className="voice-setup-help">
-                    首次使用先完成官方账号与智能体配置，再按向导申请激活码。不需要单独安装音频客户端。
+                    首次使用先完成官方账号与智能体配置，再申请本机绑定码。不需要单独安装音频客户端。
                   </p>
                   <ExternalLink href="https://linx.qiniu.com/docs/xrobot/platform/OTA">
                     官方设备绑定协议
@@ -687,37 +638,6 @@ export function SetupPage({
                   )}
                   {error && <p role="alert">{error}</p>}
                 </>
-              )}
-              {mode === 'wizard' && (
-                <div className="setup-pagination">
-                  {step > 0 && (
-                    <ConfigurationButton
-                      className="button secondary"
-                      type="button"
-                      onClick={() => setStep(step - 1)}
-                    >
-                      上一步
-                    </ConfigurationButton>
-                  )}
-                  {step < steps.length - 1 && (
-                    <ConfigurationButton
-                      className="button secondary"
-                      type="button"
-                      onClick={() => setStep(step + 1)}
-                    >
-                      下一步：{steps[step + 1]}
-                    </ConfigurationButton>
-                  )}
-                  {step === steps.length - 1 && (
-                    <ConfigurationButton
-                      className="button secondary"
-                      type="button"
-                      onClick={onContinue}
-                    >
-                      {allReady ? '进入工作台' : '暂时用文字进入工作台'}
-                    </ConfigurationButton>
-                  )}
-                </div>
               )}
             </section>
           </main>

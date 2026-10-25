@@ -8,6 +8,7 @@
 完整工作区采用 **Electron + React + TypeScript + Node.js 24 + SQLite**，包含常驻 Codex 会话、公开执行进度、终端、Diff、会话分支、选段 Sidechat、唯一作品预览与语音绑定向导。桌面应用负责本机能力；单独运行网页服务提供建议保存与双端同步基础模式。设计师原始演示保留在 [`source/`](source/) 和根 [`dist/`](dist/)，其中预设剧情不能作为真实执行证据。
 
 目录：
+- [项目 Demo](http://t4q5ekzxm.hn-bkt.clouddn.com/lingxi-product-prototype.mp4)：产品演示视频
 - [运行指南](#run)：安装、连接、开发、停止与更新
 - [日常操作](#use)：电脑、大屏、会话和语音入口
 - [系统架构](#architecture)：部署拓扑、模块和接口

@@ -453,7 +453,7 @@ else {
       ipcMain.handle('desktop.copy', (event, input) => {
         trusted(event);
         if (event.sender !== operator?.webContents) throw new Error('operator_required');
-        clipboard.writeText(
+        return clipboard.writeText(
           z
             .string()
             // The bounded 256 × 8192-character debug buffer plus metadata.

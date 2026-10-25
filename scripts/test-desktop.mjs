@@ -850,6 +850,30 @@ try {
     maximumLog.length,
     'A bounded full debug export must fit the native clipboard bridge',
   );
+  await instance.evaluate(({ clipboard }) => {
+    const original = clipboard.writeText;
+    Reflect.set(globalThis, 'lingxiTestRestoreClipboard', () => {
+      clipboard.writeText = original;
+    });
+    clipboard.writeText = async () => {
+      throw new Error('clipboard_test_failure');
+    };
+  });
+  try {
+    await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+    await detailed.getByLabel('详细日志文本（可手动复制）').waitFor();
+    assert.match(await detailed.getByRole('alert').innerText(), /无法自动复制/);
+    assert.equal(
+      await detailed.getByRole('status').count(),
+      0,
+      'A failed native write must not report copied',
+    );
+  } finally {
+    await instance.evaluate(() => {
+      Reflect.get(globalThis, 'lingxiTestRestoreClipboard')();
+      Reflect.deleteProperty(globalThis, 'lingxiTestRestoreClipboard');
+    });
+  }
   await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
   await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
   await detailed.getByRole('button', { name: '清空详细调试' }).click();

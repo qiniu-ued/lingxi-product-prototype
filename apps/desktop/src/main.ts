@@ -456,7 +456,8 @@ else {
         clipboard.writeText(
           z
             .string()
-            .max(1024 * 1024)
+            // The bounded 256 × 8192-character debug buffer plus metadata.
+            .max(3 * 1024 * 1024)
             .parse(input),
         );
       });

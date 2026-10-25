@@ -843,6 +843,13 @@ try {
   const detailedCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
   assert.ok(detailedCopy.startsWith('丽塔同学详细调试 v1'));
   assert.ok(detailedCopy.includes('分享前请检查') && detailedCopy.includes('Enabled: true'));
+  const maximumLog = `详细日志容量测试\n${'x'.repeat(256 * 8192 + 128 * 1024)}`;
+  await reopened.evaluate((value) => window.lingxiDesktop.copy(value), maximumLog);
+  assert.equal(
+    await instance.evaluate(({ clipboard }) => clipboard.readText().length),
+    maximumLog.length,
+    'A bounded full debug export must fit the native clipboard bridge',
+  );
   await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
   await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
   await detailed.getByRole('button', { name: '清空详细调试' }).click();

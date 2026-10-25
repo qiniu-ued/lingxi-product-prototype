@@ -1,5 +1,6 @@
 import type { VoiceState } from '@lingxi/protocol';
 import { SettingsLink } from './Navigation';
+import { VoiceDiagnostics } from './VoiceDiagnostics';
 
 export function VoiceHandoff({
   state,
@@ -26,6 +27,7 @@ export function VoiceHandoff({
           {state.handoff.taskId && <small>任务 {state.handoff.taskId.slice(0, 8)}</small>}
         </p>
       )}
+      {showSettings && <VoiceDiagnostics />}
       {!state.allowVoiceSubmit && showSettings && (
         <SettingsLink section="lingxi" label="开启语音执行" />
       )}

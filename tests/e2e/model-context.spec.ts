@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type ThreadRuntime,
   taskSchema,
+  type VoiceDebugState,
   voiceStateSchema,
   type WorkbenchState,
   workbenchSchema,
@@ -120,6 +121,7 @@ async function open(
             };
           },
           copy: async (text: string) => {
+            if (Reflect.get(window, 'failCopy')) throw new Error('clipboard_failed');
             Reflect.set(window, 'copiedReply', text);
           },
         },
@@ -280,9 +282,27 @@ async function open(
     subtitle: '',
     error: null,
     allowVoiceSubmit: false,
+    wakePreference: { version: 1, enabled: false, source: 'user' },
+    connectionPreference: { version: 1, enabled: false, source: 'user' },
   });
   await page.route('**/api/voice', (route) => route.fulfill({ json: voice }));
   await page.route('**/api/voice/inspect', (route) => route.fulfill({ json: voice }));
+  await page.route('**/api/voice/debug', (route) =>
+    route.fulfill({
+      json: {
+        build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
+        enabled: true,
+        capacity: 256,
+        retentionMinutes: 30,
+        maxPayloadCharacters: 8192,
+        importantCapacity: 96,
+        droppedImportant: 0,
+        truncated: 0,
+        dropped: 0,
+        events: [],
+      },
+    }),
+  );
   const voiceCommands: Array<Record<string, unknown>> = [];
   await page.route('**/api/voice/preferences', (route) => {
     const body = route.request().postDataJSON();
@@ -1601,5 +1621,415 @@ test('operator and display distinguish service connection, local wake and actual
       await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
     }
   }
+  expect(f.commands).toHaveLength(0);
+});
+
+test('voice diagnostics show actual status calls and copy only bounded metadata', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const capture = randomUUID(),
+    session = randomUUID();
+  let diagnostics = {
+    enabled: true,
+    capacity: 128,
+    retentionMinutes: 30,
+    dropped: 7,
+    snapshot: {
+      connection: 'ready',
+      projectSelected: true,
+      conversationSelected: false,
+      voiceSubmitEnabled: true,
+      toolsListed: true,
+      captureActive: true,
+    },
+    events: [
+      {
+        sequence: 8,
+        at: new Date().toISOString(),
+        kind: 'tools-discovered',
+        sessionId: session,
+        captureId: null,
+        projectId,
+        conversationId: null,
+        taskId: null,
+      },
+      {
+        sequence: 9,
+        at: new Date().toISOString(),
+        kind: 'tool-called',
+        sessionId: session,
+        captureId: capture,
+        projectId,
+        conversationId: null,
+        taskId: null,
+        tool: 'workbench_status',
+      },
+      {
+        sequence: 10,
+        at: new Date().toISOString(),
+        kind: 'tool-returned',
+        sessionId: session,
+        captureId: capture,
+        projectId,
+        conversationId: null,
+        taskId: null,
+        tool: 'workbench_status',
+      },
+    ],
+  };
+  await page.route('**/api/voice/diagnostics', (route) => {
+    if (route.request().method() === 'POST') {
+      expect(route.request().postDataJSON()).toEqual({ action: 'clear' });
+      diagnostics = {
+        ...diagnostics,
+        events: [],
+        dropped: 0,
+      };
+    }
+    return route.fulfill({ json: diagnostics });
+  });
+  f.publishVoice({ configured: true, status: 'ready', draft: 'PRIVATE_TRANSCRIPT' });
+  await page.getByRole('button', { name: '语音诊断', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '语音交接诊断' });
+  await expect(dialog).toContainText('收到工具调用');
+  await expect(dialog).toContainText('工具已返回结果');
+  await expect(dialog.getByText('workbench_status', { exact: false })).toHaveCount(2);
+  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  const copied = await page.evaluate(() => Reflect.get(window, 'copiedReply'));
+  expect(copied).toContain('workbench_status');
+  expect(copied).toContain(capture);
+  expect(copied).not.toContain('PRIVATE_TRANSCRIPT');
+  expect(copied).toContain('应用版本:');
+  expect(copied).toContain('UTC');
+  expect(copied).toContain('128 条 / 30 分钟');
+  expect(copied).toContain('dropped: 7');
+  await expect(dialog).toContainText('旧记录已轮转或过期 7 条');
+  await expect(dialog.getByRole('status')).toHaveText('已复制诊断日志，不包含语音正文。');
+  await page.evaluate(() => Reflect.set(window, 'failCopy', true));
+  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  await expect(dialog.getByLabel('诊断日志文本（可手动复制）')).toHaveValue(/workbench_status/);
+  await expect(dialog.getByRole('status')).toHaveCount(0);
+  await expect(dialog).toContainText('无法自动复制');
+
+  await page.getByRole('button', { name: '清空诊断', exact: true }).click();
+  await expect(dialog).toContainText('尚无阶段记录');
+  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  await expect(dialog.getByLabel('诊断日志文本（可手动复制）')).toHaveValue(
+    /Enabled: true; dropped: 0; events: 0/,
+  );
+  await expect(page.getByRole('checkbox', { name: '记录脱敏诊断' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '关闭诊断', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(f.commands).toHaveLength(0);
+});
+
+test('detailed voice logs always record, copy separately with a warning, and continue after clear', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const entry = {
+    sequence: 1,
+    at: new Date().toISOString(),
+    direction: 'inbound' as const,
+    event: 'message' as const,
+    sessionId: randomUUID(),
+    captureId: randomUUID(),
+    projectId,
+    conversationId,
+    taskId: null,
+    payload: JSON.stringify({
+      type: 'mcp',
+      params: {
+        name: 'workbench_submit',
+        arguments: { text: 'PRIVATE_DIALOG_CONTENT', token: '[REDACTED]' },
+      },
+      result: { status: 'accepted' },
+    }),
+    truncated: true,
+    priority: 'important' as const,
+  };
+  let debug: VoiceDebugState = {
+    build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
+    enabled: true,
+    capacity: 256,
+    retentionMinutes: 30,
+    maxPayloadCharacters: 8192,
+    importantCapacity: 96,
+    droppedImportant: 0,
+    truncated: 1,
+    dropped: 0,
+    events: [entry],
+  };
+  const actions: unknown[] = [];
+  await page.route('**/api/voice/debug', (route) => {
+    if (route.request().method() === 'POST') {
+      const action = route.request().postDataJSON();
+      actions.push(action);
+      debug = { ...debug, events: [], dropped: 0, droppedImportant: 0, truncated: 0 };
+    }
+    return route.fulfill({ json: debug });
+  });
+  f.publishVoice({ configured: true, status: 'ready' });
+  await page.getByRole('button', { name: '语音诊断', exact: true }).click();
+  const panel = page.getByRole('region', { name: '详细语音调试' });
+  await expect(panel.getByRole('checkbox')).toHaveCount(0);
+  await expect(panel).toContainText('应用运行时自动记录');
+  await expect(panel).toContainText('部分 payload 已截断');
+  await expect(panel).toContainText('本次累计截断 1 条');
+  await expect(panel).toContainText('重要事件保留 96 条');
+  expect(actions).toHaveLength(0);
+  await panel.getByText('预览详细日志（含对话内容）', { exact: true }).click();
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await panel.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await expect(panel.getByRole('status')).toContainText('已复制详细日志，包含对话内容');
+  let copied = await page.evaluate(() => Reflect.get(window, 'copiedReply'));
+  expect(copied).toContain('PRIVATE_DIALOG_CONTENT');
+  expect(copied).toContain('[REDACTED]');
+  expect(copied).toContain('不是未经修改的原始网络包');
+  expect(copied).toContain('truncated=true');
+  await page.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  copied = await page.evaluate(() => Reflect.get(window, 'copiedReply'));
+  expect(copied).not.toContain('PRIVATE_DIALOG_CONTENT');
+  await page.evaluate(() => Reflect.set(window, 'failCopy', true));
+  await panel.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await expect(panel.getByLabel('详细日志文本（可手动复制）')).toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await expect(panel.getByRole('status')).toHaveCount(0);
+  await expect(panel).toContainText('无法自动复制详细日志');
+  await panel.getByRole('button', { name: '清空详细调试' }).click();
+  await expect(panel).toContainText('本次累计截断 0 条');
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).not.toHaveValue(
+    /PRIVATE_DIALOG_CONTENT/,
+  );
+  await expect(panel.getByLabel('详细日志文本（可手动复制）')).toHaveCount(0);
+  debug = {
+    ...debug,
+    events: [{ ...entry, sequence: 2, payload: 'AFTER_CLEAR_CONTENT', truncated: false }],
+  };
+  await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
+    /AFTER_CLEAR_CONTENT/,
+  );
+  expect(actions).toEqual([{ action: 'clear' }]);
+  expect(f.commands).toHaveLength(0);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
+});
+
+test('settings show all three defaults on while preserving saved off choices without requesting audio', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const defaults = voiceStateSchema.parse({
+    configured: true,
+    status: 'ready',
+    draft: '',
+    captureId: null,
+    subtitle: '',
+    error: null,
+  });
+  f.publishVoice(defaults);
+  await page.goto('/settings#lingxi');
+  const connection = page.getByRole('checkbox', { name: '应用启动后自动连接并保持语音服务' });
+  const execution = page.getByRole('checkbox', {
+    name: '允许主动收音后用语音提交/停止任务、切换计划模式（保存后需重新连接）',
+  });
+  await expect(connection).toBeChecked();
+  await expect(execution).toBeChecked();
+  await execution.click();
+  await expect(execution).not.toBeChecked();
+  await page.reload();
+  await expect(execution).not.toBeChecked();
+  await page.getByText('高级：手动配置已绑定设备', { exact: true }).click();
+  await expect(
+    page.getByRole('checkbox', { name: '允许主动收音后，通过丽塔同学 MCP 提交或停止 Codex 任务' }),
+  ).not.toBeChecked();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /语音唤醒与麦克风/ })
+    .click();
+  await expect(page.getByRole('checkbox', { name: '自动开启本地语音唤醒' })).toBeChecked();
+  const off = { version: 1 as const, enabled: false, source: 'user' as const };
+  f.publishVoice({ wakePreference: off, connectionPreference: off });
+  await expect(page.getByRole('checkbox', { name: '自动开启本地语音唤醒' })).not.toBeChecked();
+  await page
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /丽塔同学与语音执行/ })
+    .click();
+  await expect(connection).not.toBeChecked();
+  await expect(execution).not.toBeChecked();
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
+  expect(f.commands).toHaveLength(0);
+});
+
+test('goodbye is shown as a remote session ending before reconnect, without opening another capture', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  f.publishVoice({ configured: true, status: 'ready', remoteSessionEnding: true });
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText(
+    '远端语音会话正在结束',
+  );
+  await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeDisabled();
+  await page.goto('/display');
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText(
+    '远端语音会话正在结束',
+  );
+  await expect(page.locator('.live-mic-state strong')).toHaveText(
+    '远端会话正在结束 · 等待服务重连',
+  );
+  f.publishVoice({
+    configured: true,
+    status: 'ready',
+    remoteSessionEnding: false,
+    captureId: null,
+    conversationActive: false,
+  });
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText('服务已连接');
+  expect(f.commands).toHaveLength(0);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
+});
+
+test('projectless voice messages stream, settle once and survive a page refresh without becoming tasks', async ({
+  page,
+}) => {
+  const f = await open(page, runtime(), false, { project: null });
+  const turnId = randomUUID(),
+    capture = randomUUID(),
+    messageId = randomUUID(),
+    assistantId = randomUUID();
+  let chat = {
+    revision: 1,
+    turns: [
+      {
+        id: turnId,
+        sessionId: randomUUID(),
+        captureId: capture,
+        projectId: null,
+        conversationId: null,
+        at: new Date().toISOString(),
+        handoff: {
+          captureId: capture,
+          status: 'awaiting-tool',
+          taskId: null,
+          message: '等待工具调用',
+        },
+        taskStatus: null,
+        messages: [
+          {
+            id: messageId,
+            role: 'user',
+            text: '请检查',
+            state: 'streaming',
+            at: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) => {
+    if (route.request().method() === 'POST') chat = { revision: chat.revision + 1, turns: [] };
+    return route.fulfill({ json: chat });
+  });
+  await expect(page.locator('[data-voice-message]')).toHaveText('请检查');
+  await expect(page.getByText('发言人 · 语音 · 接收中', { exact: true })).toBeVisible();
+  chat = {
+    ...chat,
+    revision: 2,
+    turns: [
+      {
+        ...chat.turns[0]!,
+        messages: [
+          { ...chat.turns[0]!.messages[0]!, text: '请检查页面', state: 'final' },
+          {
+            id: assistantId,
+            role: 'assistant',
+            text: '我先看看',
+            state: 'streaming',
+            at: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  };
+  await expect(page.locator('[data-voice-message]')).toHaveCount(2);
+  await expect(page.getByText('丽塔同学 · 语音回复 · 接收中', { exact: true })).toBeVisible();
+  chat = {
+    ...chat,
+    revision: 3,
+    turns: [
+      {
+        ...chat.turns[0]!,
+        handoff: { captureId: capture, status: 'unhandled', taskId: null, message: '没有调用工具' },
+        messages: chat.turns[0]!.messages.map((message) => ({ ...message, state: 'final' })),
+      },
+    ],
+  };
+  await expect(page.getByText('本轮未提交 Codex', { exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.locator('[data-voice-message]')).toHaveCount(2);
+  await f.publish({ project: { id: projectId, name: 'Test', path: '/fixture' } });
+  await page.getByText('项目外语音 · 未用于当前项目', { exact: true }).click();
+  await expect(page.getByText('请检查页面', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '清除本次语音记录', exact: true }).click();
+  await expect(page.locator('[data-voice-message]')).toHaveCount(0);
+  expect(f.commands).toHaveLength(0);
+});
+
+test('accepted voice links the actual task and never treats spoken completion as runner success', async ({
+  page,
+}) => {
+  const task = turn('只读检查');
+  const f = await open(page, runtime(), false, {
+    task,
+    history: [task],
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  let chat = {
+    revision: 1,
+    turns: [
+      {
+        id: randomUUID(),
+        sessionId: randomUUID(),
+        captureId: task.id,
+        projectId,
+        conversationId,
+        at: new Date().toISOString(),
+        handoff: { captureId: task.id, status: 'submitted', taskId: task.id, message: '已提交' },
+        taskStatus: 'running',
+        messages: [
+          {
+            id: randomUUID(),
+            role: 'user',
+            text: task.prompt,
+            state: 'final',
+            at: new Date().toISOString(),
+          },
+          {
+            id: randomUUID(),
+            role: 'assistant',
+            text: '我已经完成了',
+            state: 'final',
+            at: new Date().toISOString(),
+          },
+        ],
+      },
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) => route.fulfill({ json: chat }));
+  await expect(page.getByText('我已经完成了', { exact: true })).toBeVisible();
+  await expect(page.getByText('Codex 执行中', { exact: false })).toBeVisible();
+  await expect(page.locator(`[data-voice-turn] a[href="#codex-turn-${task.id}"]`)).toBeVisible();
+  await expect(page.getByText(task.prompt, { exact: true })).toHaveCount(1);
+  chat = {
+    ...chat,
+    revision: 2,
+    turns: chat.turns.map((turn) => ({ ...turn, taskStatus: 'failed' })),
+  };
+  await expect(page.getByText('Codex 执行失败', { exact: false })).toBeVisible();
   expect(f.commands).toHaveLength(0);
 });

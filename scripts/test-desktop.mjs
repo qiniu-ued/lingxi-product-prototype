@@ -828,6 +828,58 @@ try {
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
+  await reopened.getByRole('button', { name: '语音诊断', exact: true }).click();
+  await reopened.getByRole('dialog', { name: '语音交接诊断' }).waitFor();
+  await reopened.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  const diagnosticCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(diagnosticCopy.startsWith('丽塔同学语音诊断 v1'));
+  assert.ok(!diagnosticCopy.includes('Authorization') && !diagnosticCopy.includes('token='));
+  await reopened.screenshot({ path: join(root, '.local/voice-diagnostics.png') });
+  const detailed = reopened.getByRole('region', { name: '详细语音调试' });
+  assert.equal(await detailed.getByRole('checkbox').count(), 0);
+  await detailed.getByText('详细调试持续记录', { exact: false }).waitFor();
+  await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await detailed.getByRole('status').waitFor();
+  const detailedCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(detailedCopy.startsWith('丽塔同学详细调试 v1'));
+  assert.ok(detailedCopy.includes('分享前请检查') && detailedCopy.includes('Enabled: true'));
+  const maximumLog = `详细日志容量测试\n${'x'.repeat(256 * 8192 + 128 * 1024)}`;
+  await reopened.evaluate((value) => window.lingxiDesktop.copy(value), maximumLog);
+  assert.equal(
+    await instance.evaluate(async ({ clipboard }) => (await clipboard.readText()).length),
+    maximumLog.length,
+    'A bounded full debug export must fit the native clipboard bridge',
+  );
+  await instance.evaluate(({ clipboard }) => {
+    const original = clipboard.writeText;
+    Reflect.set(globalThis, 'lingxiTestRestoreClipboard', () => {
+      clipboard.writeText = original;
+    });
+    clipboard.writeText = async () => {
+      throw new Error('clipboard_test_failure');
+    };
+  });
+  try {
+    await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+    await detailed.getByLabel('详细日志文本（可手动复制）').waitFor();
+    assert.match(await detailed.getByRole('alert').innerText(), /无法自动复制/);
+    assert.equal(
+      await detailed.getByRole('status').count(),
+      0,
+      'A failed native write must not report copied',
+    );
+  } finally {
+    await instance.evaluate(() => {
+      Reflect.get(globalThis, 'lingxiTestRestoreClipboard')();
+      Reflect.deleteProperty(globalThis, 'lingxiTestRestoreClipboard');
+    });
+  }
+  await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
+  await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
+  await detailed.getByRole('button', { name: '清空详细调试' }).click();
+  await detailed.getByText('详细调试持续记录 · 保留 0 条', { exact: false }).waitFor();
+  await reopened.getByRole('button', { name: '关闭诊断', exact: true }).click();
+
   assert.equal(
     await reopened
       .getByRole('link', { name: '打开七牛语音控制台 ↗', exact: true })
@@ -840,8 +892,8 @@ try {
   assert.ok(role.includes('workbench_submit') && role.includes('把这个页面变成粉色'));
   assert.equal(
     (await (await fetch(`${reopenedAddress}/api/voice`)).json()).allowVoiceSubmit,
-    false,
-    'Viewing binding instructions and copying the role must not enable voice execution',
+    true,
+    'The default setting is enabled, but viewing setup must not create credentials or capture audio',
   );
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
   await reopened
@@ -935,6 +987,8 @@ try {
         error: null,
         allowVoiceSubmit: true,
         wake: presentationWake,
+        wakePreference: { version: 1, enabled: false, source: 'user' },
+        connectionPreference: { version: 1, enabled: false, source: 'user' },
       },
     }),
   );
@@ -1034,6 +1088,13 @@ try {
   const freshAddress = new URL(empty.url()).origin;
   const freshVoice = await (await fetch(`${freshAddress}/api/voice`)).json();
   assert.deepEqual(freshVoice.wakePreference, { version: 1, enabled: true, source: 'default' });
+  assert.deepEqual(freshVoice.connectionPreference, {
+    version: 1,
+    enabled: true,
+    source: 'default',
+  });
+  assert.equal(freshVoice.allowVoiceSubmit, true);
+  assert.equal((await (await fetch(`${freshAddress}/api/voice/debug`)).json()).enabled, true);
   assert.equal(freshVoice.wake.keyword, '丽塔同学');
   assert.equal(freshVoice.wake.status, 'off', 'A missing model must prevent automatic capture');
   assert.ok(
@@ -1069,8 +1130,12 @@ try {
   await empty.locator('.project-menu > summary').press('Enter');
   const wake = empty.getByRole('button', { name: '开始收音', exact: true });
   await wake.waitFor();
-  assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');
-  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
+  assert.equal(
+    await wake.isEnabled(),
+    true,
+    'Voice chat remains available without a project; task submission still requires one',
+  );
+  assert.equal(await wake.getAttribute('title'), null);
   assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
   await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
   assert.ok(

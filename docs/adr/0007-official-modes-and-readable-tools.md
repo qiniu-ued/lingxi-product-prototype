@@ -12,7 +12,7 @@
 
 输入区用执行/计划选择器替换工具页的提示词开关。沿用 settings.plan 的存储与提交时捕获行为，将其映射到官方 default/plan。`collaborationMode.settings` 提交真实模型、推理强度及 `developer_instructions:null`，使用 Codex 内置指令；不拼接“先给计划”文字。每轮显式发送 default，使退出 Plan 的行为明确。
 
-GET 只查询模式与组织要求。提交模型任务之前发送 thread/settings/update；其成功响应是空对象，不能当成设置已确认。等待匹配线程且模式、模型/强度、审批策略/审查者以及所有请求的沙箱字段一致的 thread/settings/updated。通知可早于响应到达；超时、不支持或不一致就结束该任务，不发送 turn/start。真实 turn/start 再携带同一组设置。
+GET 只查询模式与组织要求。提交模型任务之前发送 thread/settings/update；其成功响应是空对象，不能当成设置已确认。必须取得匹配线程且模式、模型/强度、审批策略/审查者以及所有请求的沙箱字段一致的实际配置。CLI 0.163/0.164 的 thread/start/resume/fork 响应若含完整的生效配置，可用于初始化当前客户端确认缓存；resume 的线程 ID 必须与请求一致。随后 thread/settings/update 成功且缓存仍匹配时允许无通知的 no-op；否则仍等待 thread/settings/updated。不能用请求值、已保存 UI 偏好、空响应或超时补造确认。通知可早于响应到达；超时、不支持或不一致就结束该任务，不发送 turn/start。真实 turn/start 再携带同一组设置。
 
 用户显式点击「验证执行设置」才启动独立短连接，在临时工作目录创建 ephemeral 会话并检查模式、权限通知，禁用发现的 MCP，期间不发送 turn/start，不改变操作台选中项目/会话。完成、失败和退出应用均关闭该子进程并清理临时目录。界面只把收到一致通知的项目标为已验证。该操作与连接向导的只读诊断分开。
 

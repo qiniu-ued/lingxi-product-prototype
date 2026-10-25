@@ -54,7 +54,7 @@ process.on('message', (message) => {
     'channel' in message &&
     message.channel === 'desktop.voice-stop'
   )
-    app.voice.disconnect();
+    app.voice.disconnect({ source: 'system', reason: 'system_suspend', explicitClose: false });
   if (
     message &&
     typeof message === 'object' &&

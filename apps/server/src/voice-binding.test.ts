@@ -56,7 +56,7 @@ it('registers one stable device, displays the six-digit code, checks activation 
       ...identity,
       endpoint: 'wss://xrobo-io.qiniuapi.com/v1/ws/',
       token: 'PRIVATE_DEVICE_TOKEN',
-      allowVoiceSubmit: false,
+      allowVoiceSubmit: true,
     }),
   );
   expect(JSON.stringify(binding.read())).not.toContain('PRIVATE_DEVICE_TOKEN');

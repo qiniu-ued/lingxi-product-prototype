@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
+import { isDeepStrictEqual } from 'node:util';
 
 if (process.argv.includes('--version')) {
   console.log('codex-cli 0.999.0');
@@ -213,7 +214,45 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     config = message.params.config;
     currentThread = message.params.threadId ?? `thread-${++threadSequence}`;
     if (mode === 'rpc-error') emit({ id: message.id, error: { message: 'PRIVATE ERROR' } });
-    else
+    else if (mode.startsWith('resume-noop')) {
+      const actual = {
+        threadId: currentThread,
+        cwd: process.cwd(),
+        approvalPolicy: 'on-request',
+        approvalsReviewer: mode === 'resume-noop-mismatch' ? 'auto_review' : 'user',
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          writableRoots: [process.cwd()],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+        collaborationMode: {
+          mode: 'default',
+          settings: {
+            model: 'test-model',
+            reasoning_effort: 'medium',
+            developer_instructions: null,
+          },
+        },
+      };
+      threadSettings.set(currentThread, actual);
+      emit({
+        id: message.id,
+        result: {
+          thread: { id: mode === 'resume-noop-wrong-thread' ? 'unrelated' : currentThread },
+          cwd: actual.cwd,
+          approvalPolicy: actual.approvalPolicy,
+          approvalsReviewer: actual.approvalsReviewer,
+          sandbox: actual.sandboxPolicy,
+          model: 'test-model',
+          reasoningEffort: 'medium',
+          ...(mode === 'resume-noop-missing'
+            ? {}
+            : { collaborationMode: actual.collaborationMode }),
+        },
+      });
+    } else
       emit({
         id: message.id,
         result: { thread: { id: currentThread }, model: 'test-model', reasoningEffort: 'medium' },
@@ -251,11 +290,16 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       },
     });
   } else if (message.method === 'thread/settings/update') {
-    if (mode === 'settings-error')
+    if (mode === 'settings-error' || mode === 'resume-noop-error')
       emit({ id: message.id, error: { message: 'PRIVATE SETTINGS ERROR' } });
     else {
       emit({ id: message.id, result: {} });
       const previous = threadSettings.get(message.params.threadId);
+      if (
+        mode.startsWith('resume-noop') &&
+        (mode !== 'resume-noop' || isDeepStrictEqual(previous, message.params))
+      )
+        return;
       threadSettings.set(message.params.threadId, message.params);
       if (JSON.stringify(previous) === JSON.stringify(message.params)) return;
       emit({

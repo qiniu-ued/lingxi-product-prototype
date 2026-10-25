@@ -92,3 +92,49 @@ it('does not let a previous confirmation override a failed update request', asyn
   await expect(applyExecution(client, params)).rejects.toThrow('codex_request_failed');
   await expect(applyExecution(client, params)).rejects.toThrow('execution_unconfirmed');
 });
+
+it('confirms a fresh resumed client from the actual resume response before an acknowledged no-op', async () => {
+  const client = create(process.execPath, 'resume-noop');
+  await client.ready;
+  const params = settings('resumed-thread');
+  await client.request('thread/resume', { threadId: params.threadId });
+  await expect(applyExecution(client, params)).resolves.toBeUndefined();
+  params.collaborationMode.mode = 'plan';
+  await expect(applyExecution(client, params)).resolves.toBeUndefined();
+});
+it.each([
+  'resume-noop-missing',
+  'resume-noop-mismatch',
+  'resume-noop-wrong-thread',
+  'resume-noop-error',
+])(
+  'fails closed without compatible effective settings or a successful update (%s)',
+  async (mode) => {
+    const client = create(process.execPath, mode);
+    await client.ready;
+    const params = settings('resumed-thread');
+    await client.request('thread/resume', { threadId: params.threadId });
+    await expect(applyExecution(client, params)).rejects.toThrow(
+      mode === 'resume-noop-error' ? 'codex_request_failed' : 'execution_unconfirmed',
+    );
+  },
+);
+
+it.each(['model', 'effort', 'mode', 'reviewer', 'approval', 'network', 'roots'])(
+  'does not treat an empty update ack as confirmation of a changed %s',
+  async (field) => {
+    const client = create(process.execPath, 'resume-noop-silent-change');
+    await client.ready;
+    const params = settings('resumed-thread');
+    await client.request('thread/resume', { threadId: params.threadId });
+    await expect(applyExecution(client, params)).resolves.toBeUndefined();
+    if (field === 'model') params.collaborationMode.settings.model = 'different-model';
+    if (field === 'effort') params.collaborationMode.settings.reasoning_effort = 'high';
+    if (field === 'mode') params.collaborationMode.mode = 'plan';
+    if (field === 'reviewer') params.approvalsReviewer = 'auto_review';
+    if (field === 'approval') params.approvalPolicy = 'never';
+    if (field === 'network') params.sandboxPolicy.networkAccess = true;
+    if (field === 'roots') params.sandboxPolicy.writableRoots = ['/workspace'];
+    await expect(applyExecution(client, params)).rejects.toThrow('execution_unconfirmed');
+  },
+);

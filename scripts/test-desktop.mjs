@@ -1184,6 +1184,9 @@ try {
   console.log(
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );
+} catch (error) {
+  if (instance) console.error('Desktop diagnostics:', desktopRuns.get(instance)?.stderr);
+  throw error;
 } finally {
   if (instance) await closeDesktop(instance, true);
   if (liveServer) await new Promise((resolve) => liveServer.close(resolve));

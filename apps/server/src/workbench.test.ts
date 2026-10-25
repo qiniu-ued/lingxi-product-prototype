@@ -111,6 +111,98 @@ it('keeps one real child connection across turns, streams matching events, publi
   await wb.close();
   for (const r of records.filter((r) => r.pid)) expect(() => process.kill(r.pid, 0)).toThrow();
 });
+it('retains ordered public progress, live command chunks and canonical final snapshots across reload and switching', async () => {
+  const f = await create('progress');
+  const snapshots: WorkbenchState[] = [];
+  f.wb.subscribe((state) => snapshots.push(structuredClone(state)));
+  f.wb.start(randomUUID(), 'multi-step public output');
+  await until(
+    f.wb,
+    (state) =>
+      state.task?.status === 'running' &&
+      !!state.task.items?.some((item) => item.text.includes('step one')),
+  );
+  const original = f.wb.read().selectedThreadId as string;
+  expect(f.wb.read().task?.items).toContainEqual(
+    expect.objectContaining({
+      type: 'commandExecution',
+      text: 'printf progress\nstep one\n',
+      status: 'inProgress',
+    }),
+  );
+  await expect(f.wb.command({ action: 'new-thread', title: 'must not interrupt' })).rejects.toThrow(
+    'task_running',
+  );
+  await expect(f.wb.command({ action: 'select-thread', id: original })).rejects.toThrow(
+    'task_running',
+  );
+  await until(f.wb, (state) => state.task?.status === 'completed');
+  await until(
+    f.wb,
+    (state) => state.task?.activity?.startsWith('本轮已结束') === true || !!state.preview,
+  );
+  const task = f.wb.read().task;
+  expect(task?.messages.map((message) => message.text)).toEqual([
+    '先检查页面。',
+    '检查完成，正在验证。',
+    '已完成两步验证。',
+  ]);
+  expect(task?.items?.map((item) => item.id)).toEqual([
+    'progress-command',
+    'progress-1',
+    'progress-2',
+    'progress-final',
+  ]);
+  expect(task?.items?.[0]).toMatchObject({
+    text: 'printf progress\nstep one\nstep two\n',
+    status: 'completed',
+  });
+  expect(task?.items?.every((item) => item.status === 'completed')).toBe(true);
+  expect(JSON.stringify(task)).not.toMatch(/PRIVATE_REASONING|DO_NOT_SHOW|FOREIGN_PROGRESS/);
+  expect(
+    snapshots.some(
+      (state) =>
+        state.task?.status === 'running' &&
+        state.task.messages.length === 2 &&
+        state.task.items?.some((item) => item.text.includes('step two')),
+    ),
+  ).toBe(true);
+  await f.wb.command({ action: 'new-thread', title: 'other conversation' });
+  expect(f.wb.read().history).toEqual([]);
+  await f.wb.command({ action: 'select-thread', id: original });
+  expect(f.wb.read().task?.messages).toEqual(task?.messages);
+  const resumed = await f.restart();
+  expect(resumed.read().selectedThreadId).toBe(original);
+  expect(resumed.read().task?.messages).toEqual(task?.messages);
+  expect(resumed.read().task?.items).toEqual(task?.items);
+});
+
+it('keeps fork parents and histories discoverable after repeated forks, project switches and restart', async () => {
+  const f = await create('rich');
+  f.wb.start(randomUUID(), 'original conversation');
+  await until(f.wb, (state) => state.task?.status === 'completed');
+  await until(f.wb, (state) => !!state.preview);
+  const original = f.wb.read().selectedThreadId as string,
+    source = f.wb.read().task;
+  if (!source) throw new Error('source task missing');
+  await f.wb.command({ action: 'fork', taskId: source.id, kind: 'fork' });
+  const child = f.wb.read().selectedThreadId as string;
+  expect(f.wb.read().task).toBeNull();
+  await f.wb.command({ action: 'select-thread', id: original });
+  expect(f.wb.read().history).toEqual([source]);
+  await f.wb.command({ action: 'fork', taskId: source.id, kind: 'fork' });
+  expect(f.wb.read().selectedThreadId).not.toBe(child);
+  f.wb.setProject({ id: randomUUID(), name: 'Other project', path: f.root });
+  f.wb.setProject(f.project);
+  await f.wb.command({ action: 'select-thread', id: child });
+  const resumed = await f.restart();
+  expect(resumed.read().selectedThreadId).toBe(child);
+  expect(resumed.read().threads.filter((thread) => thread.parentId === original)).toHaveLength(2);
+  await resumed.command({ action: 'select-thread', id: original });
+  expect(resumed.read().task?.id).toBe(source.id);
+  expect(resumed.read().task?.messages).toEqual(source.messages);
+});
+
 it.each(['approval', 'file', 'question'])(
   'waits for explicit %s decisions and rejects stale approvals',
   async (mode) => {

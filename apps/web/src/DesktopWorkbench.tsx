@@ -17,6 +17,7 @@ import {
   ConfigurationTextArea,
 } from './ConfigurationControls';
 import { ContextUsage } from './ContextUsage';
+import { ConversationNavigation } from './ConversationNavigation';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
@@ -84,7 +85,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const [runtimeUrl, setRuntimeUrl] = useState('http://127.0.0.1:5174/');
   const [tab, setTab] = useState('preview');
   const [mode, setMode] = useState<'queue' | 'steer'>('queue'),
-    [search, setSearch] = useState(''),
     [rename, setRename] = useState('');
   const target = composerTarget(state);
   const retryTarget = useRef(target);
@@ -455,6 +455,16 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       if (!response.ok) throw new Error();
       const next = workbenchSchema.parse(await response.json());
       setState((old) => (!old || next.revision >= old.revision ? next : old));
+      if (
+        operation === 'workspace' &&
+        body &&
+        typeof body === 'object' &&
+        'action' in body &&
+        typeof body.action === 'string' &&
+        ['fork', 'new-thread', 'select-thread'].includes(body.action) &&
+        workspaceMenu.current
+      )
+        workspaceMenu.current.open = false;
       after?.(next);
       return true;
     } catch {
@@ -617,50 +627,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       <span>{thread?.title ?? '选择对话'}</span>
                     </summary>
                     <div className="conversation-bar">
-                      <ConfigurationInput
-                        aria-label="搜索对话"
-                        placeholder="搜索对话"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                      />
-                      <ConfigurationSelect
-                        aria-label="切换对话"
-                        disabled={running || busy}
-                        value={state.selectedThreadId ?? ''}
-                        onValueChange={(id) => {
-                          void operate('workspace', { action: 'select-thread', id });
-                        }}
-                      >
-                        <option value="" disabled>
-                          选择对话
-                        </option>
-                        {state.threads
-                          .filter(
-                            (t) =>
-                              t.projectId === state.project?.id &&
-                              !t.archived &&
-                              t.title.toLowerCase().includes(search.toLowerCase()),
-                          )
-                          .map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.kind === 'sidechat'
-                                ? 'Sidechat · '
-                                : t.kind === 'fork'
-                                  ? 'Fork · '
-                                  : ''}
-                              {t.title}
-                            </option>
-                          ))}
-                      </ConfigurationSelect>
-                      <ConfigurationButton
-                        type="button"
-                        disabled={running || busy}
-                        onClick={() =>
-                          void operate('workspace', { action: 'new-thread', title: '新对话' })
-                        }
-                      >
-                        <Plus aria-hidden="true" /> 新对话
-                      </ConfigurationButton>
                       <details className="conversation-management">
                         <summary>管理当前对话</summary>
                         <label htmlFor="conversation-name">对话名称</label>
@@ -861,6 +827,17 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
             </h2>
             {display && <span>发言人</span>}
           </div>
+          {!display && (
+            <ConversationNavigation
+              key={target}
+              state={state}
+              connected={connected}
+              busy={busy}
+              running={running}
+              onSelect={(id) => void operate('workspace', { action: 'select-thread', id })}
+              onNew={() => void operate('workspace', { action: 'new-thread', title: '新对话' })}
+            />
+          )}
           <div
             className="live-transcript"
             ref={transcript}
@@ -1006,7 +983,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                                   variant="ghost"
                                   aria-label="Fork 对话"
                                   title="Fork 对话"
-                                  disabled={running || !turn.turnId}
+                                  disabled={running || busy || !turn.turnId}
                                   onClick={() =>
                                     void operate('workspace', {
                                       action: 'fork',

@@ -130,10 +130,13 @@ async function open(
       Object.defineProperty(window, 'EventSource', {
         value: class {
           onopen?: () => void;
+          onerror?: () => void;
           listener?: (event: { data: string }) => void;
           timer: ReturnType<typeof setTimeout>;
           broadcast = (event: Event) => this.listener?.({ data: (event as CustomEvent).detail });
+          disconnect = () => this.onerror?.();
           constructor() {
+            window.addEventListener('fixture-disconnect', this.disconnect);
             window.addEventListener('fixture-snapshot', this.broadcast);
             this.timer = setTimeout(() => {
               this.onopen?.();
@@ -146,6 +149,7 @@ async function open(
           close() {
             clearTimeout(this.timer);
             window.removeEventListener('fixture-snapshot', this.broadcast);
+            window.removeEventListener('fixture-disconnect', this.disconnect);
           }
         },
       });
@@ -214,9 +218,9 @@ async function open(
           {
             id,
             projectId,
-            codexId: 'sidechat',
-            title: '选段讨论',
-            kind: 'sidechat',
+            codexId: body.kind,
+            title: body.kind === 'sidechat' ? '选段讨论' : '分支对话',
+            kind: body.kind,
             parentId: state.selectedThreadId,
             archived: false,
             createdAt: new Date().toISOString(),
@@ -576,6 +580,10 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
   await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('主对话未发送的草稿');
   await selectExcerpt(page, source.id, '请讨论这个按钮。');
+  await page.getByRole('button', { name: '关闭选段操作', exact: true }).click();
+  expect(fixture.commands).toHaveLength(0);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  await selectExcerpt(page, source.id, '请讨论这个按钮。');
   await page.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
   await page.locator('.composer-options > summary').click();
   await expect(page.getByRole('combobox', { name: '权限', exact: true })).toHaveText(
@@ -613,16 +621,143 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
   await page.getByRole('button', { name: '引用到原对话' }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话未发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('讨论结论：保留这个按钮。');
-  await page.locator('.workbench-menu > summary').click();
-  await page.locator('.workspace-conversations > summary').click();
   await page.getByRole('combobox', { name: '切换对话' }).click();
   await page.getByRole('option', { name: 'Sidechat · 选段讨论', exact: true }).click();
   await expect.poll(() => fixture.state().selectedThreadId).toBe(sideId);
-  await page.locator('.workbench-menu > summary').click();
-  await page.getByRole('button', { name: '文字输入', exact: true }).click();
+  await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('Sidechat 的问题草稿');
   await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
 });
+async function ensureComposer(page: Page) {
+  const trigger = page.getByRole('button', { name: '文字输入', exact: true });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+}
+test('a fork exposes the current conversation list and a direct return without opening Workspace', async ({
+  page,
+}) => {
+  const source = turn('分支前的要求');
+  const f = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  await ensureComposer(page);
+  await page.getByLabel('给 Codex 的本轮指令').fill('主对话草稿');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Fork 对话', exact: true }).click();
+  await expect(page.getByLabel('切换对话')).toBeVisible();
+  await expect(page.getByRole('button', { name: '返回原对话', exact: true })).toBeVisible();
+  expect(f.state().threads.find((thread) => thread.id === f.state().selectedThreadId)?.kind).toBe(
+    'fork',
+  );
+  const child = f.state().selectedThreadId as string;
+  await ensureComposer(page);
+  await page.getByLabel('给 Codex 的本轮指令').fill('分支草稿');
+  await page.getByLabel('搜索对话').fill('不存在的名字');
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('Fork · 分支对话');
+  await expect(page.getByText('没有匹配的会话，当前选择仍保留。')).toBeVisible();
+  await page.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await ensureComposer(page);
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话草稿');
+  await expect(page.getByLabel('搜索对话')).toHaveValue('');
+  await page.getByRole('combobox', { name: '切换对话' }).click();
+  await page.getByRole('option', { name: 'Fork · 分支对话', exact: true }).click();
+  await ensureComposer(page);
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('分支草稿');
+  await page.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Fork 对话', exact: true }).click();
+  await expect
+    .poll(() => f.state().threads.filter((thread) => thread.kind === 'fork').length)
+    .toBe(2);
+  await page.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  expect(f.commands.filter((command) => command.action === 'fork')).toHaveLength(2);
+  expect(f.state().history[0]?.id).toBe(source.id);
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await expect(page).toHaveURL(/\/settings$/);
+  await page.goBack();
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  await page.goForward();
+  await expect(page).toHaveURL(/\/settings$/);
+  await page.goBack();
+  await ensureComposer(page);
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话草稿');
+});
+
+test('failed or pending forks retain the source, prevent repeated clicks and leave return navigation available', async ({
+  page,
+}) => {
+  const source = turn('安全返回');
+  const f = await open(page, runtime(), false, {
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    history: [source],
+    task: source,
+  });
+  let fail = true,
+    requests = 0,
+    release = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/workbench/workspace', async (route) => {
+    if (route.request().postDataJSON().action !== 'fork') return route.fallback();
+    requests++;
+    if (fail) return route.fulfill({ status: 503, json: { error: 'fixture unavailable' } });
+    await pending;
+    return route.fallback();
+  });
+  const fork = page.getByRole('button', { name: 'Fork 对话', exact: true });
+  await fork.click();
+  await expect(page.getByRole('alert')).toContainText('操作未完成');
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  expect(f.state().threads).toHaveLength(1);
+  fail = false;
+  await fork.click();
+  await expect(fork).toBeDisabled();
+  await fork.evaluate((button: HTMLButtonElement) => button.click());
+  expect(requests).toBe(2);
+  release();
+  await page.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  expect(f.state().threads).toHaveLength(2);
+  await f.publish({ task: { ...source, status: 'running' } });
+  await expect(page.getByLabel('切换对话')).toBeDisabled();
+  await expect(page.getByText('任务进行中，结束后可切换会话；不会自动中断任务。')).toBeVisible();
+  await f.publish({ task: source });
+  await expect(page.getByLabel('切换对话')).toBeEnabled();
+});
+
+test('conversation navigation handles empty projects and filters other projects without showing controls on display', async ({
+  page,
+}) => {
+  const f = await open(page, null);
+  await expect(page.getByRole('navigation', { name: '项目会话', exact: true })).toBeVisible();
+  await expect(page.getByText('暂无会话，可以新建对话。')).toBeVisible();
+  await expect(page.getByLabel('切换对话')).toBeDisabled();
+  await expect(page.getByRole('button', { name: '新对话', exact: true })).toBeEnabled();
+  const foreign = {
+    ...historyThread(),
+    id: randomUUID(),
+    projectId: randomUUID(),
+    title: 'Other project conversation',
+  };
+  await f.publish({ threads: [historyThread(), foreign], selectedThreadId: conversationId });
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  await page.getByRole('combobox', { name: '切换对话' }).click();
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await expect(page.getByRole('option', { name: foreign.title })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.dispatchEvent(new Event('fixture-disconnect')));
+  await expect(page.getByLabel('切换对话')).toBeDisabled();
+  await expect(page.getByText('会话列表连接中断，正在重连；当前内容保留。')).toBeVisible();
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  await page.goto('/display');
+  await expect(page.getByRole('navigation', { name: '项目会话', exact: true })).toHaveCount(0);
+});
+
 test('turn usage stays in operator details and remains absent from the passive display', async ({
   page,
 }) => {

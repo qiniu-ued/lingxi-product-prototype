@@ -145,6 +145,60 @@ const complete = (status = mode === 'failed' ? 'failed' : 'completed') => {
     emit(usage(-1));
   }
 };
+async function publicProgress() {
+  const scope = { threadId: currentThread, turnId: currentTurn };
+  const event = (method, params) => emit({ method, params: { ...scope, ...params } });
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 800));
+  event('item/agentMessage/delta', { itemId: 'progress-1', delta: '先检查页面。' });
+  await pause();
+  event('item/started', {
+    item: {
+      id: 'progress-command',
+      type: 'commandExecution',
+      command: 'printf progress',
+      aggregatedOutput: null,
+      status: 'inProgress',
+    },
+  });
+  event('item/commandExecution/outputDelta', { itemId: 'progress-command', delta: 'step one\n' });
+  event('item/started', {
+    item: {
+      id: 'internal',
+      type: 'reasoning',
+      summary: 'PRIVATE_REASONING',
+      content: ['DO_NOT_SHOW'],
+    },
+  });
+  await pause();
+  event('item/agentMessage/delta', { itemId: 'progress-2', delta: '检查完成，正在验证。' });
+  // A delayed final snapshot must not move the earlier message after progress-2.
+  const first = { item: { id: 'progress-1', type: 'agentMessage', text: '先检查页面。' } };
+  event('item/completed', first);
+  event('item/completed', first);
+  event('item/commandExecution/outputDelta', { itemId: 'progress-command', delta: 'step two\n' });
+  emit({
+    method: 'item/agentMessage/delta',
+    params: { ...scope, threadId: 'foreign-thread', itemId: 'foreign', delta: 'FOREIGN_PROGRESS' },
+  });
+  await pause();
+  event('item/completed', {
+    item: {
+      id: 'progress-command',
+      type: 'commandExecution',
+      command: 'printf progress',
+      aggregatedOutput: 'step one\nstep two\n',
+      status: 'completed',
+    },
+  });
+  event('item/completed', {
+    item: { id: 'progress-2', type: 'agentMessage', text: '检查完成，正在验证。' },
+  });
+  event('item/agentMessage/delta', { itemId: 'progress-final', delta: '已完成两步验证。' });
+  event('item/completed', {
+    item: { id: 'progress-final', type: 'agentMessage', text: '已完成两步验证。' },
+  });
+  event('turn/completed', { turn: { id: scope.turnId, status: 'completed' } });
+}
 let config;
 async function browser(prompt) {
   const endpoint = config.mcp_servers.lingxi_preview.url;
@@ -361,7 +415,12 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           },
         });
     }
-    if (mode === 'approval' || mode === 'file')
+    if (
+      mode === 'progress' ||
+      (mode === 'rich' && message.params.input[0].text.includes('public-progress'))
+    )
+      void publicProgress();
+    else if (mode === 'approval' || mode === 'file')
       emit({
         id: 70,
         method:

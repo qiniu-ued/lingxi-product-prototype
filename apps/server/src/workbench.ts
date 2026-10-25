@@ -969,30 +969,51 @@ export class Workbench {
       else messages.push({ id, text: delta });
       this.taskUpdate({ messages });
     }
+    if (message.method === 'item/commandExecution/outputDelta') {
+      const { itemId, delta } = z.object({ itemId: z.string(), delta: z.string() }).parse(p);
+      this.taskUpdate({
+        items: (task.items ?? []).map((item) =>
+          item.id === itemId && item.type === 'commandExecution' && item.status !== 'completed'
+            ? { ...item, text: `${item.text}${delta}`.slice(0, 64000) }
+            : item,
+        ),
+      });
+    }
     if (message.method === 'item/started' || message.method === 'item/completed') {
       const item = z.object({ type: z.string(), id: z.string() }).passthrough().parse(p.item);
-      if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text)
-        this.taskUpdate({
-          messages: [
-            ...task.messages.filter((m) => m.id !== item.id),
-            { id: item.id, text: item.text },
-          ],
-        });
+      // Internal reasoning items are not public assistant progress messages.
+      if (item.type === 'reasoning') return;
+      if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text) {
+        const messages = task.messages.map((message) => ({ ...message }));
+        const position = messages.findIndex((message) => message.id === item.id);
+        const value = { id: item.id, text: item.text };
+        if (position < 0) messages.push(value);
+        else messages[position] = value;
+        this.taskUpdate({ messages });
+      }
       // ThreadItem is a union. Fields such as aggregatedOutput are explicitly
       // nullable on a started command; unrelated item variants can omit them.
       const text =
         (typeof item.text === 'string'
           ? item.text
-          : [item.command, item.aggregatedOutput]
+          : [item.command, item.aggregatedOutput ?? '']
               .filter((value) => typeof value === 'string')
               .join('\n')) || JSON.stringify(item);
-      const items = (this.state.task?.items ?? []).filter((i) => i.id !== item.id);
-      items.push({
+      const items = [...(this.state.task?.items ?? [])];
+      const position = items.findIndex((value) => value.id === item.id);
+      const value = {
         id: item.id,
         type: item.type,
         text: text.slice(0, 64000),
-        ...(typeof item.status === 'string' ? { status: item.status } : {}),
-      });
+        status:
+          typeof item.status === 'string'
+            ? item.status
+            : message.method === 'item/completed'
+              ? 'completed'
+              : 'inProgress',
+      };
+      if (position < 0) items.push(value);
+      else items[position] = value;
       this.taskUpdate({
         items,
         activity: message.method === 'item/started' ? `正在执行 · ${item.type}` : 'Codex 正在继续…',

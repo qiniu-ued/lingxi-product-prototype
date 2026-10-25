@@ -420,6 +420,41 @@
 .live-discussion {
   overflow: hidden;
 }
+.conversation-navigation {
+  flex-shrink: 0;
+  display: grid;
+  gap: 6px;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid var(--live-line);
+  font-size: 12px;
+}
+.conversation-navigation-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.live-workbench .conversation-navigation-row :is(select, [role="combobox"]) {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+}
+.conversation-navigation-row button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.live-workbench .conversation-navigation > input {
+  min-width: 0;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--live-line);
+  border-radius: 6px;
+  color: var(--live-text);
+  background: var(--live-surface);
+}
+.conversation-navigation small {
+  color: var(--live-muted);
+  font-size: 11px;
+}
 .live-heading {
   flex-shrink: 0;
   color: var(--live-muted);
@@ -1846,4 +1881,13 @@
 .workbench-theme .live-workbench .history-actions-compact .history-action-close {
   width: 30px;
   padding: 0;
+}
+
+.conversation-navigation > .rt-TextFieldRoot {
+  min-width: 0;
+  width: 100%;
+}
+.conversation-navigation-row svg {
+  width: 14px;
+  height: 14px;
 }

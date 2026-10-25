@@ -81,3 +81,10 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 主动语音会话跨静音/播报保持，逐句重新暂存当前上下文，手动或设备工具可关闭；故障断连仅重连服务，不恢复旧收音。预览旁「批注修改」提供元素批注并进入真实任务，大屏启动默认打开，即使无项目也有空状态；AirPlay 仍由系统管理。可见品牌统一「丽塔同学」，技术标识与数据目录不变。详见 [ADR 0012](adr/0012-continuous-voice-and-preview-annotations.md)。
 
 新安装启动即自动连接已有绑定的语音服务，并在模型与现有麦克风授权满足时本地监听“丽塔同学”；待唤醒音频不上传。连接通过保活与最多六次退避重试维护，失败状态如实显示。连接与唤醒选择分别保存在 voice-connection-preferences.v1.json、wake-preferences.v1.json；新安装与旧配置缺字段时默认开启，可识别的 legacy-review 旧默认也迁移为开启；保留已存 false，损坏/无法保存时关闭。关闭语音会保存两项关闭；仅关闭唤醒或断开服务可分别操作。设置返回可按偏好恢复本地唤醒，重连不能恢复旧收音或重放任务。连接行为见 [ADR 0013](adr/0013-default-local-wake.md)，最新默认值与日志策略见 [ADR 0014](adr/0014-default-voice-and-always-on-diagnostics.md)，输入来源和物理回声验收见 [音频审计](audio-input-and-echo.md)。
+
+
+## 公开时间线与截图同步恢复
+
+新公开消息的本机首次观察时间和稳定序号使用 `workspace_message_times_v1` 独立元数据表，并通过 `messageTimes` 派生字段提供；严格 Task/v2 与语音正文的内存生命周期不变。语音、Codex 回复与补充输入按已知消息时间排列，流式修正/最终快照不更改原位置；旧记录缺逐条时间时保留原顺序，不伪造历史时序。详见 [ADR 0017](adr/0017-message-timeline-and-preview-sync.md)。
+
+本机唯一预览对同一页面/动作版本合并截图请求，等待者最多 4 秒，原始请求未返回时不靠自动重试堆积 capture。电脑端另有 5 秒看门狗，连续错误最多三次（1.2 / 2.4 秒退避），显示真实错误并提供手动重试；当前版本最后成功图可保留并标明未更新，版本变化拒绝旧图，失败禁用新点选。此防护与实际 Electron/GPU surface 故障分开验收，不自动改 GPU、焦点或重载作品。

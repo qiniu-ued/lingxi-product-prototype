@@ -907,3 +907,22 @@ it('shows actual automatic review denial and keeps Sidechat read-only under a Fu
     sandboxPolicy: { type: 'readOnly', networkAccess: false },
   });
 });
+
+it('persists first-observed public message times without moving empty-start items or final corrections', async () => {
+  const f = await create('progress-empty');
+  f.wb.start(randomUUID(), 'first observation order');
+  await until(f.wb, (state) => state.task?.status === 'completed');
+  await until(f.wb, (state) => !!state.preview);
+  const original = f.wb.read();
+  const task = original.task;
+  expect(task?.messages.map((message) => message.id)).toEqual(['empty-first', 'later-second']);
+  const recorded = original.messageTimes.filter((entry) => entry.kind === 'assistant');
+  expect(recorded.map((entry) => entry.messageId)).toEqual(['empty-first', 'later-second']);
+  expect(recorded[0]?.ordinal).toBeLessThan(recorded[1]?.ordinal ?? 0);
+  expect(
+    recorded.every((entry) => entry.taskId === task?.id && Number.isFinite(Date.parse(entry.at))),
+  ).toBe(true);
+  const resumed = await f.restart();
+  expect(resumed.read().messageTimes).toEqual(original.messageTimes);
+  expect(resumed.read().task?.messages).toEqual(task?.messages);
+});

@@ -172,6 +172,15 @@ export const taskSchema = z.strictObject({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
+// First-observed public message times live outside strict Task/v2 JSON.
+export const messageTimeSchema = z.strictObject({
+  taskId: z.uuid(),
+  kind: z.enum(['prompt', 'assistant', 'addition']),
+  messageId: z.string(),
+  at: z.iso.datetime(),
+  ordinal: z.number().int().nonnegative(),
+});
+export type MessageTime = z.infer<typeof messageTimeSchema>;
 export const workbenchSchema = z.strictObject({
   schemaVersion: z.literal(1),
   revision: z.number().int().nonnegative(),
@@ -186,6 +195,7 @@ export const workbenchSchema = z.strictObject({
   terminal: terminalStateSchema.nullable().default(null),
   runtime: threadRuntimeSchema.nullable().default(null),
   turnUsage: z.array(turnUsageSchema).default([]),
+  messageTimes: z.array(messageTimeSchema).default([]),
   permission: permissionModeSchema.default('manual'),
 });
 export const startTaskSchema = z.strictObject({

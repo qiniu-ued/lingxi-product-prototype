@@ -130,12 +130,28 @@ export class Workbench {
   private update(change: Partial<WorkbenchState> = {}) {
     this.state = { ...this.state, ...change, revision: this.state.revision + 1 };
     this.state.turnUsage = this.store.turnUsage(this.state.history);
+    this.state.messageTimes = this.store.messageTimes(this.state.history);
     this.store.write(this.state);
     for (const listener of this.listeners) listener(this.state);
   }
   private taskUpdate(patch: Partial<Task>) {
     if (!this.state.task) return;
     const task = { ...this.state.task, ...patch, updatedAt: new Date().toISOString() };
+    for (const message of patch.messages ?? [])
+      this.store.observeMessage(task.id, 'assistant', message.id, task.updatedAt);
+    for (const addition of patch.additions ?? [])
+      this.store.observeMessage(task.id, 'addition', addition.id, task.updatedAt);
+    if (patch.messages) {
+      const order = new Map(
+        this.store
+          .messageTimes([task])
+          .filter((entry) => entry.kind === 'assistant')
+          .map((entry) => [entry.messageId, entry.ordinal]),
+      );
+      task.messages = [...task.messages].sort(
+        (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+      );
+    }
     this.update({ task, history: this.state.history.map((t) => (t.id === task.id ? task : t)) });
   }
   private ensureIdle() {
@@ -316,6 +332,7 @@ export class Workbench {
       updatedAt: new Date().toISOString(),
     };
     this.store.writePermission(id, this.state.permission);
+    this.store.observeMessage(task.id, 'prompt', 'prompt', task.createdAt);
     this.update({ history: [...this.state.history, task], ...(queued ? {} : { task }) });
     if (!queued) this.launch(project, task);
     return task;
@@ -983,6 +1000,8 @@ export class Workbench {
       const item = z.object({ type: z.string(), id: z.string() }).passthrough().parse(p.item);
       // Internal reasoning items are not public assistant progress messages.
       if (item.type === 'reasoning') return;
+      if (item.type === 'agentMessage')
+        this.store.observeMessage(task.id, 'assistant', item.id, new Date().toISOString());
       if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text) {
         const messages = task.messages.map((message) => ({ ...message }));
         const position = messages.findIndex((message) => message.id === item.id);

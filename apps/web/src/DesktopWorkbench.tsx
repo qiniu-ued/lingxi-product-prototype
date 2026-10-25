@@ -1,8 +1,6 @@
 import {
   type ContextAttachment,
   type HistoryQuote,
-  type PreviewSnapshot,
-  previewSnapshotSchema,
   type VoiceState,
   voiceStateSchema,
   type WorkbenchState,
@@ -18,6 +16,7 @@ import {
 } from './ConfigurationControls';
 import { ContextUsage } from './ContextUsage';
 import { ConversationNavigation } from './ConversationNavigation';
+import { conversationTimeline } from './conversationTimeline';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
@@ -27,6 +26,7 @@ import { SettingsLink, SetupLink } from './Navigation';
 import { PreviewPicker } from './PreviewPicker';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
+import { usePreviewSnapshot } from './usePreviewSnapshot';
 import {
   VoiceControls,
   voiceConnectionLabel,
@@ -68,7 +68,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     [connected, setConnected] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
-    [shot, setShot] = useState<PreviewSnapshot | null>(null),
     [answers, setAnswers] = useState<Record<string, Record<string, string>>>({}),
     [displayVoice, setDisplayVoice] = useState<VoiceState | null>(null);
   const transcript = useRef<HTMLDivElement>(null),
@@ -120,6 +119,12 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     [setVoiceDraft],
   );
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
+  const {
+    shot,
+    error: previewError,
+    retrying: retryingPreview,
+    retry: retryPreview,
+  } = usePreviewSnapshot(!display && active ? bindingKey : '', picking);
   const thread = state?.threads.find((t) => t.id === state.selectedThreadId);
   const voiceChat = useVoiceConversation();
   const scopedVoice = voiceChat.turns.filter(
@@ -132,6 +137,11 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       !turn.handoff?.taskId || !state?.history.some((task) => task.id === turn.handoff?.taskId),
   );
   const projectlessVoice = state?.project ? voiceChat.turns.filter((turn) => !turn.projectId) : [];
+  const transcriptEntries = conversationTimeline(
+    state?.history ?? [],
+    scopedVoice,
+    state?.messageTimes ?? [],
+  );
 
   const contextDetails = useCallback(async (open: boolean) => {
     if (open) {
@@ -360,32 +370,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       window.removeEventListener('resize', update);
     };
   }, [display, bindingKey]);
-  useEffect(() => {
-    if (display || !bindingKey) {
-      setShot(null);
-      return;
-    }
-    let active = true;
-    let pending = false;
-    const update = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const value = await window.lingxiDesktop?.snapshot();
-        if (active && value) setShot(previewSnapshotSchema.parse(value));
-      } catch {
-        /* Preview may be changing. */
-      } finally {
-        pending = false;
-      }
-    };
-    void update();
-    const timer = setInterval(() => void update(), picking ? 200 : 1200);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [display, bindingKey, picking]);
+
   useEffect(() => {
     if (!voiceChat.revision || (!display && !followTranscript.current)) return;
     const frame = requestAnimationFrame(() =>
@@ -768,6 +753,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <ConfigurationButton
                   type="button"
                   aria-pressed={picking}
+                  disabled={!shot || !!previewError}
                   onClick={() => {
                     setPicking((value) => !value);
                     retry.current = null;
@@ -782,6 +768,22 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 移动鼠标预览元素边界，点击锁定并填写修改要求；Esc 取消，滚轮浏览页面。
               </p>
             )}
+            {!display && previewError && (
+              <div className="preview-sync-error" role="status">
+                <span>
+                  {previewError}
+                  {shot ? ' 当前保留上次成功截图。' : ''}
+                </span>
+                <ConfigurationButton
+                  type="button"
+                  onClick={retryPreview}
+                  disabled={retryingPreview}
+                  aria-busy={retryingPreview}
+                >
+                  重试同步预览
+                </ConfigurationButton>
+              </div>
+            )}
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
                 <div className="live-empty">
@@ -792,7 +794,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <PreviewPicker
                   key={JSON.stringify(shot.binding)}
                   shot={shot}
-                  active={picking}
+                  active={picking && !previewError}
                   selection={selection}
                   onCancel={() => setPicking(false)}
                   onError={setError}
@@ -803,7 +805,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     retry.current = null;
                   }}
                 />
-              ) : !display ? (
+              ) : !display && !previewError ? (
                 <p>正在同步大屏中的作品…</p>
               ) : null}
             </div>
@@ -847,208 +849,233 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 node.scrollHeight - node.clientHeight - node.scrollTop < 50;
             }}
           >
-            {state?.history.length ? (
-              state.history.map((turn) => (
-                <article key={turn.id} id={`codex-turn-${turn.id}`} className="conversation-turn">
-                  <div className="chat-row user">
-                    <span className="chat-avatar" aria-hidden="true">
-                      发
-                    </span>
-                    <div className="chat-message">
-                      <span className="bubble-speaker">
-                        {scopedVoice.some((voice) => voice.handoff?.taskId === turn.id)
-                          ? '发言人 · 语音交接'
-                          : '发言人'}
-                      </span>
-                      <div
-                        className="live-bubble"
-                        data-history-task={turn.id}
-                        data-history-role="user"
-                        data-history-message="prompt"
-                      >
-                        {turn.prompt}
-                      </div>
-                    </div>
-                  </div>
-                  <VoiceTurns
-                    turns={scopedVoice.filter((voice) => voice.handoff?.taskId === turn.id)}
-                    prompt={turn.prompt}
-                  />
-                  {turn.messages.map((message) => (
-                    <div className="chat-row" key={message.id}>
-                      <span className="chat-avatar" aria-hidden="true">
-                        灵
-                      </span>
-                      <div className="chat-message">
-                        <span className="bubble-speaker">丽塔同学</span>
-                        <div
-                          className="live-bubble"
-                          data-history-task={turn.id}
-                          data-history-role="assistant"
-                          data-history-message={message.id}
-                        >
-                          {message.text}
+            {transcriptEntries.length ? (
+              transcriptEntries.map((entry) => {
+                if (entry.kind === 'voice')
+                  return (
+                    <VoiceTurns
+                      key={entry.id}
+                      turns={[entry.voice]}
+                      messageIds={entry.messageIds}
+                      showOutcome={entry.outcome}
+                    />
+                  );
+                const turn = entry.task;
+                return (
+                  <article
+                    key={entry.id}
+                    id={entry.part === 'prompt' ? `codex-turn-${turn.id}` : undefined}
+                    className="conversation-turn"
+                    data-task-part={entry.part}
+                    data-task={turn.id}
+                  >
+                    {entry.part === 'prompt' && (
+                      <div className="chat-row user">
+                        <span className="chat-avatar" aria-hidden="true">
+                          发
+                        </span>
+                        <div className="chat-message">
+                          <span className="bubble-speaker">
+                            {scopedVoice.some((voice) => voice.handoff?.taskId === turn.id)
+                              ? '发言人 · 语音交接'
+                              : '发言人'}
+                          </span>
+                          <div
+                            className="live-bubble"
+                            data-history-task={turn.id}
+                            data-history-role="user"
+                            data-history-message="prompt"
+                          >
+                            {turn.prompt}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  {turn.additions?.map((a) => (
-                    <div className="chat-row user" key={a.id}>
-                      <span className="chat-avatar" aria-hidden="true">
-                        发
-                      </span>
-                      <div className="chat-message">
-                        <span className="bubble-speaker">发言人</span>
-                        <div className="live-bubble">
-                          补充：{a.text}{' '}
-                          {a.status === 'unconfirmed' || a.status === 'pending'
-                            ? '（送达未确认，不会自动重复发送）'
-                            : ''}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="turn-footer">
-                    {!display && (
-                      <details className="turn-tools">
-                        <summary aria-label="本轮详情" title="本轮详情">
-                          ⋯
-                        </summary>
-                        <TurnUsage
-                          usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
-                          status={turn.status}
-                        />
-                        {turn.attachments?.length ? (
-                          <details>
-                            <summary>本轮上下文 · {turn.attachments.length}</summary>
-                            {turn.attachments.map((a) => (
-                              <pre key={a.id}>
-                                {a.title}\n{a.text}
-                              </pre>
-                            ))}
-                          </details>
-                        ) : null}
-                        {!!turn.plan?.length && (
-                          <details>
-                            <summary>执行步骤 · {turn.plan.length}</summary>
-                            <ol>
-                              {turn.plan.map((step) => (
-                                <li key={step.step}>
-                                  {step.step} · {step.status}
-                                </li>
-                              ))}
-                            </ol>
-                          </details>
-                        )}
-                        {!!turn.items?.length && (
-                          <details>
-                            <summary>执行记录 · {turn.items.length}</summary>
-                            {turn.items.map((item) => (
-                              <details key={item.id}>
-                                <summary>
-                                  {item.type} · {item.status ?? '执行中'}
-                                </summary>
-                                <pre>{item.text}</pre>
-                              </details>
-                            ))}
-                          </details>
-                        )}
-                        <small>
-                          {turn.status} · {new Date(turn.createdAt).toLocaleString()}
-                        </small>
-                      </details>
                     )}
-                    {!display && (
-                      <div className="turn-icons">
-                        {' '}
+
+                    {turn.messages
+                      .filter(
+                        (message) => entry.part === 'assistant' && message.id === entry.messageId,
+                      )
+                      .map((message) => (
+                        <div className="chat-row" key={message.id}>
+                          <span className="chat-avatar" aria-hidden="true">
+                            灵
+                          </span>
+                          <div className="chat-message">
+                            <span className="bubble-speaker">丽塔同学</span>
+                            <div
+                              className="live-bubble"
+                              data-history-task={turn.id}
+                              data-history-role="assistant"
+                              data-history-message={message.id}
+                            >
+                              {message.text}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {turn.additions
+                      ?.filter((a) => entry.part === 'addition' && a.id === entry.messageId)
+                      .map((a) => (
+                        <div className="chat-row user" key={a.id}>
+                          <span className="chat-avatar" aria-hidden="true">
+                            发
+                          </span>
+                          <div className="chat-message">
+                            <span className="bubble-speaker">发言人</span>
+                            <div className="live-bubble">
+                              补充：{a.text}{' '}
+                              {a.status === 'unconfirmed' || a.status === 'pending'
+                                ? '（送达未确认，不会自动重复发送）'
+                                : ''}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {entry.part === 'footer' && (
+                      <div className="turn-footer" data-task-footer={turn.id}>
                         {!display && (
-                          <div className="live-actions">
-                            {turn.status === 'queued' ? (
-                              <ConfigurationButton
-                                type="button"
-                                onClick={() =>
-                                  void operate('workspace', {
-                                    action: 'cancel-queued',
-                                    id: turn.id,
-                                  })
-                                }
-                              >
-                                取消排队
-                              </ConfigurationButton>
-                            ) : (
-                              <>
-                                <ConfigurationButton
-                                  type="button"
-                                  className="icon-button"
-                                  variant="ghost"
-                                  aria-label="Fork 对话"
-                                  title="Fork 对话"
-                                  disabled={running || busy || !turn.turnId}
-                                  onClick={() =>
-                                    void operate('workspace', {
-                                      action: 'fork',
-                                      taskId: turn.id,
-                                      kind: 'fork',
-                                    })
-                                  }
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.7"
-                                  >
-                                    <circle cx="6" cy="5" r="2" />
-                                    <circle cx="18" cy="5" r="2" />
-                                    <circle cx="6" cy="19" r="2" />
-                                    <path d="M6 7v10M18 7v1a5 5 0 0 1-5 5H6" />
-                                  </svg>
-                                </ConfigurationButton>
-                                <ConfigurationButton
-                                  type="button"
-                                  className="icon-button"
-                                  variant="ghost"
-                                  aria-label="复制本轮回复"
-                                  title="复制本轮回复"
-                                  disabled={!turn.messages.length}
-                                  onClick={async () => {
-                                    try {
-                                      const value = turn.messages
-                                        .map((message) => message.text)
-                                        .join('\n\n');
-                                      if (window.lingxiDesktop)
-                                        await window.lingxiDesktop.copy(value);
-                                      else await navigator.clipboard.writeText(value);
-                                    } catch {
-                                      setError('复制失败，请选中文字后复制。');
+                          <details className="turn-tools">
+                            <summary aria-label="本轮详情" title="本轮详情">
+                              ⋯
+                            </summary>
+                            <TurnUsage
+                              usage={state?.turnUsage.find((usage) => usage.taskId === turn.id)}
+                              status={turn.status}
+                            />
+                            {turn.attachments?.length ? (
+                              <details>
+                                <summary>本轮上下文 · {turn.attachments.length}</summary>
+                                {turn.attachments.map((a) => (
+                                  <pre key={a.id}>
+                                    {a.title}\n{a.text}
+                                  </pre>
+                                ))}
+                              </details>
+                            ) : null}
+                            {!!turn.plan?.length && (
+                              <details>
+                                <summary>执行步骤 · {turn.plan.length}</summary>
+                                <ol>
+                                  {turn.plan.map((step) => (
+                                    <li key={step.step}>
+                                      {step.step} · {step.status}
+                                    </li>
+                                  ))}
+                                </ol>
+                              </details>
+                            )}
+                            {!!turn.items?.length && (
+                              <details>
+                                <summary>执行记录 · {turn.items.length}</summary>
+                                {turn.items.map((item) => (
+                                  <details key={item.id}>
+                                    <summary>
+                                      {item.type} · {item.status ?? '执行中'}
+                                    </summary>
+                                    <pre>{item.text}</pre>
+                                  </details>
+                                ))}
+                              </details>
+                            )}
+                            <small>
+                              {turn.status} · {new Date(turn.createdAt).toLocaleString()}
+                            </small>
+                          </details>
+                        )}
+                        {!display && (
+                          <div className="turn-icons">
+                            {' '}
+                            {!display && (
+                              <div className="live-actions">
+                                {turn.status === 'queued' ? (
+                                  <ConfigurationButton
+                                    type="button"
+                                    onClick={() =>
+                                      void operate('workspace', {
+                                        action: 'cancel-queued',
+                                        id: turn.id,
+                                      })
                                     }
-                                  }}
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.7"
                                   >
-                                    <rect x="8" y="8" width="12" height="12" rx="2" />
-                                    <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" />
-                                  </svg>
-                                </ConfigurationButton>
-                              </>
+                                    取消排队
+                                  </ConfigurationButton>
+                                ) : (
+                                  <>
+                                    <ConfigurationButton
+                                      type="button"
+                                      className="icon-button"
+                                      variant="ghost"
+                                      aria-label="Fork 对话"
+                                      title="Fork 对话"
+                                      disabled={running || busy || !turn.turnId}
+                                      onClick={() =>
+                                        void operate('workspace', {
+                                          action: 'fork',
+                                          taskId: turn.id,
+                                          kind: 'fork',
+                                        })
+                                      }
+                                    >
+                                      <svg
+                                        aria-hidden="true"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.7"
+                                      >
+                                        <circle cx="6" cy="5" r="2" />
+                                        <circle cx="18" cy="5" r="2" />
+                                        <circle cx="6" cy="19" r="2" />
+                                        <path d="M6 7v10M18 7v1a5 5 0 0 1-5 5H6" />
+                                      </svg>
+                                    </ConfigurationButton>
+                                    <ConfigurationButton
+                                      type="button"
+                                      className="icon-button"
+                                      variant="ghost"
+                                      aria-label="复制本轮回复"
+                                      title="复制本轮回复"
+                                      disabled={!turn.messages.length}
+                                      onClick={async () => {
+                                        try {
+                                          const value = turn.messages
+                                            .map((message) => message.text)
+                                            .join('\n\n');
+                                          if (window.lingxiDesktop)
+                                            await window.lingxiDesktop.copy(value);
+                                          else await navigator.clipboard.writeText(value);
+                                        } catch {
+                                          setError('复制失败，请选中文字后复制。');
+                                        }
+                                      }}
+                                    >
+                                      <svg
+                                        aria-hidden="true"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.7"
+                                      >
+                                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                                        <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" />
+                                      </svg>
+                                    </ConfigurationButton>
+                                  </>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
                       </div>
                     )}
-                  </div>
-                </article>
-              ))
+                  </article>
+                );
+              })
             ) : !pendingVoice.length && !projectlessVoice.length ? (
               <div className="live-empty">
                 <p>
@@ -1061,7 +1088,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
             {!display && thread?.kind === 'fork' && (
               <p>此 Fork 复制对话历史，共享当前项目文件。独立代码工作区尚未创建。</p>
             )}
-            <VoiceTurns turns={pendingVoice} />
             {!!projectlessVoice.length && (
               <details className="projectless-voice">
                 <summary>项目外语音 · 未用于当前项目</summary>

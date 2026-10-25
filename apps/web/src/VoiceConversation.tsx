@@ -68,7 +68,17 @@ const taskLabels: Record<NonNullable<VoiceTurn['taskStatus']>, string> = {
   failed: 'Codex 执行失败',
   interrupted: 'Codex 已停止',
 };
-export function VoiceTurns({ turns, prompt }: { turns: VoiceTurn[]; prompt?: string }) {
+export function VoiceTurns({
+  turns,
+  prompt,
+  messageIds,
+  showOutcome = true,
+}: {
+  turns: VoiceTurn[];
+  prompt?: string;
+  messageIds?: string[];
+  showOutcome?: boolean;
+}) {
   return (
     <>
       {turns.map((turn) => (
@@ -80,7 +90,9 @@ export function VoiceTurns({ turns, prompt }: { turns: VoiceTurn[]; prompt?: str
         >
           {turn.messages
             .filter(
-              (message) => !(message.role === 'user' && prompt?.trim() === message.text.trim()),
+              (message) =>
+                (!messageIds || messageIds.includes(message.id)) &&
+                !(message.role === 'user' && prompt?.trim() === message.text.trim()),
             )
             .map((message) => (
               <div className={`chat-row ${message.role === 'user' ? 'user' : ''}`} key={message.id}>
@@ -102,26 +114,28 @@ export function VoiceTurns({ turns, prompt }: { turns: VoiceTurn[]; prompt?: str
                 </div>
               </div>
             ))}
-          <p className="voice-turn-outcome" role="status">
-            {turn.taskStatus
-              ? taskLabels[turn.taskStatus]
-              : turn.handoff?.status === 'submitted'
-                ? '已交给 Codex'
-                : turn.handoff?.status === 'blocked'
-                  ? '工作台未接受操作'
-                  : turn.handoff?.status === 'unhandled'
-                    ? '本轮未提交 Codex'
-                    : turn.handoff?.status === 'handled'
-                      ? '工作台工具已返回结果'
-                      : '等待工作台工具调用；语音回复不代表已执行'}
-            {turn.handoff?.taskId && (
-              <a href={`#codex-turn-${turn.handoff.taskId}`}>
-                {' '}
-                · 任务 {turn.handoff.taskId.slice(0, 8)}
-              </a>
-            )}
-          </p>
-          {turn.handoff && !turn.handoff.taskId && (
+          {showOutcome && (
+            <p className="voice-turn-outcome" role="status">
+              {turn.taskStatus
+                ? taskLabels[turn.taskStatus]
+                : turn.handoff?.status === 'submitted'
+                  ? '已交给 Codex'
+                  : turn.handoff?.status === 'blocked'
+                    ? '工作台未接受操作'
+                    : turn.handoff?.status === 'unhandled'
+                      ? '本轮未提交 Codex'
+                      : turn.handoff?.status === 'handled'
+                        ? '工作台工具已返回结果'
+                        : '等待工作台工具调用；语音回复不代表已执行'}
+              {turn.handoff?.taskId && (
+                <a href={`#codex-turn-${turn.handoff.taskId}`}>
+                  {' '}
+                  · 任务 {turn.handoff.taskId.slice(0, 8)}
+                </a>
+              )}
+            </p>
+          )}
+          {showOutcome && turn.handoff && !turn.handoff.taskId && (
             <small className="voice-turn-detail">{turn.handoff.message}</small>
           )}
         </section>

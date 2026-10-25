@@ -387,7 +387,7 @@ export class VoiceService {
       this.stopWake('麦克风音频已中断，请重新开启唤醒。');
     }, 1000);
   }
-  private stopConversation(error: string | null = null) {
+  private stopConversation(error: string | null = null, notifyRemote = true) {
     if (this.state.conversationActive) this.diagnostic('capture-ended');
     this.conversation.interrupt();
     this.captureEpoch++;
@@ -397,9 +397,9 @@ export class VoiceService {
     this.announcing = false;
     clearTimeout(this.speechDeadline);
     clearTimeout(this.captureDeadline);
-    if (this.state.status === 'listening')
+    if (notifyRemote && this.state.status === 'listening')
       this.send({ type: 'listen', state: 'stop', mode: 'manual' });
-    if (['processing', 'speaking'].includes(this.state.status))
+    if (notifyRemote && ['processing', 'speaking'].includes(this.state.status))
       this.send({ type: 'abort', reason: 'user_requested' });
     this.speechFrames = 0;
     this.speechBuffer = [];
@@ -1074,6 +1074,14 @@ export class VoiceService {
       }, 20000);
     } else if (message.type === 'goodbye') {
       if (!this.state.remoteSessionEnding) {
+        // A fresh user capture or a reply still playing might be an intentional
+        // goodbye. The protocol does not tell us why the service ended it.
+        const userReplyPending =
+          !this.announcing &&
+          ((this.state.captureId &&
+            Date.now() <= this.armedUntil &&
+            this.target === this.context()) ||
+            this.conversation.speaking());
         this.update({ remoteSessionEnding: true });
         this.diagnostic('service-ending', {
           source: 'websocket',
@@ -1088,6 +1096,15 @@ export class VoiceService {
           this.state.handoff.status === 'awaiting-tool'
         )
           this.handoff('unhandled', '远端已通知结束会话，本轮未取得 Codex 任务回执。');
+        if (!userReplyPending) {
+          // Retire an idle remote session instead of playing its farewell or
+          // waiting for transport close. This is not a user abort/network fault.
+          this.debug('local', 'close', { initiator: 'app', trigger: 'remote_goodbye' });
+          this.fail('远端语音会话已结束，Codex 任务不受影响。', true, 'remote_session_end', {
+            source: 'app',
+            reason: 'remote_goodbye',
+          });
+        }
       }
     } else if (message.type === 'stt') {
       if (!this.state.captureId || Date.now() > this.armedUntil) {
@@ -1564,7 +1581,7 @@ export class VoiceService {
     clearInterval(this.heartbeat);
     this.heartbeat = undefined;
     this.connectedAt = 0;
-    this.stopConversation();
+    this.stopConversation(null, detail.reason !== 'remote_goodbye');
     if (this.wakeEnabled) {
       this.options.wake?.reset();
       this.update({ wake: { ...this.state.wake, status: 'armed', detectionId: null } });

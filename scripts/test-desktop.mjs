@@ -846,7 +846,7 @@ try {
   const maximumLog = `详细日志容量测试\n${'x'.repeat(256 * 8192 + 128 * 1024)}`;
   await reopened.evaluate((value) => window.lingxiDesktop.copy(value), maximumLog);
   assert.equal(
-    await instance.evaluate(({ clipboard }) => clipboard.readText().length),
+    await instance.evaluate(async ({ clipboard }) => (await clipboard.readText()).length),
     maximumLog.length,
     'A bounded full debug export must fit the native clipboard bridge',
   );

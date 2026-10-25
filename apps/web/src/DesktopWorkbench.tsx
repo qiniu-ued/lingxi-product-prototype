@@ -61,6 +61,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
   const [picking, setPicking] = useState(false);
+  const latestShot = useRef(shot);
+  latestShot.current = shot;
   const [runtimeUrl, setRuntimeUrl] = useState('http://127.0.0.1:5174/');
   const [tab, setTab] = useState('preview');
   const [mode, setMode] = useState<'queue' | 'steer'>('queue'),
@@ -238,6 +240,35 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       observer.disconnect();
       window.removeEventListener('resize', update);
     };
+  }, [display, bindingKey]);
+  useEffect(() => {
+    const element = viewport.current;
+    if (display || !bindingKey || !element) return;
+    const scroll = (event: WheelEvent) => {
+      const current = latestShot.current;
+      const image = element.querySelector('img');
+      if (!current || !image || !window.lingxiDesktop || event.ctrlKey) return;
+      const rect = image.getBoundingClientRect();
+      const x = (event.clientX - rect.x) / rect.width;
+      const y = (event.clientY - rect.y) / rect.height;
+      if (x < 0 || x > 1 || y < 0 || y > 1) return;
+      event.preventDefault();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1;
+      const bounded = (value: number) => Math.max(-2000, Math.min(2000, value * unit));
+      void window.lingxiDesktop
+        .scroll({
+          binding: current.binding,
+          x,
+          y,
+          deltaX: bounded(event.deltaX),
+          deltaY: bounded(event.deltaY),
+        })
+        .catch(() => {
+          /* A wheel gesture must not be replayed against a newer preview. */
+        });
+    };
+    element.addEventListener('wheel', scroll, { passive: false });
+    return () => element.removeEventListener('wheel', scroll);
   }, [display, bindingKey]);
   useEffect(() => {
     if (display || !bindingKey) {

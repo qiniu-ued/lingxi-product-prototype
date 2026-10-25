@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('lingxiDesktop', {
   action: (input: unknown) => ipcRenderer.invoke('desktop.action', input),
   snapshot: () => ipcRenderer.invoke('desktop.snapshot'),
+  scroll: (input: unknown) => ipcRenderer.invoke('desktop.scroll', input),
   pick: (input: unknown) => ipcRenderer.invoke('desktop.pick', input),
   info: () => ipcRenderer.invoke('desktop.info'),
   microphone: () => ipcRenderer.invoke('desktop.microphone'),

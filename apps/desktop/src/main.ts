@@ -6,6 +6,7 @@ import {
   desktopActionSchema,
   type Project,
   previewBindingSchema,
+  previewWheelSchema,
   projectSchema,
   voiceConfigSchema,
 } from '@lingxi/protocol';
@@ -388,6 +389,11 @@ else {
             })
             .parse(input),
         );
+      });
+      ipcMain.handle('desktop.scroll', (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        return preview.scroll(previewWheelSchema.parse(input));
       });
       session.defaultSession.setPermissionRequestHandler(
         (contents, permission, callback, details) => {

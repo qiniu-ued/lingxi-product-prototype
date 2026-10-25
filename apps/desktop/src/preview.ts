@@ -4,6 +4,7 @@ import { extname, resolve } from 'node:path';
 import {
   type PreviewAction,
   type PreviewBinding,
+  type PreviewWheel,
   type Project,
   previewActionSchema,
 } from '@lingxi/protocol';
@@ -192,6 +193,31 @@ export class Preview {
       },
     ]);
     return { binding: { ...this.binding }, ...selected };
+  }
+  scroll(input: PreviewWheel) {
+    const next = this.queue.then(() => {
+      if (
+        !this.view ||
+        !this.binding ||
+        JSON.stringify(input.binding) !== JSON.stringify(this.binding)
+      )
+        throw new Error('stale_preview');
+      const { width, height } = this.view.getBounds();
+      const point = {
+        x: Math.min(width - 1, Math.floor(input.x * width)),
+        y: Math.min(height - 1, Math.floor(input.y * height)),
+      };
+      // Native wheel input preserves nested overflow areas and browser scroll chaining.
+      this.view.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      this.view.webContents.sendInputEvent({
+        type: 'mouseWheel',
+        ...point,
+        deltaX: -input.deltaX,
+        deltaY: -input.deltaY,
+      });
+    });
+    this.queue = next.catch(() => {});
+    return next;
   }
   private runtimeAllowed(url: URL) {
     if (!this.runtimeOrigin) return false;

@@ -377,7 +377,7 @@ try {
       return;
     }
     response.end(
-      `<!doctype html><html><body><h1>Live project</h1><button id="vote">金山城市沙滩</button><p>票数 <strong id="count">0</strong></p><script>let votes=0;document.querySelector('#vote').onclick=()=>document.querySelector('#count').textContent=String(++votes);fetch('/api').then(r=>r.text()).then(t=>document.body.dataset.api=t);fetch(${JSON.stringify(`${reopenedAddress}/api/health`)}).then(()=>document.body.dataset.blocked='no').catch(()=>document.body.dataset.blocked='yes')</script></body></html>`,
+      `<!doctype html><html><body style="min-height:2600px"><h1>Live project</h1><button id="vote">金山城市沙滩</button><p>票数 <strong id="count">0</strong></p><div id="nested" style="position:fixed;top:0;right:0;width:200px;height:120px;overflow:auto"><div style="height:800px">Nested scroll</div></div><script>let votes=0;document.querySelector('#vote').onclick=()=>document.querySelector('#count').textContent=String(++votes);fetch('/api').then(r=>r.text()).then(t=>document.body.dataset.api=t);fetch(${JSON.stringify(`${reopenedAddress}/api/health`)}).then(()=>document.body.dataset.blocked='no').catch(()=>document.body.dataset.blocked='yes')</script></body></html>`,
     );
   });
   await new Promise((resolve) => liveServer.listen(0, '127.0.0.1', resolve));
@@ -468,6 +468,85 @@ try {
     (page) => new URL(page.url()).pathname === '/display',
   );
   assert.ok(displayPage);
+  const scrollPosition = () =>
+    instance.evaluate(async ({ webContents }, url) => {
+      const page = webContents.getAllWebContents().find((w) => w.getURL() === url);
+      return page.executeJavaScript(
+        `({body:scrollY,nested:document.querySelector('#nested').scrollTop})`,
+      );
+    }, liveUrl);
+  const waitScrolled = async (key) => {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if ((await scrollPosition())[key] > 50) return;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    }
+    assert.fail(`${key} must scroll on the canonical page`);
+  };
+  await reopened.locator('.preview-pick img').waitFor();
+  const previewImage = await reopened.locator('.preview-pick img').boundingBox();
+  await reopened.mouse.move(
+    previewImage.x + previewImage.width / 2,
+    previewImage.y + previewImage.height / 2,
+  );
+  await reopened.mouse.wheel(0, 350);
+  await waitScrolled('body');
+  // A new gesture may target another scroller after Chromium's wheel latch ends.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const bindingBeforeScroll = liveState.preview;
+  await reopened.evaluate(async () => {
+    const shot = await window.lingxiDesktop.snapshot();
+    await window.lingxiDesktop.scroll({
+      binding: shot.binding,
+      x: 0.95,
+      y: 0.05,
+      deltaX: 0,
+      deltaY: 200,
+    });
+    for (const input of [
+      {
+        binding: { ...shot.binding, epoch: shot.binding.epoch + 1 },
+        x: 0.5,
+        y: 0.5,
+        deltaX: 0,
+        deltaY: 200,
+      },
+      { binding: shot.binding, x: 2, y: 0.5, deltaX: 0, deltaY: 200 },
+    ]) {
+      let rejected = false;
+      try {
+        await window.lingxiDesktop.scroll(input);
+      } catch {
+        rejected = true;
+      }
+      if (!rejected) throw new Error('Invalid wheel input must be rejected');
+    }
+  });
+  await waitScrolled('nested');
+  assert.equal(
+    await displayPage.evaluate(async () => {
+      const shot = await window.lingxiDesktop.snapshot();
+      try {
+        await window.lingxiDesktop.scroll({
+          binding: shot.binding,
+          x: 0.5,
+          y: 0.5,
+          deltaX: 0,
+          deltaY: 200,
+        });
+        return false;
+      } catch {
+        return true;
+      }
+    }),
+    true,
+    'Passive display cannot forward operator input',
+  );
+  assert.deepEqual(
+    (await (await fetch(`${reopenedAddress}/api/workbench`)).json()).preview,
+    bindingBeforeScroll,
+    'Scrolling must not republish or navigate the preview',
+  );
+  assert.equal((await inspectLive()).count, '1', 'Scrolling must not activate page controls');
   for (const [width, height] of [
     [1440, 940],
     [998, 767],

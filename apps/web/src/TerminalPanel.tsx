@@ -2,6 +2,7 @@ import type { ContextAttachment, WorkbenchState } from '@lingxi/protocol';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import { useEffect, useRef, useState } from 'react';
+import { ConfigurationButton } from './ConfigurationControls.js';
 import '@xterm/xterm/css/xterm.css';
 
 async function send(body: unknown) {
@@ -70,7 +71,7 @@ export function TerminalPanel({
   return (
     <section className="workspace-tool">
       <div className="live-actions">
-        <button
+        <ConfigurationButton
           type="button"
           disabled={!!active}
           onClick={() => {
@@ -83,8 +84,8 @@ export function TerminalPanel({
           }}
         >
           打开终端
-        </button>
-        <button
+        </ConfigurationButton>
+        <ConfigurationButton
           type="button"
           disabled={!active}
           onClick={() => {
@@ -93,8 +94,8 @@ export function TerminalPanel({
           }}
         >
           结束终端
-        </button>
-        <button
+        </ConfigurationButton>
+        <ConfigurationButton
           type="button"
           onClick={() => {
             const text = terminal.current?.getSelection();
@@ -109,7 +110,7 @@ export function TerminalPanel({
           }}
         >
           添加选中输出到对话
-        </button>
+        </ConfigurationButton>
       </div>
       <p>
         项目终端 · {state.terminal?.status ?? '未打开'} · 停止 Codex

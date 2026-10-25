@@ -1,6 +1,11 @@
 import type { ContextAttachment } from '@lingxi/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { z } from 'zod';
+import {
+  ConfigurationButton,
+  ConfigurationSelect,
+  ConfigurationTextArea,
+} from './ConfigurationControls.js';
 
 const gitSchema = z.object({ status: z.string(), staged: z.string(), unstaged: z.string() });
 export function DiffPanel({
@@ -46,23 +51,24 @@ export function DiffPanel({
   return (
     <section className="workspace-tool">
       <div className="live-actions">
-        <label>
+        <label htmlFor="workspace-diff-source">
           变更来源{' '}
-          <select
+          <ConfigurationSelect
+            id="workspace-diff-source"
             value={source}
-            onChange={(e) => {
-              setSource(e.target.value);
+            onValueChange={(value) => {
+              setSource(value);
               setSelected('');
             }}
           >
             <option value="turn">Codex 本轮 patch</option>
             <option value="unstaged">Git 未暂存</option>
             <option value="staged">Git 已暂存</option>
-          </select>
+          </ConfigurationSelect>
         </label>
-        <button type="button" onClick={() => void refresh()}>
+        <ConfigurationButton type="button" onClick={() => void refresh()}>
           刷新 Git
-        </button>
+        </ConfigurationButton>
       </div>
       <pre>{git?.status || '暂无 Git 状态'}</pre>
       <p>未跟踪文件在状态中列出，不会自动读取内容。点击 diff 行或选中文本后添加评论。</p>
@@ -76,7 +82,7 @@ export function DiffPanel({
       >
         {patch ? (
           lines.map(({ line, number, key }) => (
-            <button
+            <ConfigurationButton
               type="button"
               className={line.startsWith('+') ? 'added' : line.startsWith('-') ? 'removed' : ''}
               key={key}
@@ -84,19 +90,19 @@ export function DiffPanel({
             >
               <span>{number}</span>
               <code>{line || ' '}</code>
-            </button>
+            </ConfigurationButton>
           ))
         ) : (
           <p>当前来源没有 diff。</p>
         )}
       </fieldset>
-      <textarea
+      <ConfigurationTextArea
         aria-label="Diff 评论"
         placeholder="对选中的变更提出修改要求"
         value={comment}
         onChange={(e) => setComment(e.target.value)}
       />
-      <button
+      <ConfigurationButton
         type="button"
         disabled={!patch}
         onClick={() => {
@@ -110,7 +116,7 @@ export function DiffPanel({
         }}
       >
         添加到对话
-      </button>
+      </ConfigurationButton>
       {error && <p role="alert">{error}</p>}
     </section>
   );

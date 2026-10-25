@@ -1,5 +1,6 @@
 import { type HistoryQuote, historyQuoteSchema, type WorkbenchState } from '@lingxi/protocol';
 import { type RefObject, useEffect, useRef, useState } from 'react';
+import { ConfigurationButton } from './ConfigurationControls';
 
 export function HistoryActions({
   state,
@@ -75,12 +76,20 @@ export function HistoryActions({
         return;
       }
       const rect = range.getRangeAt(0).getBoundingClientRect();
+      const bounds = transcript.current.getBoundingClientRect();
       selected.current();
       setSelection({
         context,
         quote: parsed.data,
         left: Math.max(8, Math.min(rect.left, innerWidth - 440)),
-        top: rect.top >= 62 ? rect.top - 48 : rect.bottom + 8,
+        top: Math.max(
+          bounds.top + 4,
+          Math.min(
+            rect.top >= bounds.top + 48 ? rect.top - 48 : rect.bottom + 8,
+            bounds.bottom - 44,
+            innerHeight - 54,
+          ),
+        ),
       });
     };
     const dismiss = (event: MouseEvent) => {
@@ -123,7 +132,7 @@ export function HistoryActions({
       style={{ left: selection.left, top: selection.top }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      <button
+      <ConfigurationButton
         type="button"
         disabled={busy || attachmentsFull}
         title={attachmentsFull ? '请先移除部分上下文附件' : '引用所选段落并撰写回复'}
@@ -133,8 +142,8 @@ export function HistoryActions({
         }}
       >
         引用到对话
-      </button>
-      <button
+      </ConfigurationButton>
+      <ConfigurationButton
         type="button"
         disabled={busy || !canDiscuss}
         title={canDiscuss ? '基于该轮创建只读讨论，所选段落加入草稿' : '请等待当前任务结束'}
@@ -144,9 +153,9 @@ export function HistoryActions({
         }}
       >
         选段 Sidechat
-      </button>
+      </ConfigurationButton>
       {onReturn && (
-        <button
+        <ConfigurationButton
           type="button"
           disabled={busy || running}
           onClick={() => {
@@ -155,11 +164,15 @@ export function HistoryActions({
           }}
         >
           引用到原对话
-        </button>
+        </ConfigurationButton>
       )}
-      <button type="button" aria-label="关闭选段操作" onClick={() => setSelection(null)}>
+      <ConfigurationButton
+        type="button"
+        aria-label="关闭选段操作"
+        onClick={() => setSelection(null)}
+      >
         ×
-      </button>
+      </ConfigurationButton>
     </div>
   );
 }

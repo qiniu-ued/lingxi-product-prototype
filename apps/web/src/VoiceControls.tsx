@@ -6,6 +6,12 @@ import {
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import {
+  ConfigurationButton,
+  ConfigurationCheckbox,
+  ConfigurationInput,
+  ConfigurationTextArea,
+} from './ConfigurationControls';
 import { MicrophoneIcon } from './MicrophoneIcon';
 import { SettingsLink } from './Navigation';
 import { VoiceDiagnostics } from './VoiceDiagnostics';
@@ -669,7 +675,132 @@ export function VoiceControls({
     }
   }
   const presentation = voicePresentation(state, task);
-  const WakePanel = configuration ? 'section' : 'details';
+  const wakeSettings = variant !== 'connection' && (
+    <section className="wake-settings">
+      {!configuration && <h3>语音唤醒</h3>}
+      <div className={configuration ? undefined : 'wake-settings-content'}>
+        {configuration && state && (
+          <label htmlFor="voice-auto-wake">
+            <ConfigurationCheckbox
+              id="voice-auto-wake"
+              checked={state.wakePreference.enabled}
+              onCheckedChange={(checked) => void setAutoWake(checked)}
+            />
+            自动开启本地语音唤醒
+          </label>
+        )}
+        {state?.wakePreference.source === 'unavailable' && (
+          <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在设置中检查。</p>
+        )}
+        {autoNotice && (
+          <p role="status">
+            {autoNotice} <SettingsLink section="wake" label="检查麦克风设置" />
+          </p>
+        )}
+        {!configuration && state?.wakePreference.enabled && !state.wake.installed && (
+          <p>默认唤醒正在等待本地模型，请先完成配置。</p>
+        )}
+
+        {configuration && <h3>本地唤醒模型</h3>}
+        {configuration && (
+          <p>下载一次后离线检测，无需额外账号。在这里设置本次唤醒词，完成后回工作台开启检测。</p>
+        )}
+        {!configuration && (
+          <p>
+            唤醒词：{state?.wake.keyword ?? keyword}{' '}
+            <SettingsLink section="wake" label="修改唤醒词" />
+          </p>
+        )}
+        {!state?.wake.installed &&
+          (configuration ? (
+            <ConfigurationButton
+              type="button"
+              className={configuration ? 'button secondary' : undefined}
+              disabled={operating || state?.wake.status === 'installing'}
+              onClick={() => void operate('install-wake')}
+            >
+              {state?.wake.status === 'installing'
+                ? '正在下载模型…'
+                : '下载本地唤醒模型（约 33 MB）'}
+            </ConfigurationButton>
+          ) : (
+            <SettingsLink section="wake" label="配置语音唤醒" />
+          ))}
+        {configuration && (
+          <>
+            <div className="configuration-keyword">
+              <label htmlFor="voice-wake-keyword">
+                本次运行的唤醒词
+                <ConfigurationInput
+                  id="voice-wake-keyword"
+                  value={keyword}
+                  maxLength={12}
+                  disabled={operating}
+                  onChange={(event) => {
+                    keywordEdited.current = true;
+                    setKeyword(event.target.value);
+                  }}
+                />
+              </label>
+              <ConfigurationButton
+                className="button secondary"
+                type="button"
+                disabled={operating || !/^[\u4e00-\u9fff]{2,12}$/.test(keyword)}
+                onClick={async () => {
+                  try {
+                    setState(await command('wake-keyword', { keyword }));
+                    keywordEdited.current = false;
+                    setError('');
+                  } catch {
+                    setError('未能修改唤醒词，请先关闭正在运行的语音唤醒后重试。');
+                  }
+                }}
+              >
+                保存本次唤醒词
+              </ConfigurationButton>
+            </div>
+            <p>此项只在本次应用运行期间保留，重启后恢复“丽塔同学”。保存不会开启麦克风。</p>
+          </>
+        )}
+        {state?.wake.installed && configuration && (
+          <p role="status">模型文件已下载。已有麦克风授权时，回到工作台自动监听唤醒词。</p>
+        )}
+        {!configuration && state && (!state.wakePreference.enabled || state.wakeAutoSuspended) && (
+          <ConfigurationButton type="button" onClick={() => void setAutoWake(true)}>
+            {state.wakePreference.enabled ? '恢复自动唤醒' : '启用自动唤醒'}
+          </ConfigurationButton>
+        )}
+        {state && ['armed', 'detected', 'loading'].includes(state.wake.status) && (
+          <ConfigurationButton type="button" onClick={() => void setAutoWake(false)}>
+            关闭语音唤醒
+          </ConfigurationButton>
+        )}
+        <details>
+          <summary>音频来源与回声</summary>
+          <p>
+            只请求系统默认音频输入，不采集屏幕或系统输出；如果默认输入是虚拟回环设备，也可能收到电脑播放的声音。
+          </p>
+          <p>当前输入：{recording.current && audioInput ? audioInput.label : '麦克风未开启'}</p>
+          {recording.current && audioInput && (
+            <p>
+              浏览器报告：
+              {(['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const)
+                .map(
+                  (key, i) =>
+                    `${['回声消除', '降噪', '自动增益'][i]} ${audioInput[key] === undefined ? '未报告' : audioInput[key] ? '开启' : '关闭'}`,
+                )
+                .join(' · ')}
+            </p>
+          )}
+          <p>
+            回声消除不能保证过滤所有外放。若误触发，请使用耳机，并在 macOS
+            声音设置核对物理麦克风与虚拟输入。
+          </p>
+        </details>
+        {state?.wake.error && <p role="alert">{state.wake.error}</p>}
+      </div>
+    </section>
+  );
   return (
     <section
       data-microphone-open={voiceMicrophoneOpen(state)}
@@ -679,8 +810,13 @@ export function VoiceControls({
       {variant !== 'wake' && (
         <>
           {configuration && (
-            <div className="binding-wizard">
-              <h3>绑定本机语音设备</h3>
+            <details
+              className="binding-wizard"
+              open={
+                !state?.configured || binding?.status === 'waiting' || binding?.status === 'bound'
+              }
+            >
+              <summary>{state?.configured ? '设备已绑定 · 重新绑定' : '绑定本机语音设备'}</summary>
               <p>1. 在七牛官方控制台登录并创建智能体。</p>
               <a
                 className="setup-link"
@@ -691,9 +827,13 @@ export function VoiceControls({
                 打开七牛语音控制台 ↗
               </a>
               <p>2. 申请本机激活码，在控制台的设备绑定入口输入六位数字。</p>
-              <button type="button" disabled={bindingBusy} onClick={() => void bind('start')}>
+              <ConfigurationButton
+                type="button"
+                disabled={bindingBusy}
+                onClick={() => void bind('start')}
+              >
                 获取本机绑定码
-              </button>
+              </ConfigurationButton>
               {binding?.deviceId && <p>本机设备标识：{binding.deviceId}</p>}
               {binding?.code && (
                 <p className="binding-code" role="status" aria-label="设备激活码">
@@ -701,16 +841,18 @@ export function VoiceControls({
                 </p>
               )}
               <p>3. 在官方页面完成绑定后，点击检查；向导自动获取连接信息并加密保存。</p>
-              <button
-                type="button"
-                disabled={bindingBusy || !binding?.deviceId}
-                onClick={() => void bind('check')}
-              >
-                我已绑定，检查连接配置
-              </button>
-              <button type="button" onClick={() => void bind('cancel')}>
-                停止绑定检查
-              </button>
+              <div className="configuration-actions">
+                <ConfigurationButton
+                  type="button"
+                  disabled={bindingBusy || !binding?.deviceId}
+                  onClick={() => void bind('check')}
+                >
+                  我已绑定，检查连接配置
+                </ConfigurationButton>
+                <ConfigurationButton type="button" onClick={() => void bind('cancel')}>
+                  停止绑定检查
+                </ConfigurationButton>
+              </div>
               {binding?.status === 'bound' && (
                 <p role="status">
                   绑定已确认，连接配置已加密保存。现在可以连接丽塔同学并测试收音与播报。
@@ -720,7 +862,7 @@ export function VoiceControls({
                 <p>等待官方控制台完成设备绑定。激活码失效时可重新获取。</p>
               )}
               {binding?.error && <p role="alert">{binding.error}</p>}
-            </div>
+            </details>
           )}
           {configuration && (
             <details>
@@ -729,31 +871,33 @@ export function VoiceControls({
                 在七牛语音控制台创建智能体并绑定本机设备，获取设备 WebSocket 令牌。此处使用官方 PCM
                 16kHz 单声道协议；如果服务只返回 Opus，会明确提示协议不兼容。
               </p>
-              <label>
+              <label htmlFor="voice-device-id">
                 已绑定设备的 MAC 地址
-                <input
+                <ConfigurationInput
+                  id="voice-device-id"
                   value={deviceId}
                   onChange={(e) => setDeviceId(e.target.value)}
                   placeholder="aa:bb:cc:dd:ee:ff"
                   autoComplete="off"
                 />
               </label>
-              <label>
+              <label htmlFor="voice-device-token">
                 设备访问令牌
-                <input
+                <ConfigurationInput
+                  id="voice-device-token"
                   type="password"
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   autoComplete="off"
                 />
               </label>
-              <label>
-                <input
-                  type="checkbox"
+              <label htmlFor="voice-manual-allow">
+                <ConfigurationCheckbox
+                  id="voice-manual-allow"
                   checked={allow}
-                  onChange={(e) => {
+                  onCheckedChange={(checked) => {
                     allowEdited.current = true;
-                    setAllow(e.target.checked);
+                    setAllow(checked);
                   }}
                 />
                 允许主动收音后，通过丽塔同学 MCP 提交或停止 Codex 任务
@@ -762,18 +906,22 @@ export function VoiceControls({
                 令牌仅在本机加密保存。普通转写保留为草稿；开启语音提交后，每次主动收音最多提交一个任务，30
                 秒后不再接受工具指令。自动唤醒默认开启，仍需模型和系统麦克风授权；本地等待音频不会上传。
               </p>
-              <button type="button" disabled={!token || !deviceId} onClick={() => void save()}>
+              <ConfigurationButton
+                type="button"
+                disabled={!token || !deviceId}
+                onClick={() => void save()}
+              >
                 保存设备配置
-              </button>
+              </ConfigurationButton>
             </details>
           )}
           {configuration && state && (
             <>
-              <label>
-                <input
-                  type="checkbox"
+              <label htmlFor="voice-auto-connect">
+                <ConfigurationCheckbox
+                  id="voice-auto-connect"
                   checked={state.connectionPreference.enabled}
-                  onChange={(event) => void setConnectionAuto(event.target.checked)}
+                  onCheckedChange={(checked) => void setConnectionAuto(checked)}
                 />
                 应用启动后自动连接并保持语音服务
               </label>
@@ -784,16 +932,16 @@ export function VoiceControls({
           )}
           {configuration && state?.configured && (
             <>
-              <label>
-                <input
-                  type="checkbox"
+              <label htmlFor="voice-submit-consent">
+                <ConfigurationCheckbox
+                  id="voice-submit-consent"
                   checked={state.allowVoiceSubmit}
-                  onChange={async (e) => {
+                  onCheckedChange={async (checked) => {
                     try {
                       const response = await fetch('/api/voice/preferences', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ allowVoiceSubmit: e.target.checked }),
+                        body: JSON.stringify({ allowVoiceSubmit: checked }),
                       });
                       if (!response.ok) throw new Error();
                       setState(voiceStateSchema.parse(await response.json()));
@@ -823,13 +971,13 @@ export function VoiceControls({
                   工作台通过设备端 MCP
                   提供操作能力。可将下面的说明复制到云端智能体角色介绍，让页面修改要求交给 Codex。
                 </p>
-                <textarea
+                <ConfigurationTextArea
                   aria-label="语音工作台角色说明"
                   value={LINGXI_WORKBENCH_ROLE}
                   readOnly
                   rows={5}
                 />
-                <button
+                <ConfigurationButton
                   className="button secondary"
                   type="button"
                   onClick={async () => {
@@ -844,7 +992,7 @@ export function VoiceControls({
                   }}
                 >
                   复制角色说明
-                </button>
+                </ConfigurationButton>
                 {roleNotice && <p role="status">{roleNotice}</p>}
                 <a
                   href="https://linx.qiniu.com/docs/xrobot/guide/agent-config"
@@ -885,13 +1033,13 @@ export function VoiceControls({
           <div className="live-actions">
             {(configuration ||
               (state?.configured && ['disconnected', 'failed'].includes(state.status))) && (
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={!state?.configured || !['disconnected', 'failed'].includes(state.status)}
                 onClick={() => void operate('connect')}
               >
                 连接丽塔同学
-              </button>
+              </ConfigurationButton>
             )}
             {!configuration && state && !state.configured && (
               <SettingsLink section="lingxi" label="连接设置" />
@@ -903,39 +1051,43 @@ export function VoiceControls({
                 <SettingsLink section="wake" label="配置默认唤醒" />
               )}
             {state && !state.conversationActive && state.status === 'ready' && (
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={operating || !!listenUnavailable || state.remoteSessionEnding}
                 title={listenUnavailable}
                 onClick={() => void operate('start-session')}
               >
                 开始收音
-              </button>
+              </ConfigurationButton>
             )}
             {(state?.conversationActive || (operating && pendingCapture.current)) && (
-              <button type="button" onClick={() => void stopSession()}>
+              <ConfigurationButton type="button" onClick={() => void stopSession()}>
                 关闭语音
-              </button>
+              </ConfigurationButton>
             )}
             {configuration && state && !['disconnected', 'failed'].includes(state.status) && (
-              <button type="button" onClick={() => void operate('disconnect')}>
+              <ConfigurationButton type="button" onClick={() => void operate('disconnect')}>
                 断开语音服务
-              </button>
+              </ConfigurationButton>
             )}
-            {!configuration && state && !['disconnected', 'failed'].includes(state.status) && (
+            {!configuration && state && (
               <details className="voice-more">
                 <summary aria-label="更多语音操作" title="更多语音操作">
                   ⋯
                 </summary>
-                <div>
-                  <button type="button" onClick={() => void operate('disconnect')}>
-                    断开语音服务
-                  </button>
+                <div className="voice-menu-content">
+                  {!['disconnected', 'failed'].includes(state.status) && (
+                    <ConfigurationButton type="button" onClick={() => void operate('disconnect')}>
+                      断开语音服务
+                    </ConfigurationButton>
+                  )}
+                  {wakeSettings}
+                  <SettingsLink section="lingxi" label="语音设置" />
                 </div>
               </details>
             )}
             {configuration && (
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={
                   !state ||
@@ -945,149 +1097,27 @@ export function VoiceControls({
                 onClick={() => void operate('speak', '丽塔同学已连接，现在可以开始共创。')}
               >
                 测试播报
-              </button>
+              </ConfigurationButton>
             )}
             {(configuration || state?.status === 'speaking') && (
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={state?.status !== 'speaking'}
                 onClick={() => void operate('stop-speaking')}
               >
                 停止播报
-              </button>
+              </ConfigurationButton>
             )}
           </div>
         </>
       )}
-      {variant !== 'connection' && (
-        <WakePanel className="wake-settings">
-          {configuration && state && (
-            <label>
-              <input
-                type="checkbox"
-                checked={state.wakePreference.enabled}
-                onChange={(event) => void setAutoWake(event.target.checked)}
-              />
-              自动开启本地语音唤醒
-            </label>
-          )}
-          {state?.wakePreference.source === 'unavailable' && (
-            <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在设置中检查。</p>
-          )}
-          {autoNotice && (
-            <p role="status">
-              {autoNotice} <SettingsLink section="wake" label="检查麦克风设置" />
-            </p>
-          )}
-          {!configuration && state?.wakePreference.enabled && !state.wake.installed && (
-            <p>默认唤醒正在等待本地模型，请先完成配置。</p>
-          )}
-
-          {configuration ? <h3>本地唤醒模型</h3> : <summary>语音唤醒</summary>}
-          {configuration && (
-            <p>下载一次后离线检测，无需额外账号。在这里设置本次唤醒词，完成后回工作台开启检测。</p>
-          )}
-          {!configuration && (
-            <>
-              <p>
-                默认在本机监听“丽塔同学”，唤醒后才处理语音；待唤醒音频不上传、不保存。关闭会记住选择，不会自动重新开启。
-              </p>
-              <p>
-                唤醒词：{state?.wake.keyword ?? keyword}{' '}
-                <SettingsLink section="wake" label="修改唤醒词" />
-              </p>
-            </>
-          )}
-          {!state?.wake.installed &&
-            (configuration ? (
-              <button
-                type="button"
-                className={configuration ? 'button secondary' : undefined}
-                disabled={operating || state?.wake.status === 'installing'}
-                onClick={() => void operate('install-wake')}
-              >
-                {state?.wake.status === 'installing'
-                  ? '正在下载模型…'
-                  : '下载本地唤醒模型（约 33 MB）'}
-              </button>
-            ) : (
-              <SettingsLink section="wake" label="配置语音唤醒" />
-            ))}
-          {configuration && (
-            <>
-              <label>
-                本次运行的唤醒词
-                <input
-                  value={keyword}
-                  maxLength={12}
-                  disabled={operating}
-                  onChange={(event) => {
-                    keywordEdited.current = true;
-                    setKeyword(event.target.value);
-                  }}
-                />
-              </label>
-              <button
-                className="button secondary"
-                type="button"
-                disabled={operating || !/^[\u4e00-\u9fff]{2,12}$/.test(keyword)}
-                onClick={async () => {
-                  try {
-                    setState(await command('wake-keyword', { keyword }));
-                    keywordEdited.current = false;
-                    setError('');
-                  } catch {
-                    setError('未能修改唤醒词，请先关闭正在运行的语音唤醒后重试。');
-                  }
-                }}
-              >
-                保存本次唤醒词
-              </button>
-              <p>此项只在本次应用运行期间保留，重启后恢复“丽塔同学”。保存不会开启麦克风。</p>
-            </>
-          )}
-          {state?.wake.installed && configuration && (
-            <p role="status">模型文件已下载。已有麦克风授权时，回到工作台自动监听唤醒词。</p>
-          )}
-          {!configuration &&
-            state &&
-            (!state.wakePreference.enabled || state.wakeAutoSuspended) && (
-              <button type="button" onClick={() => void setAutoWake(true)}>
-                {state.wakePreference.enabled ? '恢复自动唤醒' : '启用自动唤醒'}
-              </button>
-            )}
-          {state && ['armed', 'detected', 'loading'].includes(state.wake.status) && (
-            <button type="button" onClick={() => void setAutoWake(false)}>
-              关闭语音唤醒
-            </button>
-          )}
-          <details>
-            <summary>音频来源与回声</summary>
-            <p>
-              只请求系统默认音频输入，不采集屏幕或系统输出；如果默认输入是虚拟回环设备，也可能收到电脑播放的声音。
-            </p>
-            <p>当前输入：{recording.current && audioInput ? audioInput.label : '麦克风未开启'}</p>
-            {recording.current && audioInput && (
-              <p>
-                浏览器报告：
-                {(['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const)
-                  .map(
-                    (key, i) =>
-                      `${['回声消除', '降噪', '自动增益'][i]} ${audioInput[key] === undefined ? '未报告' : audioInput[key] ? '开启' : '关闭'}`,
-                  )
-                  .join(' · ')}
-              </p>
-            )}
-            <p>
-              回声消除不能保证过滤所有外放。若误触发，请使用耳机，并在 macOS
-              声音设置核对物理麦克风与虚拟输入。
-            </p>
-          </details>
-          {state?.wake.error && <p role="alert">{state.wake.error}</p>}
-        </WakePanel>
-      )}
       {configuration && variant !== 'wake' && <VoiceDiagnostics />}
-      {state?.subtitle && <p>{state.subtitle}</p>}
+      {configuration && wakeSettings}
+      {!configuration &&
+        state?.subtitle &&
+        (state.conversationActive || ['speaking', 'processing'].includes(state.status)) && (
+          <p className="voice-subtitle">{state.subtitle}</p>
+        )}
       {configuration && state?.draft && <p>转写草稿：{state.draft}</p>}
       {(error || state?.error) && <p role="alert">{error || state?.error}</p>}
     </section>

@@ -1,4 +1,5 @@
 import { createContext, useContext } from 'react';
+import { ConfigurationButton } from './ConfigurationControls';
 
 export type SettingsSection = 'codex' | 'lingxi' | 'wake';
 export const Navigation = createContext({
@@ -15,16 +16,21 @@ export function SettingsLink({
 }) {
   const navigation = useContext(Navigation);
   return (
-    <button type="button" className="settings-link" onClick={() => navigation.settings(section)}>
+    <ConfigurationButton
+      type="button"
+      className="settings-link"
+      variant="ghost"
+      onClick={() => navigation.settings(section)}
+    >
       {label}
-    </button>
+    </ConfigurationButton>
   );
 }
 export function SetupLink({ label = '连接向导' }: { label?: string }) {
   const navigation = useContext(Navigation);
   return (
-    <button type="button" onClick={navigation.setup}>
+    <ConfigurationButton type="button" onClick={navigation.setup}>
       {label}
-    </button>
+    </ConfigurationButton>
   );
 }

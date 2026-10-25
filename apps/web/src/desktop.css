@@ -30,6 +30,41 @@
   font-size: 14px;
   line-height: 1.6;
 }
+.context-toggle-compact > span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.workbench-section-heading span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--live-text);
+}
+
+.workbench-menu-content svg,
+.composer-trigger svg,
+.keyboard-composer :where(summary) svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+
+.workspace-conversations > summary span {
+  min-width: 0;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--live-muted);
+}
+
+.composer-options > summary span {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 .live-mic-state svg {
   width: 18px;
   height: 18px;
@@ -86,7 +121,7 @@
   height: 14px;
   flex-shrink: 0;
 }
-.live-workbench button {
+.live-workbench button:where(:not(.rt-Button, .rt-SelectTrigger, .rt-CheckboxRoot)) {
   color: var(--live-text);
   background: var(--live-surface);
   border: 1px solid var(--live-line);
@@ -96,11 +131,15 @@
   font-size: 12px;
   line-height: 1.5;
 }
-.live-workbench button:hover:not(:disabled) {
+.live-workbench
+  button:where(:not(.rt-Button, .rt-SelectTrigger, .rt-CheckboxRoot)):hover:not(:disabled) {
   background: var(--live-soft);
   border-color: var(--accent);
 }
-.live-workbench :is(button, a, textarea, input, select, summary):focus-visible {
+.live-workbench
+  :is(button, a, textarea, input, select, summary):where(
+    :not(.rt-TextFieldInput, .rt-TextAreaInput)
+  ):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -135,6 +174,12 @@
   background: var(--accent);
   color: var(--live-surface);
 }
+.workbench-menu > summary svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
 .live-header .brand-mark svg {
   width: 21px;
   height: 21px;
@@ -163,6 +208,7 @@
   color: var(--live-muted);
   font-size: 12px;
 }
+
 .live-workbench .project-actions span {
   flex: 1;
   min-width: 0;
@@ -189,9 +235,7 @@
 .workbench-menu {
   position: relative;
 }
-.project-menu > summary,
-.workbench-menu > summary,
-.keyboard-composer > summary {
+.project-menu > summary {
   padding: 7px 11px;
   border: 1px solid var(--live-line);
   border-radius: 7px;
@@ -249,26 +293,102 @@
   z-index: 30;
   right: 0;
   top: calc(100% + 10px);
-  width: min(680px, 90vw);
-  max-height: 70dvh;
+  width: min(440px, calc(100vw - 36px));
+  max-height: calc(100dvh - 132px);
   overflow: auto;
-  padding: 16px;
+  overscroll-behavior: contain;
+  padding: 18px;
   border: 1px solid var(--live-line);
   border-radius: 16px;
   background: var(--live-surface);
   box-shadow: 0 12px 36px var(--live-popover-shadow);
   text-align: left;
 }
-.workbench-menu-content .project-actions {
-  flex-wrap: wrap;
-}
-.workbench-menu-content .project-actions span {
-  flex-basis: 100%;
-  order: -1;
-}
-.workbench-menu-content .conversation-bar {
+.workbench-section + .workbench-section {
+  margin-top: 16px;
+  padding-top: 16px;
   border-top: 1px solid var(--live-line);
-  margin-top: 14px;
+}
+.workbench-section h2 {
+  margin: 0;
+  color: var(--live-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.workbench-section-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.workbench-menu-content :is(.project-actions, .workbench-display-actions) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.workbench-display-actions {
+  margin-top: 8px;
+}
+.workspace-conversations > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--live-text);
+  list-style: none;
+}
+.workspace-conversations > summary::after {
+  content: "⌄";
+  margin-left: auto;
+}
+.live-workbench .workbench-menu-content .conversation-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px 8px;
+  padding: 8px 0 0;
+}
+.live-workbench .workbench-menu-content .conversation-bar > * {
+  min-width: 0;
+  margin: 0;
+}
+.workspace-preview-address > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.live-workbench .workbench-menu-content .conversation-bar :is(input, select) {
+  width: 100%;
+  max-width: 100%;
+}
+.conversation-management label {
+  display: block;
+  margin: 8px 0 5px;
+}
+.conversation-management .live-actions {
+  margin-top: 8px;
+}
+.archived-conversations button {
+  display: block;
+  max-width: 100%;
+  margin-top: 6px;
+}
+.workspace-preview-connection {
+  margin-top: 12px;
+}
+.workspace-preview-connection p {
+  margin: 8px 0;
+  color: var(--live-muted);
+}
+.workspace-preview-connection label {
+  display: block;
+  margin-bottom: 5px;
+}
+.workspace-preview-address {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-preview-address > button {
+  flex-shrink: 0;
 }
 .live-grid {
   flex: 1;
@@ -331,11 +451,12 @@
   font-size: 12px;
 }
 .live-workbench .workspace-tabs {
-  gap: 5px;
-  margin: 0;
-  padding: 12px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
   border: 0;
-  border-top: 1px solid var(--live-line);
 }
 .live-workbench .workspace-tabs button[aria-pressed="true"] {
   color: var(--accent);
@@ -350,9 +471,59 @@
   max-height: 35%;
   overflow: auto;
 }
+.workbench-menu-content .conversation-bar > :first-child,
+.workbench-menu-content .conversation-bar > details {
+  grid-column: 1 / -1;
+}
+
 .live-workbench summary {
   cursor: pointer;
 }
+.keyboard-composer > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  color: var(--live-text);
+  font-size: 12px;
+  list-style: none;
+}
+
+.composer-options > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  list-style: none;
+  color: var(--live-muted);
+  font-size: 12px;
+}
+
+.voice-handoff-compact summary {
+  list-style: none;
+  white-space: nowrap;
+  color: var(--live-muted);
+}
+.voice-handoff-menu > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.workbench-menu > summary {
+  padding: 7px 11px;
+  border: 1px solid var(--live-line);
+  border-radius: 7px;
+  background: var(--live-surface);
+  color: var(--live-text);
+  font-size: 12px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+}
+
 .voice-more > summary,
 .live-workbench .turn-tools > summary {
   display: grid;
@@ -363,6 +534,21 @@
   margin-left: auto;
   font-size: 18px;
 }
+
+.live-footer .voice-more > summary {
+  width: 34px;
+  min-height: 34px;
+  height: auto;
+  margin: 0;
+  border: 1px solid var(--live-line);
+  border-radius: 7px;
+  background: var(--live-surface);
+}
+
+.voice-handoff-compact.has-issue summary {
+  color: var(--live-error);
+}
+
 .live-workbench details[open] > summary {
   margin-bottom: 8px;
 }
@@ -650,7 +836,10 @@
 .live-header .task-state-failed::before {
   content: "×";
 }
-.live-workbench :is(input:not([type="checkbox"]), select, textarea) {
+.live-workbench
+  :is(input:not([type="checkbox"]), select, textarea):where(
+    :not(.rt-TextFieldInput, .rt-TextAreaInput)
+  ) {
   color: var(--live-text);
   background: var(--live-surface);
   border: 1px solid var(--live-line);
@@ -660,7 +849,7 @@
   font-size: 13px;
   max-width: 100%;
 }
-.live-workbench textarea {
+.live-workbench textarea:where(:not(.rt-TextAreaInput)) {
   width: 100%;
   min-height: 72px;
   resize: vertical;
@@ -745,11 +934,11 @@
   color: #ddd;
   background: transparent;
 }
-.live-workbench .diff-lines .added {
+.live-workbench .diff-lines button.added {
   background: #193b2d;
   color: #a9e7be;
 }
-.live-workbench .diff-lines .removed {
+.live-workbench .diff-lines button.removed {
   background: #43282a;
   color: #f5afb1;
 }
@@ -759,9 +948,9 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   flex-wrap: wrap;
-  gap: 8px 16px;
+  gap: 8px;
   overflow: visible;
   border-top: 1px solid var(--live-line);
   padding: 15px 20px;
@@ -790,7 +979,7 @@
   overflow: auto;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 6px 14px;
   padding: 0;
@@ -800,6 +989,10 @@
 .live-footer .voice-controls > p {
   margin: 0;
 }
+.live-footer .voice-controls > .voice-status {
+  flex: 1;
+  min-width: 0;
+}
 .live-footer .voice-controls > p[role="status"] {
   color: var(--live-muted);
   font-weight: 500;
@@ -807,11 +1000,7 @@
 .live-footer .voice-listening > p[role="status"] {
   color: var(--accent);
 }
-.live-footer .voice-service-state[data-connected="true"],
-.live-footer [data-microphone-open="true"] .voice-status > svg,
-.live-mic-state[data-microphone-open="true"] > svg {
-  color: var(--live-success);
-}
+
 .live-mic-state.submitted,
 .live-footer .voice-submitted > p[role="status"] {
   color: var(--live-success);
@@ -825,25 +1014,48 @@
   overflow-wrap: anywhere;
 }
 .live-footer .voice-controls .live-actions {
-  gap: 6px;
+  gap: 8px;
+  margin-left: auto;
 }
 .keyboard-composer {
-  position: relative;
   flex-shrink: 0;
+  min-width: 0;
+}
+.keyboard-composer:not([open]) {
+  display: none;
+}
+.keyboard-composer[open] {
+  margin-top: 10px;
+  border-top: 1px solid var(--live-line);
 }
 .keyboard-composer form {
-  position: absolute;
-  z-index: 40;
-  right: 0;
-  bottom: calc(100% + 10px);
-  width: min(420px, 90vw);
-  max-height: 60dvh;
+  max-height: min(48dvh, 440px);
   overflow: auto;
-  padding: 16px;
-  border: 1px solid var(--live-line);
-  border-radius: 16px;
-  background: var(--live-surface);
-  box-shadow: 0 12px 36px var(--live-popover-shadow);
+  overscroll-behavior: contain;
+  padding: 0 2px 2px;
+  text-align: left;
+}
+.keyboard-composer .composer-options {
+  margin-bottom: 12px;
+}
+.composer-options-content {
+  padding-top: 10px;
+}
+.live-workbench .wake-settings label {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.live-workbench .composer-trigger {
+  flex-shrink: 0;
+}
+.composer-trigger[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.composer-trigger[aria-expanded="true"] svg {
+  transform: rotate(180deg);
 }
 .live-discussion > .live-heading h2 svg {
   width: 18px;
@@ -867,14 +1079,8 @@
   .live-empty {
     padding: 16px;
   }
-  .workbench-menu-content {
-    width: min(680px, calc(100vw - 34px));
-  }
   .live-workbench .live-footer {
     padding: 12px 16px;
-  }
-  .keyboard-composer form {
-    width: min(420px, calc(100vw - 34px));
   }
 }
 @media (max-height: 850px) {
@@ -1038,6 +1244,18 @@
 .live-workbench .catalog-card h4 {
   margin: 0 0 6px;
 }
+.live-workbench .composer-options :is(.composer-models, .execution-controls) fieldset {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.live-workbench .composer-options :is(.composer-models, .execution-controls) fieldset label {
+  margin: 0;
+}
+
+.live-footer .wake-settings-content p {
+  margin: 0 0 10px;
+}
+
 .live-workbench .workspace-tool .catalog-card p {
   margin: 6px 0;
 }
@@ -1135,6 +1353,13 @@
   font-size: 11px;
   z-index: 10;
 }
+.context-usage-compact .context-tooltip {
+  left: 0;
+  transform: none;
+  max-width: 100%;
+  white-space: normal;
+}
+
 .context-control:is(:hover, :focus-within) .context-tooltip {
   display: block;
 }
@@ -1147,23 +1372,47 @@
 .live-footer .voice-controls {
   overflow: visible;
 }
-.live-footer .wake-settings[open] {
+.live-footer .voice-more {
+  position: relative;
+  flex-shrink: 0;
+}
+.live-footer .voice-menu-content {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 16px;
-  width: min(400px, calc(100vw - 32px));
-  max-height: 65dvh;
+  z-index: 40;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: min(280px, calc(100vw - 32px));
+  max-height: min(60dvh, 400px);
   overflow: auto;
-  padding: 16px;
+  overscroll-behavior: contain;
+  padding: 14px;
   border: 1px solid var(--live-line);
   border-radius: 12px;
   background: var(--live-surface);
-  box-shadow: 0 8px 36px #0002;
+  box-shadow: 0 8px 30px var(--live-popover-shadow);
+  text-align: left;
+  transform: translateX(var(--voice-menu-shift, 0px));
 }
-.live-workbench .wake-settings label {
-  display: grid;
-  gap: 5px;
-  margin-bottom: 8px;
+.live-footer .voice-menu-content .rt-Button {
+  justify-content: flex-start;
+  width: 100%;
+  margin-block: 3px;
+}
+.live-footer .voice-menu-content h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.live-footer .voice-menu-content .wake-settings {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--live-line);
+}
+.live-footer .wake-settings-content {
+  font-size: 12px;
+}
+.live-footer .voice-menu-content > .settings-link {
+  margin-top: 10px;
 }
 
 .turn-footer {
@@ -1291,4 +1540,201 @@
 .projectless-voice {
   padding: 10px 0;
   font-size: 12px;
+}
+
+/* Radix controls share the prototype palette; their inner inputs keep library spacing. */
+.workbench-theme {
+  --accent-9: #aa5943;
+  --accent-10: #98503c;
+  --accent-11: #994d38;
+  --focus-8: #aa5943;
+}
+.workbench-theme
+  .live-workbench
+  :is(.rt-Button:not(.context-toggle, .icon-button), .rt-SelectTrigger) {
+  min-height: 34px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.workbench-theme .live-workbench .rt-Button:where(.rt-variant-surface),
+.workbench-theme .live-workbench .rt-SelectTrigger {
+  color: var(--live-text);
+  background: var(--live-surface);
+  box-shadow: inset 0 0 0 1px var(--live-line);
+}
+.workbench-theme .live-workbench :is(.rt-TextFieldRoot, .rt-TextAreaRoot) {
+  min-width: 0;
+  width: 100%;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--live-text);
+  background: var(--live-surface);
+  box-shadow: inset 0 0 0 1px var(--live-line);
+}
+.workbench-theme .live-workbench .rt-TextFieldInput {
+  min-width: 0;
+}
+.workbench-theme .live-workbench .rt-TextAreaInput {
+  min-height: 72px;
+  font-family: inherit;
+  font-size: 13px;
+}
+.workbench-theme .live-workbench .send-task {
+  color: var(--live-surface);
+  background: var(--accent);
+  box-shadow: none;
+}
+
+.workbench-theme .live-workbench :is(.context-toggle, .icon-button) {
+  height: auto;
+  box-shadow: none;
+  background: transparent;
+}
+
+.conversation-status {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 6px 0;
+}
+.conversation-status .context-usage-compact,
+.conversation-status .voice-handoff-compact {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  max-height: none;
+  max-width: 100%;
+  overflow: visible;
+  font-size: 11px;
+}
+.live-workbench .context-toggle-compact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  padding: 3px 0;
+  color: var(--live-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.live-workbench .context-toggle-compact :is(meter, progress) {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 5px;
+  margin: 0;
+}
+.context-percent {
+  min-width: 30px;
+  text-align: right;
+  white-space: nowrap;
+}
+.voice-handoff-compact summary::-webkit-details-marker {
+  display: none;
+}
+.voice-handoff-chevron {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+.conversation-status .voice-handoff-menu[open] > summary {
+  margin-bottom: 0;
+}
+.voice-handoff-menu[open] > summary .voice-handoff-chevron {
+  transform: rotate(180deg);
+}
+.voice-handoff-compact .voice-handoff-state {
+  display: inline;
+  font-weight: 400;
+}
+.conversation-status .voice-handoff-details,
+.conversation-status .context-details {
+  position: absolute;
+  z-index: 35;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: min(45dvh, 340px);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--live-line);
+  border-radius: 12px;
+  background: var(--live-surface);
+  box-shadow: 0 8px 30px var(--live-popover-shadow);
+}
+
+.context-usage-compact .context-control {
+  position: static;
+}
+
+.live-workbench .live-footer .voice-more[open] > summary {
+  margin: 0;
+}
+
+.workbench-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.workbench-menu[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.live-workbench:not(.live-display) .live-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.live-footer .voice-controls {
+  display: grid;
+  max-height: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+.live-footer .voice-controls > .voice-status {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 34px;
+  align-content: center;
+}
+.live-footer .voice-controls > .live-actions {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  align-self: start;
+}
+.live-footer .voice-controls > p:not(.voice-status) {
+  grid-column: 1 / -1;
+}
+.live-footer .voice-controls > p:not(.voice-status),
+.live-footer > .error {
+  max-height: min(10dvh, 4.8em);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.live-footer > .composer-trigger {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: start;
+}
+.live-footer > .error {
+  grid-column: 1 / -1;
+}
+
+.project-menu > summary svg {
+  width: 14px;
+  height: 14px;
+}
+.project-menu[open] > summary svg {
+  transform: rotate(180deg);
+}
+
+.live-footer .voice-service-state[data-connected="true"],
+.live-footer [data-microphone-open="true"] .voice-status > svg,
+.live-mic-state[data-microphone-open="true"] > svg {
+  color: var(--live-success);
 }

@@ -10,6 +10,7 @@ import {
 } from '@lingxi/protocol';
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ContextUsage } from './ContextUsage';
+import { ConversationNavigation } from './ConversationNavigation';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
@@ -74,7 +75,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const [runtimeUrl, setRuntimeUrl] = useState('http://127.0.0.1:5174/');
   const [tab, setTab] = useState('preview');
   const [mode, setMode] = useState<'queue' | 'steer'>('queue'),
-    [search, setSearch] = useState(''),
     [rename, setRename] = useState('');
   const target = composerTarget(state);
   const retryTarget = useRef(target);
@@ -351,6 +351,16 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       if (!response.ok) throw new Error();
       const next = workbenchSchema.parse(await response.json());
       setState((old) => (!old || next.revision >= old.revision ? next : old));
+      if (
+        operation === 'workspace' &&
+        body &&
+        typeof body === 'object' &&
+        'action' in body &&
+        typeof body.action === 'string' &&
+        ['fork', 'new-thread', 'select-thread'].includes(body.action) &&
+        workspaceMenu.current
+      )
+        workspaceMenu.current.open = false;
       after?.(next);
       return true;
     } catch {
@@ -514,50 +524,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 </p>
                 {!display && state?.project && (
                   <section className="conversation-bar">
-                    <input
-                      aria-label="搜索对话"
-                      placeholder="搜索对话"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <select
-                      aria-label="切换对话"
-                      disabled={running || busy}
-                      value={state.selectedThreadId ?? ''}
-                      onChange={(e) => {
-                        void operate('workspace', { action: 'select-thread', id: e.target.value });
-                      }}
-                    >
-                      <option value="" disabled>
-                        选择对话
-                      </option>
-                      {state.threads
-                        .filter(
-                          (t) =>
-                            t.projectId === state.project?.id &&
-                            !t.archived &&
-                            t.title.toLowerCase().includes(search.toLowerCase()),
-                        )
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.kind === 'sidechat'
-                              ? 'Sidechat · '
-                              : t.kind === 'fork'
-                                ? 'Fork · '
-                                : ''}
-                            {t.title}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() =>
-                        void operate('workspace', { action: 'new-thread', title: '新对话' })
-                      }
-                    >
-                      新对话
-                    </button>
                     <input
                       aria-label="对话名称"
                       placeholder={thread?.title ?? '对话名称'}
@@ -751,6 +717,17 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               {display ? '发言人' : '选中文字引用'}
             </span>
           </div>
+          {!display && (
+            <ConversationNavigation
+              key={target}
+              state={state}
+              connected={connected}
+              busy={busy}
+              running={running}
+              onSelect={(id) => void operate('workspace', { action: 'select-thread', id })}
+              onNew={() => void operate('workspace', { action: 'new-thread', title: '新对话' })}
+            />
+          )}
           <div
             className="live-transcript"
             ref={transcript}
@@ -894,7 +871,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                                   type="button"
                                   aria-label="Fork 对话"
                                   title="Fork 对话"
-                                  disabled={running || !turn.turnId}
+                                  disabled={running || busy || !turn.turnId}
                                   onClick={() =>
                                     void operate('workspace', {
                                       action: 'fork',

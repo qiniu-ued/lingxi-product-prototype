@@ -6,6 +6,7 @@ import {
   desktopActionSchema,
   type Project,
   previewBindingSchema,
+  previewInspectSchema,
   previewWheelSchema,
   projectSchema,
   voiceConfigSchema,
@@ -27,6 +28,7 @@ import {
 } from 'electron';
 import { z } from 'zod';
 import { Preview } from './preview.js';
+import { ServiceProcess } from './service-process.js';
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -41,6 +43,11 @@ let child: ChildProcess | undefined,
   operator: BrowserWindow | undefined,
   display: BrowserWindow | undefined,
   preview: Preview | undefined;
+let service: ServiceProcess | undefined;
+let shutdownPromise: Promise<void> | undefined;
+const sendService = (message: Parameters<ServiceProcess['send']>[0]) => {
+  if (!quitting) service?.send(message);
+};
 let address = '',
   quitting = false,
   stopped = false;
@@ -66,6 +73,7 @@ const external = (url: string) => {
   if (allowedExternal(url)) void shell.openExternal(url);
 };
 const trusted = (event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent) => {
+  if (quitting) throw new Error('desktop_stopping');
   if (
     ![operator?.webContents, display?.webContents].includes(event.sender) ||
     event.senderFrame !== event.sender.mainFrame ||
@@ -85,6 +93,7 @@ function windowOptions() {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      autoplayPolicy: 'no-user-gesture-required' as const,
     },
   };
 }
@@ -100,18 +109,22 @@ function protect(window: BrowserWindow) {
     }
   });
 }
-function openDisplay() {
+function openDisplay(activate = true) {
+  if (quitting) throw new Error('desktop_stopping');
+  let created = false;
   if (!display || display.isDestroyed()) {
+    created = true;
     const target = screen
       .getAllDisplays()
       .find((value) => value.id !== screen.getPrimaryDisplay().id);
     display = new BrowserWindow({
       ...windowOptions(),
+      show: false,
       ...(target ? { ...target.bounds, fullscreen: true } : { width: 1440, height: 900 }),
     });
     protect(display);
     preview = new Preview(display, dataRoot, () => {
-      child?.send?.({ channel: 'desktop.preview', preview: preview?.binding ?? null });
+      sendService({ channel: 'desktop.preview', preview: preview?.binding ?? null });
     });
     preview.protectService(address);
     display.on('close', (event) => {
@@ -122,7 +135,8 @@ function openDisplay() {
     });
     void display.loadURL(`${address}/display`);
   }
-  display.show();
+  if (activate) display.show();
+  else if (created) display.showInactive();
   return display;
 }
 async function api(operation: string, body: unknown) {
@@ -224,18 +238,19 @@ async function desktopCall(method: string, params: unknown) {
         sampleRate: z.literal(16000).optional(),
       })
       .parse(params);
-    operator?.webContents.send('voice.audio', value);
+    if (!quitting && operator && !operator.isDestroyed())
+      operator.webContents.send('voice.audio', value);
     return null;
   }
   if (method === 'publish') {
-    openDisplay();
+    openDisplay(false);
     return preview?.publish(projectSchema.parse(params));
   }
   if (method === 'preview-connect') {
     const input = z
       .strictObject({ project: projectSchema, url: z.string().url().max(2000) })
       .parse(params);
-    openDisplay();
+    openDisplay(false);
     return preview?.connect(input.project, input.url);
   }
   if (method === 'preview') {
@@ -280,9 +295,17 @@ async function startService() {
       PATH: `${dirname(node)}:${process.env.PATH ?? '/usr/bin:/bin'}`,
     },
   });
+  service = new ServiceProcess(child, (error) => {
+    console.error('Local service IPC error:', (error as NodeJS.ErrnoException).code ?? error.name);
+    if (!quitting && operator && !operator.isDestroyed()) {
+      dialog.showErrorBox('丽塔同学服务连接异常', '请重新打开应用。已有文件和会话数据仍保留。');
+      app.quit();
+    }
+  });
   child.stdout?.resume();
   child.stderr?.resume();
   child.on('message', async (value) => {
+    if (quitting) return;
     const parsed = z
       .object({
         channel: z.literal('desktop.request'),
@@ -294,10 +317,9 @@ async function startService() {
     if (!parsed.success) return;
     try {
       const result = await desktopCall(parsed.data.method, parsed.data.params);
-      if (child?.connected) child.send({ channel: 'desktop.reply', id: parsed.data.id, result });
+      sendService({ channel: 'desktop.reply', id: parsed.data.id, result });
     } catch {
-      if (child?.connected)
-        child.send({ channel: 'desktop.reply', id: parsed.data.id, error: 'operation_failed' });
+      sendService({ channel: 'desktop.reply', id: parsed.data.id, error: 'operation_failed' });
     }
   });
   return new Promise<string>((accept, reject) => {
@@ -310,36 +332,27 @@ async function startService() {
       const parsed = z
         .object({ channel: z.literal('desktop.ready'), port: z.number().int().positive() })
         .safeParse(value);
-      if (parsed.success) {
+      if (parsed.success && !quitting) {
         clearTimeout(timer);
         accept(`http://127.0.0.1:${parsed.data.port}`);
       }
     });
     child?.once('exit', () => {
       clearTimeout(timer);
+      reject(new Error(quitting ? 'startup_cancelled' : '本机服务意外退出。'));
       if (!quitting) {
-        reject(new Error('本机服务意外退出。'));
         dialog.showErrorBox('丽塔同学服务已停止', '请重新打开应用。已有文件和会话数据仍保留。');
         app.quit();
       }
     });
   });
 }
-async function shutdown() {
-  preview?.dispose();
-  const owned = child;
-  if (!owned || owned.exitCode !== null || owned.signalCode !== null) return;
-  await new Promise<void>((accept) => {
-    const force = setTimeout(() => {
-      owned.kill('SIGKILL');
-    }, 6000);
-    owned.once('exit', () => {
-      clearTimeout(force);
-      accept();
-    });
-    if (owned.connected) owned.send({ channel: 'desktop.shutdown' });
-    else owned.kill('SIGTERM');
-  });
+function shutdown() {
+  shutdownPromise ??= (async () => {
+    preview?.dispose();
+    await service?.stop();
+  })();
+  return shutdownPromise;
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -353,16 +366,23 @@ else {
     event.preventDefault();
     if (quitting) return;
     quitting = true;
-    void shutdown().finally(() => {
-      stopped = true;
-      app.quit();
-    });
+    void shutdown()
+      .catch((error) => {
+        console.error('Local service shutdown failed:', (error as Error).message);
+      })
+      .then(() => {
+        stopped = true;
+        app.quit();
+      });
   });
   void app
     .whenReady()
     .then(async () => {
+      if (quitting) return;
       await mkdir(dataRoot, { recursive: true });
+      if (quitting) return;
       address = await startService();
+      if (quitting) return;
       operator = new BrowserWindow(windowOptions());
       protect(operator);
       operator.on('closed', () => {
@@ -395,6 +415,19 @@ else {
         if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
         return preview.scroll(previewWheelSchema.parse(input));
       });
+      ipcMain.handle('desktop.inspect', (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        return preview.inspect(previewInspectSchema.parse(input));
+      });
+      ipcMain.handle('desktop.preview-scroll', async (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        const value = z
+          .strictObject({ binding: previewBindingSchema, deltaY: z.number().min(-800).max(800) })
+          .parse(input);
+        await preview.perform({ action: 'scroll', requestId: randomUUID(), ...value });
+      });
       session.defaultSession.setPermissionRequestHandler(
         (contents, permission, callback, details) => {
           callback(
@@ -419,6 +452,10 @@ else {
           ? systemPreferences.askForMediaAccess('microphone')
           : true;
       });
+      ipcMain.handle('desktop.microphone-status', (event) => {
+        trusted(event);
+        return desktopCall('microphone-status', {});
+      });
       ipcMain.handle('desktop.copy', (event, input) => {
         trusted(event);
         if (event.sender !== operator?.webContents) throw new Error('operator_required');
@@ -441,7 +478,7 @@ else {
           input.byteLength !== 640
         )
           return;
-        child?.send?.({ channel: 'desktop.audio', pcm: Buffer.from(input).toString('base64') });
+        sendService({ channel: 'desktop.audio', pcm: Buffer.from(input).toString('base64') });
       });
       ipcMain.handle('desktop.info', (event) => {
         trusted(event);
@@ -522,10 +559,12 @@ else {
         ]),
       );
       await operator.loadURL(address);
+      if (quitting) return;
       openDisplay();
       operator.show();
       operator.focus();
-      powerMonitor.on('suspend', () => child?.send?.({ channel: 'desktop.voice-stop' }));
+      powerMonitor.on('suspend', () => sendService({ channel: 'desktop.voice-stop' }));
+      powerMonitor.on('resume', () => sendService({ channel: 'desktop.voice-resume' }));
       const state = (await (await fetch(`${address}/api/workbench`)).json()) as {
         project: unknown;
       };
@@ -541,6 +580,7 @@ else {
       });
     })
     .catch((error) => {
+      if (quitting) return;
       dialog.showErrorBox('无法打开丽塔同学', String(error));
       app.quit();
     });

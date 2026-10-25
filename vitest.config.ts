@@ -5,7 +5,12 @@ export default defineConfig({
     include: ['packages/**/*.test.ts', 'apps/server/**/*.test.ts', 'apps/desktop/**/*.test.ts'],
     coverage: {
       provider: 'v8',
-      include: ['packages/protocol/src/**', 'apps/server/src/**', 'apps/desktop/src/assets.ts'],
+      include: [
+        'packages/protocol/src/**',
+        'apps/server/src/**',
+        'apps/desktop/src/assets.ts',
+        'apps/desktop/src/service-process.ts',
+      ],
       // The compiled process entry point is exercised by scripts/smoke.mjs.
       exclude: ['**/*.test.ts', 'apps/server/src/index.ts'],
       reporter: ['text', 'html', 'json-summary', 'lcov'],

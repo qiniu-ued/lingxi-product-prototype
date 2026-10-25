@@ -82,7 +82,7 @@ it('fails closed on HTTP, checksum and size errors without installing downloaded
     ),
   ).rejects.toThrow('wake_model_missing');
 });
-it('aborts an in-progress model download on shutdown and allows a later retry', async () => {
+it('aborts an in-progress model download and makes shutdown terminal', async () => {
   const model = await setup();
   const fetcher = vi.fn(
     (_url: string, { signal }: { signal: AbortSignal }) =>
@@ -101,5 +101,43 @@ it('aborts an in-progress model download on shutdown and allows a later retry', 
     'fetch',
     vi.fn(async () => new Response('', { status: 503 })),
   );
-  await expect(model.install()).rejects.toThrow('wake_download_failed');
+  await expect(model.install()).rejects.toThrow('wake_model_closed');
+});
+
+it('cancels a pending model start before creating a worker and makes close idempotent', async () => {
+  const model = await setup();
+  let installed!: (value: boolean) => void;
+  vi.spyOn(model, 'installed').mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        installed = resolve;
+      }),
+  );
+  const pending = expect(model.start('丽塔同学', vi.fn(), vi.fn())).rejects.toThrow(
+    'wake_cancelled',
+  );
+  const closed = model.close();
+  expect(model.close()).toBe(closed);
+  installed(true);
+  await pending;
+  await closed;
+  await expect(model.start('丽塔同学', vi.fn(), vi.fn())).rejects.toThrow('wake_model_closed');
+});
+it('owns an actual worker that fails before readiness and still completes shutdown', async () => {
+  const model = await setup();
+  await mkdir(join(model.root, modelName));
+  await writeFile(join(model.root, 'installed'), modelDigest);
+  for (const file of modelFiles)
+    await writeFile(join(model.root, modelName, file), 'invalid-model-fixture');
+  await writeFile(
+    join(model.root, modelName, 'tokens.txt'),
+    ['l', 'ì', 't', 'ǎ', 'óng', 'x', 'ué'].map((token, index) => `${token} ${index}`).join('\n'),
+  );
+  const failed = vi.fn();
+  await expect(model.start('丽塔同学', vi.fn(), failed)).rejects.toThrow('wake_worker_failed');
+  expect(failed).not.toHaveBeenCalled();
+  model.frame(Buffer.alloc(640));
+  model.reset();
+  await model.close();
+  await expect(model.start('丽塔同学', vi.fn(), failed)).rejects.toThrow('wake_model_closed');
 });

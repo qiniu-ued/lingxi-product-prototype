@@ -1,4 +1,9 @@
-import { LINGXI_WORKBENCH_ROLE, type VoiceState, voiceStateSchema } from '@lingxi/protocol';
+import {
+  LINGXI_WORKBENCH_ROLE,
+  type VoiceState,
+  voiceStateSchema,
+  type WorkbenchState,
+} from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { MicrophoneIcon } from './MicrophoneIcon';
@@ -23,18 +28,93 @@ const labels: Record<VoiceState['status'], string> = {
   speaking: '丽塔同学正在播报 · 麦克风已关闭',
   failed: '语音连接失败 · 麦克风已关闭',
 };
+export const voiceMicrophoneOpen = (state: VoiceState | null) =>
+  !!state &&
+  (state.conversationActive ||
+    state.status === 'listening' ||
+    ['armed', 'detected'].includes(state.wake.status));
+export const voiceServiceConnected = (state: VoiceState | null) =>
+  !!state && ['ready', 'listening', 'processing', 'speaking'].includes(state.status);
+export function voiceConnectionLabel(state: VoiceState | null) {
+  if (!state) return '服务状态同步中';
+  if (state.status === 'connecting') return '服务连接中';
+  if (state.status === 'failed')
+    return state.connection.nextRetryAt
+      ? `服务重连 ${state.connection.attempt}/6`
+      : state.connection.exhausted
+        ? '服务重连已暂停'
+        : '服务连接失败';
+  if (state.status === 'disconnected')
+    return !state.configured
+      ? '服务待绑定'
+      : !state.connectionPreference.enabled
+        ? '服务已手动断开'
+        : '服务未连接';
+  return '服务已连接';
+}
+export function voicePresentation(state: VoiceState | null, task: WorkbenchState['task']) {
+  if (!state) return { label: '正在读取语音状态', submitted: false };
+  if (state.conversationActive)
+    return {
+      label:
+        state.status === 'ready'
+          ? '语音会话开启 · 本机待说话 · 麦克风已开启'
+          : state.status === 'processing'
+            ? '正在处理这句话 · 语音会话保持开启'
+            : state.status === 'speaking'
+              ? '丽塔同学正在播报 · 语音会话保持开启'
+              : '收音中 · 语音会话保持开启',
+      submitted: false,
+    };
+  if (['armed', 'detected'].includes(state.wake.status))
+    return {
+      label:
+        state.status === 'speaking'
+          ? '播报中 · 本地麦克风开启，暂停唤醒'
+          : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`,
+      submitted: false,
+    };
+  const working = task && !['completed', 'failed', 'interrupted'].includes(task.status);
+  const submitted = !!working && state.status === 'ready' && state.captureId === task.id;
+  const activity =
+    task?.status === 'waiting'
+      ? '等待确认'
+      : task?.status === 'queued'
+        ? '等待执行'
+        : task?.status === 'stopping'
+          ? '正在停止'
+          : '正在制作';
+  if (state.status === 'ready')
+    return {
+      label: working
+        ? `${submitted ? '已提交 · ' : ''}${activity} · 麦克风已关闭`
+        : '待唤醒 · 麦克风已关闭',
+      submitted,
+    };
+  return {
+    label:
+      state.status === 'disconnected' && working
+        ? `${activity} · ${labels.disconnected}`
+        : labels[state.status],
+    submitted: false,
+  };
+}
 export function VoiceControls({
   configuration = false,
   onDraft,
   prepare,
   onState,
   variant = 'all',
+  listenUnavailable,
+  task = null,
 }: {
   configuration?: boolean;
   prepare?: () => Promise<void>;
   onDraft?: (text: string, id: string) => void;
   onState?: (value: VoiceState) => void;
   variant?: 'all' | 'connection' | 'wake';
+  listenUnavailable?: string | undefined;
+  task?: WorkbenchState['task'] | undefined;
 }) {
   const [state, setState] = useState<VoiceState | null>(null),
     [error, setError] = useState('');
@@ -74,9 +154,24 @@ export function VoiceControls({
     [deviceId, setDeviceId] = useState(''),
     [allow, setAllow] = useState(false);
   const [keyword, setKeyword] = useState('丽塔同学');
-  const [keywordEdited, setKeywordEdited] = useState(false);
+  const keywordEdited = useRef(false);
   const [roleNotice, setRoleNotice] = useState('');
   const [operating, setOperating] = useState(false);
+  const [autoNotice, setAutoNotice] = useState('');
+  const [autoRefresh, setAutoRefresh] = useState(0);
+  const autoAttempted = useRef<number | null>(null),
+    explicitlyOff = useRef(false),
+    pendingWake = useRef<string | null>(null);
+  const automaticWake = useRef<() => Promise<void>>(async () => {});
+  const [audioInput, setAudioInput] = useState<{
+    label: string;
+    echoCancellation: boolean | string | undefined;
+    noiseSuppression: boolean | undefined;
+    autoGainControl: boolean | undefined;
+  } | null>(null);
+  const latestVoice = useRef(state);
+  latestVoice.current = state;
+  const interrupted = useRef<(message: string) => void>(() => {});
   const inOperation = useRef(false),
     operationEpoch = useRef(0),
     pendingCapture = useRef(false),
@@ -102,6 +197,7 @@ export function VoiceControls({
     capture.current = null;
   }, []);
   const resetPlayback = useCallback(() => {
+    if (sources.current.size) suppressUntil.current = Date.now() + 600;
     for (const source of sources.current) {
       try {
         source.stop();
@@ -156,7 +252,11 @@ export function VoiceControls({
       source.start(time);
       scheduled.current = time + buffer.duration;
       sources.current.add(source);
-      source.onended = () => sources.current.delete(source);
+      source.onended = () => {
+        sources.current.delete(source);
+        if (!sources.current.size)
+          suppressUntil.current = Math.max(suppressUntil.current, Date.now() + 600);
+      };
     });
     return () => {
       active = false;
@@ -166,10 +266,8 @@ export function VoiceControls({
       const hadCapture = recording.current;
       const hadPlayback = sources.current.size > 0;
       stopMic();
-      if (conversationOwner.current || pendingCapture.current)
-        void command('stop-session').catch(() => {});
-      else if (wakeActive.current) void command('stop-wake').catch(() => {});
-      else if (hadCapture || pendingCapture.current) void command('stop-listening').catch(() => {});
+      if (conversationOwner.current || pendingCapture.current || wakeActive.current || hadCapture)
+        void command('pause-voice', { suspend: false }).catch(() => {});
       if (hadPlayback) void command('stop-speaking').catch(() => {});
       resetPlayback();
       void playback.current?.close();
@@ -177,8 +275,8 @@ export function VoiceControls({
     };
   }, [stopMic, resetPlayback]);
   useEffect(() => {
-    if (state && !keywordEdited) setKeyword(state.wake.keyword);
-  }, [state, keywordEdited]);
+    if (state && !keywordEdited.current) setKeyword(state.wake.keyword);
+  }, [state]);
   useEffect(() => {
     if (state) onState?.(state);
     if (!inOperation.current && state) {
@@ -200,17 +298,36 @@ export function VoiceControls({
       !inOperation.current
     ) {
       lastWake.current = state.wake.detectionId;
-      const context = playback.current;
-      if (context) {
-        const tone = context.createOscillator(),
-          gain = context.createGain();
-        tone.frequency.value = 880;
-        gain.gain.value = 0.08;
-        tone.connect(gain).connect(context.destination);
-        tone.start();
-        tone.stop(context.currentTime + 0.1);
-        suppressUntil.current = Date.now() + 300;
+      if (!state.configured || listenUnavailable) {
+        setError(
+          !state.configured
+            ? '已识别唤醒词，请先在设置绑定语音设备；当前仅本地监听，没有上传语音。'
+            : (listenUnavailable as string),
+        );
+        void command('dismiss-wake')
+          .then(setState)
+          .catch(() => {});
+      } else if (state.status === 'ready') {
+        pendingWake.current = state.wake.detectionId;
+      } else {
+        setError(
+          state.connectionPreference.enabled
+            ? '语音服务尚未连接，请等待连接成功后再说唤醒词。'
+            : '语音服务已手动断开，请点击连接；当前仍只在本地监听。',
+        );
+        void command('dismiss-wake')
+          .then(setState)
+          .catch(() => {});
       }
+    }
+    if (pendingWake.current && state?.wake.status !== 'detected') pendingWake.current = null;
+    if (
+      pendingWake.current &&
+      state?.status === 'ready' &&
+      wakeActive.current &&
+      !inOperation.current
+    ) {
+      pendingWake.current = null;
       void startCapture.current('listen');
     }
     if (
@@ -233,8 +350,8 @@ export function VoiceControls({
       lastDraft.current = `${state.captureId}:${state.draft}`;
       onDraft(state.draft, state.captureId);
     }
-  }, [state, onDraft, onState, stopMic]);
-  async function operate(action: string, text?: string) {
+  }, [state, onDraft, onState, stopMic, listenUnavailable]);
+  async function operate(action: string, text?: string, automatic = false) {
     if (inOperation.current) return;
     const epoch = ++operationEpoch.current;
     const ensureActive = () => {
@@ -243,9 +360,41 @@ export function VoiceControls({
     inOperation.current = true;
     pendingCapture.current = ['listen', 'start-session', 'arm-wake'].includes(action);
     setOperating(true);
+    let prearmed: VoiceState | null = null;
     try {
       setError('');
-      if (['connect', 'speak', 'listen', 'start-session', 'arm-wake'].includes(action)) {
+      if (action === 'listen' || action === 'start-session') {
+        if (listenUnavailable) {
+          setError(listenUnavailable);
+          return;
+        }
+        try {
+          await prepare?.();
+        } catch {
+          setError('项目尚未准备好，请确认项目与连接后重试。');
+          return;
+        }
+        ensureActive();
+      }
+      if (automatic) {
+        if (explicitlyOff.current) throw new Error('wake_disabled');
+        if ((await window.lingxiDesktop?.microphoneStatus?.()) !== 'granted')
+          throw new Error('permission_required');
+        ensureActive();
+        prearmed = await command('arm-wake', {
+          keyword: state?.wake.keyword ?? keyword,
+          automatic: true,
+        });
+        ensureActive();
+        if (prearmed.wake.status !== 'armed') {
+          setState(prearmed);
+          throw new Error('wake_unavailable');
+        }
+      }
+      if (
+        ['connect', 'speak', 'listen', 'start-session'].includes(action) ||
+        (action === 'arm-wake' && !automatic)
+      ) {
         playback.current ??= new AudioContext();
         await playback.current.resume();
         ensureActive();
@@ -253,7 +402,8 @@ export function VoiceControls({
       if (['listen', 'start-session', 'arm-wake'].includes(action)) {
         if (action === 'arm-wake') wakeActive.current = true;
         if (!recording.current) {
-          if (!(await window.lingxiDesktop?.microphone())) throw new Error('permission');
+          if (!automatic && !(await window.lingxiDesktop?.microphone()))
+            throw new Error('permission');
           ensureActive();
           const media = await navigator.mediaDevices.getUserMedia({
             audio: {
@@ -269,6 +419,19 @@ export function VoiceControls({
             return;
           }
           stream.current = media;
+          const track = media.getAudioTracks()[0];
+          if (track?.readyState === 'ended') throw new Error('audio_input_ended');
+          if (track) {
+            const settings = track.getSettings();
+            setAudioInput({
+              label: track.label || '系统默认音频输入',
+              echoCancellation: settings.echoCancellation,
+              noiseSuppression: settings.noiseSuppression,
+              autoGainControl: settings.autoGainControl,
+            });
+            track.onended = () =>
+              interrupted.current('音频输入已中断或权限已撤销，请检查麦克风后恢复。');
+          }
           const context = new AudioContext({ sampleRate: 16000 });
           capture.current = context;
           if (context.sampleRate !== 16000) throw new Error('sample rate unsupported');
@@ -277,33 +440,52 @@ export function VoiceControls({
           const worklet = new AudioWorkletNode(context, 'lingxi-pcm-capture');
           worklet.port.onmessage = (event) => {
             if (recording.current && event.data instanceof ArrayBuffer) {
-              const muted = Date.now() < suppressUntil.current || sources.current.size > 0;
+              const muted =
+                Date.now() < suppressUntil.current ||
+                sources.current.size > 0 ||
+                latestVoice.current?.status === 'speaking';
               window.lingxiDesktop?.audioFrame(muted ? new ArrayBuffer(640) : event.data);
             }
           };
           context.createMediaStreamSource(media).connect(worklet);
           worklet.connect(context.destination);
         }
-        if (action === 'listen') await prepare?.();
         ensureActive();
-        const value = await command(
-          action,
-          action === 'arm-wake' ? { keyword: state?.wake.keyword ?? keyword } : {},
-        );
+        const value =
+          prearmed ??
+          (await command(
+            action,
+            action === 'arm-wake' ? { keyword: state?.wake.keyword ?? keyword, automatic } : {},
+          ));
         if (operationEpoch.current !== epoch) {
-          await command(action === 'arm-wake' ? 'stop-wake' : 'stop-session');
+          await command('pause-voice', { suspend: false });
           return;
         }
         if (action === 'arm-wake' && value.wake.status !== 'armed') throw new Error('wake_failed');
+        if (action === 'listen' && state?.wake.status === 'detected' && playback.current) {
+          const tone = playback.current.createOscillator(),
+            gain = playback.current.createGain();
+          tone.frequency.value = 880;
+          gain.gain.value = 0.08;
+          tone.connect(gain).connect(playback.current.destination);
+          tone.start();
+          tone.stop(playback.current.currentTime + 0.1);
+          suppressUntil.current = Date.now() + 300;
+        }
         recording.current = true;
         if (action !== 'arm-wake') conversationOwner.current = true;
         setState(value);
         await capture.current?.resume();
+        if (automatic) {
+          playback.current ??= new AudioContext();
+          await playback.current.resume();
+          ensureActive();
+        }
       } else {
-        if (action === 'stop-wake' || action === 'disconnect') wakeActive.current = false;
+        if (action === 'stop-wake') wakeActive.current = false;
         if (
           (action === 'stop-listening' && !wakeActive.current) ||
-          action === 'disconnect' ||
+          (action === 'disconnect' && !wakeActive.current) ||
           action === 'stop-wake'
         )
           stopMic();
@@ -315,7 +497,7 @@ export function VoiceControls({
       stopMic();
       wakeActive.current = false;
       if (['listen', 'start-session', 'arm-wake'].includes(action))
-        void command('stop-session').catch(() => {});
+        void command('pause-voice').catch(() => {});
       setError('操作未完成。请检查连接配置、麦克风权限和系统声音设置。');
     } finally {
       if (operationEpoch.current === epoch) {
@@ -325,20 +507,135 @@ export function VoiceControls({
       }
     }
   }
-  async function stopSession() {
+  async function stopSession(explicit = true, notice = '') {
+    if (explicit) explicitlyOff.current = true;
     operationEpoch.current++;
     stopMic();
     resetPlayback();
     wakeActive.current = conversationOwner.current = false;
+    pendingWake.current = null;
+    autoAttempted.current = autoRefresh;
     inOperation.current = pendingCapture.current = false;
     setOperating(false);
     try {
-      setState(await command('stop-session'));
+      setState(await command(explicit ? 'stop-session' : 'pause-voice'));
+      if (notice) setError(notice);
     } catch {
       setError('本机麦克风已关闭，未能确认远端状态；请断开语音连接。');
     }
   }
   startCapture.current = (action) => operate(action);
+  automaticWake.current = () => operate('arm-wake', undefined, true);
+  interrupted.current = (message) => {
+    if (recording.current) void stopSession(false, message);
+  };
+  async function setConnectionAuto(enabled: boolean) {
+    try {
+      setState(await command('connection-auto', { enabled }));
+      setError('');
+    } catch {
+      setError('无法保存语音服务连接偏好，请检查本机配置。');
+    }
+  }
+  async function setAutoWake(enabled: boolean) {
+    explicitlyOff.current = !enabled;
+    if (!enabled) {
+      operationEpoch.current++;
+      stopMic();
+      resetPlayback();
+      wakeActive.current = conversationOwner.current = false;
+      pendingWake.current = null;
+      inOperation.current = pendingCapture.current = false;
+      setOperating(false);
+    }
+    autoAttempted.current = enabled ? null : autoRefresh;
+    try {
+      setState(await command('wake-auto', { enabled }));
+      setAutoNotice('');
+      setError('');
+      setAutoRefresh((n) => n + 1);
+    } catch {
+      setError('未能保存自动唤醒偏好，请在设置中重试。');
+    }
+  }
+  useEffect(() => {
+    if (
+      configuration ||
+      explicitlyOff.current ||
+      !state?.wakePreference.enabled ||
+      state.wakeAutoSuspended ||
+      !state.wake.installed ||
+      ['armed', 'detected', 'loading', 'failed'].includes(state.wake.status) ||
+      state.conversationActive ||
+      recording.current ||
+      autoAttempted.current === autoRefresh
+    )
+      return;
+    autoAttempted.current = autoRefresh;
+    let active = true;
+    void window.lingxiDesktop
+      ?.microphoneStatus?.()
+      .then((permission) => {
+        if (!active) return;
+        if (permission !== 'granted') {
+          setAutoNotice(
+            permission === 'denied' || permission === 'restricted'
+              ? '麦克风权限未获准，请到设置 → 语音唤醒与麦克风处理。'
+              : '首次使用请在设置中允许麦克风；授权后会自动监听唤醒词。',
+          );
+          return;
+        }
+        setAutoNotice('');
+        void automaticWake.current();
+      })
+      .catch(() => {
+        if (active) setAutoNotice('无法读取麦克风授权状态，请在设置中检查。');
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    configuration,
+    state?.wakePreference.enabled,
+    state?.wakeAutoSuspended,
+    state?.wake.installed,
+    state?.wake.status,
+    state?.conversationActive,
+    autoRefresh,
+  ]);
+  useEffect(() => {
+    const focus = () => {
+      if (!recording.current) {
+        autoAttempted.current = null;
+        setAutoRefresh((n) => n + 1);
+      }
+    };
+    const online = () => {
+      if (latestVoice.current?.connectionPreference.enabled)
+        void command('retry-connection')
+          .then(setState)
+          .catch(() => {});
+    };
+    window.addEventListener('focus', focus);
+    window.addEventListener('online', online);
+    let active = true;
+    const timer = setInterval(() => {
+      if (!recording.current) return;
+      void window.lingxiDesktop
+        ?.microphoneStatus?.()
+        .then((permission) => {
+          if (active && ['denied', 'restricted'].includes(permission))
+            interrupted.current('麦克风权限已撤销，监听已停止。');
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+      window.removeEventListener('focus', focus);
+      window.removeEventListener('online', online);
+    };
+  }, []);
   async function save() {
     try {
       const response = await fetch('/api/voice/config', {
@@ -360,10 +657,12 @@ export function VoiceControls({
       setError('未能保存。请核对 MAC 地址和令牌；桌面系统须支持加密存储。');
     }
   }
+  const presentation = voicePresentation(state, task);
   const WakePanel = configuration ? 'section' : 'details';
   return (
     <section
-      className={`voice-controls voice-${state?.status ?? 'disconnected'}`}
+      data-microphone-open={voiceMicrophoneOpen(state)}
+      className={`voice-controls voice-${state?.status ?? 'disconnected'}${!configuration && presentation.submitted ? ' voice-submitted' : ''}`}
       aria-label="丽塔同学语音"
     >
       {variant !== 'wake' && (
@@ -454,6 +753,24 @@ export function VoiceControls({
               </button>
             </details>
           )}
+          {configuration && state && (
+            <>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={state.connectionPreference.enabled}
+                  onChange={(event) => void setConnectionAuto(event.target.checked)}
+                />
+                应用启动后自动连接并保持语音服务
+              </label>
+              {state.connectionPreference.source === 'legacy-review' && (
+                <p>旧版未记录长期连接选择，请确认一次；不会新增绑定或凭据。</p>
+              )}
+              {state.connectionPreference.source === 'unavailable' && (
+                <p role="alert">无法读取或保存连接偏好，自动连接已停用。</p>
+              )}
+            </>
+          )}
           {configuration && state?.configured && (
             <>
               <label>
@@ -529,30 +846,30 @@ export function VoiceControls({
             </>
           )}
           <p role="status" className="voice-status">
-            <MicrophoneIcon
-              muted={
-                !state?.conversationActive &&
-                !['ready', 'listening', 'speaking'].includes(state?.status ?? '') &&
-                !['armed', 'detected'].includes(state?.wake.status ?? '')
-              }
-            />
-            {state?.conversationActive
-              ? state.status === 'ready'
-                ? '语音会话开启 · 本机待说话 · 麦克风已开启'
-                : state.status === 'processing'
-                  ? '正在处理这句话 · 语音会话保持开启'
-                  : state.status === 'speaking'
-                    ? '丽塔同学正在播报 · 语音会话保持开启'
-                    : '收音中 · 语音会话保持开启'
-              : state &&
-                  ['armed', 'detected'].includes(state.wake.status) &&
-                  ['ready', 'speaking'].includes(state.status)
-                ? state.status === 'speaking'
-                  ? '播报中 · 本地麦克风开启，暂停唤醒'
-                  : `本地待唤醒 · 麦克风已开启 · ${state.wake.keyword}`
-                : state
+            <MicrophoneIcon muted={!voiceMicrophoneOpen(state)} />
+            <span>
+              {!configuration && autoNotice && !recording.current
+                ? '自动唤醒待授权 · 麦克风已关闭'
+                : configuration &&
+                    state &&
+                    !state.conversationActive &&
+                    !['armed', 'detected'].includes(state.wake.status)
                   ? labels[state.status]
-                  : '正在读取语音状态'}
+                  : presentation.label}
+            </span>
+            <small
+              role="status"
+              className="voice-service-state"
+              data-connected={voiceServiceConnected(state)}
+              aria-label="语音服务连接状态"
+              title={
+                state?.connection.nextRetryAt
+                  ? `下次重连：${new Date(state.connection.nextRetryAt).toLocaleTimeString()}`
+                  : undefined
+              }
+            >
+              {voiceConnectionLabel(state)}
+            </small>
           </p>
           <div className="live-actions">
             {(configuration ||
@@ -568,10 +885,17 @@ export function VoiceControls({
             {!configuration && state && !state.configured && (
               <SettingsLink section="lingxi" label="连接设置" />
             )}
+            {!configuration &&
+              state?.wakePreference.enabled &&
+              !recording.current &&
+              (autoNotice || !state.wake.installed) && (
+                <SettingsLink section="wake" label="配置默认唤醒" />
+              )}
             {state && !state.conversationActive && state.status === 'ready' && (
               <button
                 type="button"
-                disabled={operating}
+                disabled={operating || !!listenUnavailable}
+                title={listenUnavailable}
                 onClick={() => void operate('start-session')}
               >
                 开始收音
@@ -584,7 +908,7 @@ export function VoiceControls({
             )}
             {configuration && state && !['disconnected', 'failed'].includes(state.status) && (
               <button type="button" onClick={() => void operate('disconnect')}>
-                断开语音
+                断开语音服务
               </button>
             )}
             {!configuration && state && !['disconnected', 'failed'].includes(state.status) && (
@@ -594,7 +918,7 @@ export function VoiceControls({
                 </summary>
                 <div>
                   <button type="button" onClick={() => void operate('disconnect')}>
-                    断开语音
+                    断开语音服务
                   </button>
                 </div>
               </details>
@@ -622,6 +946,31 @@ export function VoiceControls({
       )}
       {variant !== 'connection' && (
         <WakePanel className="wake-settings">
+          {configuration && state && (
+            <label>
+              <input
+                type="checkbox"
+                checked={state.wakePreference.enabled}
+                onChange={(event) => void setAutoWake(event.target.checked)}
+              />
+              自动开启本地语音唤醒
+            </label>
+          )}
+          {state?.wakePreference.source === 'legacy-review' && (
+            <p>旧版未记录长期唤醒选择。请确认一次是否自动唤醒；之后会记住选择。</p>
+          )}
+          {state?.wakePreference.source === 'unavailable' && (
+            <p role="alert">无法读取或保存唤醒偏好，自动监听已暂停，请在设置中检查。</p>
+          )}
+          {autoNotice && (
+            <p role="status">
+              {autoNotice} <SettingsLink section="wake" label="检查麦克风设置" />
+            </p>
+          )}
+          {!configuration && state?.wakePreference.enabled && !state.wake.installed && (
+            <p>默认唤醒正在等待本地模型，请先完成配置。</p>
+          )}
+
           {configuration ? <h3>本地唤醒模型</h3> : <summary>语音唤醒</summary>}
           {configuration && (
             <p>下载一次后离线检测，无需额外账号。在这里设置本次唤醒词，完成后回工作台开启检测。</p>
@@ -629,8 +978,7 @@ export function VoiceControls({
           {!configuration && (
             <>
               <p>
-                开启后麦克风持续在本机检测；说出唤醒词、听到提示音后再说指令，停顿约 1.2
-                秒结束收音。待唤醒音频不上传、不保存。播报期间暂停检测；退出或刷新页面后需重新开启。
+                默认在本机监听“丽塔同学”，唤醒后才处理语音；待唤醒音频不上传、不保存。关闭会记住选择，不会自动重新开启。
               </p>
               <p>
                 唤醒词：{state?.wake.keyword ?? keyword}{' '}
@@ -662,7 +1010,7 @@ export function VoiceControls({
                   maxLength={12}
                   disabled={operating}
                   onChange={(event) => {
-                    setKeywordEdited(true);
+                    keywordEdited.current = true;
                     setKeyword(event.target.value);
                   }}
                 />
@@ -674,7 +1022,7 @@ export function VoiceControls({
                 onClick={async () => {
                   try {
                     setState(await command('wake-keyword', { keyword }));
-                    setKeywordEdited(false);
+                    keywordEdited.current = false;
                     setError('');
                   } catch {
                     setError('未能修改唤醒词，请先关闭正在运行的语音唤醒后重试。');
@@ -687,29 +1035,42 @@ export function VoiceControls({
             </>
           )}
           {state?.wake.installed && configuration && (
-            <p role="status">模型文件已下载。复查配置后，回到工作台开启语音唤醒。</p>
+            <p role="status">模型文件已下载。已有麦克风授权时，回到工作台自动监听唤醒词。</p>
           )}
           {!configuration &&
-            state?.wake.installed &&
-            !['armed', 'detected', 'loading'].includes(state.wake.status) && (
-              <button
-                type="button"
-                disabled={
-                  configuration ||
-                  operating ||
-                  state.status !== 'ready' ||
-                  !/^[\u4e00-\u9fff]{2,12}$/.test(keyword)
-                }
-                onClick={() => void operate('arm-wake')}
-              >
-                开启语音唤醒
+            state &&
+            (!state.wakePreference.enabled || state.wakeAutoSuspended) && (
+              <button type="button" onClick={() => void setAutoWake(true)}>
+                {state.wakePreference.enabled ? '恢复自动唤醒' : '启用自动唤醒'}
               </button>
             )}
           {state && ['armed', 'detected', 'loading'].includes(state.wake.status) && (
-            <button type="button" disabled={operating} onClick={() => void operate('stop-wake')}>
+            <button type="button" onClick={() => void setAutoWake(false)}>
               关闭语音唤醒
             </button>
           )}
+          <details>
+            <summary>音频来源与回声</summary>
+            <p>
+              只请求系统默认音频输入，不采集屏幕或系统输出；如果默认输入是虚拟回环设备，也可能收到电脑播放的声音。
+            </p>
+            <p>当前输入：{recording.current && audioInput ? audioInput.label : '麦克风未开启'}</p>
+            {recording.current && audioInput && (
+              <p>
+                浏览器报告：
+                {(['echoCancellation', 'noiseSuppression', 'autoGainControl'] as const)
+                  .map(
+                    (key, i) =>
+                      `${['回声消除', '降噪', '自动增益'][i]} ${audioInput[key] === undefined ? '未报告' : audioInput[key] ? '开启' : '关闭'}`,
+                  )
+                  .join(' · ')}
+              </p>
+            )}
+            <p>
+              回声消除不能保证过滤所有外放。若误触发，请使用耳机，并在 macOS
+              声音设置核对物理麦克风与虚拟输入。
+            </p>
+          </details>
           {state?.wake.error && <p role="alert">{state.wake.error}</p>}
         </WakePanel>
       )}

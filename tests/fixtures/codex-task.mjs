@@ -20,6 +20,7 @@ let currentThread = 'thread-1',
   threadSequence = 0;
 let terminalRequest;
 let lateUsage;
+const threadSettings = new Map();
 const usage = (tokens, window = 128000, threadId = currentThread, turnId = currentTurn) => ({
   method: 'thread/tokenUsage/updated',
   params: {
@@ -46,7 +47,7 @@ const usage = (tokens, window = 128000, threadId = currentThread, turnId = curre
     },
   },
 });
-const complete = () => {
+const complete = (status = mode === 'failed' ? 'failed' : 'completed') => {
   const roundUsage = (total) => {
     const event = usage(120);
     const input = (total * 5) / 6;
@@ -120,7 +121,7 @@ const complete = () => {
     method: 'turn/completed',
     params: {
       threadId: currentThread,
-      turn: { id: currentTurn, status: mode === 'failed' ? 'failed' : 'completed' },
+      turn: { id: currentTurn, status },
     },
   });
   if (measure) {
@@ -254,6 +255,9 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       emit({ id: message.id, error: { message: 'PRIVATE SETTINGS ERROR' } });
     else {
       emit({ id: message.id, result: {} });
+      const previous = threadSettings.get(message.params.threadId);
+      threadSettings.set(message.params.threadId, message.params);
+      if (JSON.stringify(previous) === JSON.stringify(message.params)) return;
       emit({
         method: 'thread/settings/updated',
         params: {
@@ -295,6 +299,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       params: {
         threadId: currentThread,
         threadSettings: {
+          ...threadSettings.get(currentThread),
           model: message.params.model ?? 'test-model',
           effort: message.params.effort ?? 'medium',
         },
@@ -337,16 +342,18 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           questions: [{ id: 'color', question: '什么颜色？' }],
         },
       });
+    else if (mode === 'rich' && message.params.input[0].text.includes('fail-task'))
+      complete('failed');
     else if (
       mode === 'wait' ||
       mode === 'steer-timeout' ||
       (mode === 'rich' && message.params.input[0].text.includes('hold'))
     )
       return;
-    else if (mode === 'rich' && message.params.input[0].text.includes('ask-many')) {
+    else if (mode === 'rich' && /ask-many|ask-repeated/.test(message.params.input[0].text)) {
       for (const [id, color] of [
         [71, 'color'],
-        [72, 'layout'],
+        [72, message.params.input[0].text.includes('ask-repeated') ? 'color' : 'layout'],
       ])
         emit({
           id,
@@ -449,7 +456,10 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   } else if (message.method === 'skills/list') emit({ id: message.id, result: { data: [] } });
   else if (message.method === 'account/rateLimits/read')
     emit({ id: message.id, result: { rateLimits: null } });
-  else if (message.method === 'fixture/out-of-order')
+  else if (message.method === 'fixture/settings-notify') {
+    emit({ method: 'thread/settings/updated', params: message.params });
+    emit({ id: message.id, result: {} });
+  } else if (message.method === 'fixture/out-of-order')
     setTimeout(() => emit({ id: message.id, result: message.params }), message.params.delay);
   else if (message.method === 'fixture/invalid') console.log('not-json');
   else if (message.method === 'fixture/error')

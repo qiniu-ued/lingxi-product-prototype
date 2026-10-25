@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { isIP } from 'node:net';
 import { dirname, join } from 'node:path';
 import fastifyStatic from '@fastify/static';
@@ -19,6 +20,7 @@ import { SessionStore, StoreConflict } from './store.js';
 import { VoiceService } from './voice.js';
 import { VoiceBinding } from './voice-binding.js';
 import { WakeModel } from './wake-model.js';
+import { WakePreferences } from './wake-preferences.js';
 import { Workbench } from './workbench.js';
 import { workbenchRoutes } from './workbench-routes.js';
 
@@ -37,6 +39,23 @@ interface AppOptions {
 }
 
 export function buildApp(options: AppOptions) {
+  const legacy = options.databasePath !== ':memory:' && existsSync(options.databasePath);
+  const wakePreferences = options.desktop
+    ? new WakePreferences(
+        options.databasePath === ':memory:'
+          ? null
+          : join(dirname(options.databasePath), 'wake-preferences.v1.json'),
+        legacy,
+      )
+    : undefined;
+  const connectionPreferences = options.desktop
+    ? new WakePreferences(
+        options.databasePath === ':memory:'
+          ? null
+          : join(dirname(options.databasePath), 'voice-connection-preferences.v1.json'),
+        legacy,
+      )
+    : undefined;
   const app = Fastify({ logger: options.logger ?? false, bodyLimit: 16 * 1024 });
   const store = new SessionStore(options.databasePath);
   const setup =
@@ -61,6 +80,8 @@ export function buildApp(options: AppOptions) {
   const voice = new VoiceService({
     workbench,
     wake,
+    ...(wakePreferences ? { wakePreferences } : {}),
+    ...(connectionPreferences ? { connectionPreferences } : {}),
     ...(options.desktop ? { desktop: options.desktop } : {}),
   });
   const binding = new VoiceBinding({

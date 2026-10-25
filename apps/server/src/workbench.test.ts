@@ -591,6 +591,22 @@ it('discovers execution capabilities without starting a thread and verifies on a
   expect(wire).toContain('"ephemeral":true');
   expect(wire).not.toContain('turn/start');
 });
+it('starts two turns in one conversation when Codex only notifies changed settings', async () => {
+  const { wb, record } = await create('settings-noop');
+  wb.start(randomUUID(), 'first round');
+  await until(wb, (state) => state.task?.status === 'completed');
+  const threadId = wb.read().task?.threadId;
+  wb.start(randomUUID(), 'second round');
+  await until(wb, (state) => state.task?.status === 'completed');
+  expect(wb.read().task).toMatchObject({ prompt: 'second round', threadId });
+  const wire = (await readFile(record, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  expect(wire.filter((message) => message.method === 'thread/start')).toHaveLength(1);
+  expect(wire.filter((message) => message.method === 'turn/start')).toHaveLength(2);
+  expect(wire.filter((message) => message.method === 'thread/settings/update')).toHaveLength(2);
+});
 it('captures Plan and permissions when queueing and explicitly restores default mode on the next turn', async () => {
   const { wb, record, project } = await create('rich');
   await wb.command({ action: 'set-permission', permission: 'auto-review' });

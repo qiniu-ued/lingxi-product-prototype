@@ -170,11 +170,11 @@ try {
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
   });
-  await operator.getByRole('heading', { name: '先检查，再配置。', exact: true }).waitFor();
+  await operator.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
   assert.equal(new URL(operator.url()).pathname, '/setup');
-  await operator.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await operator.getByRole('button', { name: '返回工作台', exact: true }).click();
   await operator.getByText('本机服务已连接').waitFor();
-  for (const selector of ['.workbench-menu', '.keyboard-composer'])
+  for (const selector of ['.workbench-menu', '.workspace-project-tools', '.keyboard-composer'])
     assert.equal(
       await operator.locator(selector).evaluate((element) => element.open),
       false,
@@ -574,10 +574,16 @@ try {
   await operator.getByLabel('给 Codex 的本轮指令').fill('主对话草稿保留');
   await expand(operator, '.workbench-menu');
   await operator.getByRole('button', { name: '连接向导', exact: true }).click();
-  await operator.getByRole('button', { name: '设置', exact: true }).click();
   await operator.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
   await operator.getByRole('navigation', { name: '设置分类' }).waitFor();
-  await operator.getByRole('heading', { name: 'Codex 环境检查通过', exact: true }).waitFor();
+  await operator
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /Codex/ })
+    .click();
+  await operator
+    .locator('.setup-content')
+    .getByText('Codex 环境检查通过', { exact: true })
+    .waitFor();
   await operator.screenshot({ path: join(root, '.local/settings-smoke.png') });
   assert.equal((await (await fetch(`${address}/api/workbench`)).json()).task.id, after.task.id);
   await operator.getByRole('button', { name: '返回工作台', exact: true }).click();
@@ -721,7 +727,7 @@ try {
   assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
   assert.ok(
     probes.length >= 3,
-    'Startup, settings diagnostics and explicit verification must use temporary connections',
+    'Startup, connection guide diagnostics and explicit verification must use temporary connections',
   );
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)
@@ -732,7 +738,7 @@ try {
   const persistedFork = (await (await fetch(`${address}/api/workbench`)).json()).selectedThreadId;
   assert.notEqual(persistedFork, forkParent);
   await operator.reload();
-  await operator.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await operator.getByRole('button', { name: '返回工作台', exact: true }).click();
   await operator.getByText('本机服务已连接').waitFor();
   assert.equal(
     (await (await fetch(`${address}/api/workbench`)).json()).selectedThreadId,
@@ -754,7 +760,7 @@ try {
   );
   instance = await launch();
   const reopened = await instance.firstWindow();
-  await reopened.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await reopened.getByRole('button', { name: '返回工作台', exact: true }).click();
   await reopened.getByText('本机服务已连接').waitFor();
   assert.ok(
     (await reopened.getByRole('combobox', { name: '切换对话' }).textContent()).includes(
@@ -881,6 +887,7 @@ try {
   );
   await reopened.locator('.workbench-menu > summary').press('Enter');
   await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-project-tools');
   await reopened.getByRole('button', { name: '终端', exact: true }).click();
   await reopened.getByRole('button', { name: '打开终端', exact: true }).click();
   await reopened.getByText('项目终端 · running', { exact: false }).waitFor();
@@ -889,6 +896,7 @@ try {
   await reopened.getByRole('button', { name: '结束终端', exact: true }).click();
   await reopened.getByText('项目终端 · exited', { exact: false }).waitFor();
   await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-project-tools');
   await reopened.getByRole('button', { name: 'Diff', exact: true }).click();
   await selectControl(reopened, /^变更来源/, 'Git 未暂存');
   await reopened.locator('.diff-lines button').filter({ hasText: '+unstaged-marker' }).waitFor();
@@ -920,6 +928,7 @@ try {
   await reopened.locator('.context-attachments').getByRole('button', { name: '移除' }).click();
   await reopened.getByRole('button', { name: '文字输入', exact: true }).click();
   await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-project-tools');
   await reopened.getByRole('button', { name: '预览', exact: true }).click();
   const audioFrame = await reopened.evaluate(async () => {
     const context = new OfflineAudioContext(1, 960, 16000);
@@ -961,6 +970,7 @@ try {
   assert.equal((await connectLive(`${reopenedAddress}/`)).status, 409);
   assert.equal((await connectLive('https://example.com/')).status, 409);
   await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-project-tools');
   await reopened.getByText('连接项目开发服务器', { exact: true }).click();
   await reopened.getByLabel('项目预览地址').fill(liveUrl);
   await reopened.getByRole('button', { name: '连接预览', exact: true }).click();
@@ -1259,11 +1269,10 @@ try {
       console.log(`Desktop ${name} ${width}x${height}: ${JSON.stringify(current)}`);
     }
   }
-  await reopened.goto(`${reopenedAddress}/setup`);
-  await reopened
-    .getByRole('button', { name: /配置丽塔同学/ })
-    .first()
-    .click();
+  await reopened.goto(`${reopenedAddress}/settings#lingxi`);
+  await reopened.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }).waitFor();
+  assert.equal(new URL(reopened.url()).pathname, '/setup');
+  assert.equal(new URL(reopened.url()).hash, '#lingxi');
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
   await reopened.getByRole('button', { name: '语音诊断', exact: true }).click();
   await reopened.getByRole('dialog', { name: '语音交接诊断' }).waitFor();
@@ -1330,12 +1339,12 @@ try {
   assert.equal(
     (await (await fetch(`${reopenedAddress}/api/voice`)).json()).allowVoiceSubmit,
     true,
-    'The default setting is enabled, but viewing setup must not create credentials or capture audio',
+    'The default setting is enabled, but viewing the connection guide must not create credentials or capture audio',
   );
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
   await reopened
-    .getByRole('navigation', { name: '连接步骤' })
-    .getByRole('button', { name: /配置唤醒模型/ })
+    .getByRole('navigation', { name: '设置分类' })
+    .getByRole('button', { name: /语音唤醒与麦克风/ })
     .click();
   await reopened
     .getByRole('button', { name: '下载本地唤醒模型（约 33 MB）', exact: true })
@@ -1344,7 +1353,7 @@ try {
   await closeDesktop(instance);
   instance = await launch('rich');
   const recovery = await instance.firstWindow();
-  await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await recovery.getByRole('button', { name: '返回工作台', exact: true }).click();
   await recovery.getByText('本机服务已连接').waitFor();
   const recoveryAddress = new URL(recovery.url()).origin;
   await submitTask(recovery, 'ask-repeated');
@@ -1452,7 +1461,7 @@ try {
   assert.doesNotMatch(JSON.stringify(progressTask), /PRIVATE_REASONING|FOREIGN_PROGRESS/);
   await recovery.screenshot({ path: join(root, '.local/public-progress.png') });
   await recovery.reload();
-  await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await recovery.getByRole('button', { name: '返回工作台', exact: true }).click();
   await recovery.getByText('本机服务已连接').waitFor();
   assert.deepEqual(
     await recovery
@@ -1576,7 +1585,7 @@ try {
   await mkdir(emptyData);
   instance = await launch('rich', emptyData);
   const empty = await instance.firstWindow();
-  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await empty.getByRole('button', { name: '返回工作台', exact: true }).click();
   await empty
     .getByRole('heading', {
       name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
@@ -1615,7 +1624,7 @@ try {
     }),
   );
   await empty.reload();
-  await empty.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await empty.getByRole('button', { name: '返回工作台', exact: true }).click();
   await empty
     .getByRole('heading', {
       name: '点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧',
@@ -1649,9 +1658,7 @@ try {
   await closeDesktop(instance);
   instance = await launch('rich', emptyData);
   const restartedPreference = await instance.firstWindow();
-  await restartedPreference
-    .getByRole('heading', { name: '先检查，再配置。', exact: true })
-    .waitFor();
+  await restartedPreference.getByRole('heading', { name: '配置与连接', exact: true }).waitFor();
   const restartedVoice = await (
     await fetch(`${new URL(restartedPreference.url()).origin}/api/voice`)
   ).json();
@@ -1662,7 +1669,7 @@ try {
     'Preference setup must not create provider credentials',
   );
   console.log(
-    `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
+    `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, connection guide, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );
 } catch (error) {
   if (instance) {

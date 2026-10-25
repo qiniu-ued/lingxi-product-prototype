@@ -3,13 +3,11 @@ import { ConfigurationButton } from './ConfigurationControls';
 
 export type SettingsSection = 'codex' | 'lingxi' | 'wake';
 export const Navigation = createContext({
-  settings: (section?: SettingsSection) =>
-    location.assign(`/settings${section ? `#${section}` : ''}`),
-  setup: () => location.assign('/setup'),
+  settings: (section?: SettingsSection) => location.assign(`/setup${section ? `#${section}` : ''}`),
 });
 export function SettingsLink({
   section,
-  label = '设置',
+  label = '连接向导',
   variant = 'ghost',
   icon,
 }: {
@@ -27,14 +25,6 @@ export function SettingsLink({
       onClick={() => navigation.settings(section)}
     >
       {icon}
-      {label}
-    </ConfigurationButton>
-  );
-}
-export function SetupLink({ label = '连接向导' }: { label?: string }) {
-  const navigation = useContext(Navigation);
-  return (
-    <ConfigurationButton type="button" onClick={navigation.setup}>
       {label}
     </ConfigurationButton>
   );

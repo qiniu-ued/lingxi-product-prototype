@@ -439,6 +439,13 @@ async function openVoiceMenu(page: Page) {
     await page.getByLabel('更多语音操作', { exact: true }).click();
 }
 
+async function openSetup(page: Page) {
+  const workspace = page.locator('.workbench-menu');
+  if (!(await workspace.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await workspace.locator(':scope > summary').click();
+  await workspace.getByRole('button', { name: '连接向导', exact: true }).click();
+}
+
 test('composer loads models automatically, limits effort choices and resets incompatible effort', async ({
   page,
 }) => {
@@ -688,12 +695,12 @@ test('a fork exposes the current conversation list and a direct return without o
   await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   expect(f.commands.filter((command) => command.action === 'fork')).toHaveLength(2);
   expect(f.state().history[0]?.id).toBe(source.id);
-  await page.getByRole('button', { name: '设置', exact: true }).click();
-  await expect(page).toHaveURL(/\/settings$/);
+  await openSetup(page);
+  await expect(page).toHaveURL(/\/setup$/);
   await page.goBack();
   await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   await page.goForward();
-  await expect(page).toHaveURL(/\/settings$/);
+  await expect(page).toHaveURL(/\/setup$/);
   await page.goBack();
   await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话草稿');
@@ -1119,6 +1126,7 @@ test('tools show readable skill, MCP and quota cards with independent errors and
   };
   await page.route('**/api/workbench/catalog', (route) => route.fulfill({ json: catalog }));
   await page.locator('.workbench-menu > summary').click();
+  await page.locator('.workspace-project-tools > summary').click();
   await page.getByRole('button', { name: '工具与额度', exact: true }).click();
   await page.getByRole('button', { name: '读取 Skills、MCP 和账号额度' }).click();
   await expect(page.getByRole('region', { name: 'Skills', exact: true })).toContainText('代码审阅');
@@ -1217,7 +1225,7 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
   await page.getByRole('button', { name: '启用自动唤醒', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toBeVisible();
   const arms = fixture.voiceCommands.filter((command) => command.action === 'arm-wake').length;
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSetup(page);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1324,7 +1332,7 @@ test('an explicit voice conversation keeps its microphone through responses and 
   ).toHaveLength(2);
   expect(fixture.commands).toHaveLength(0);
 });
-test('opening settings while microphone acquisition is pending releases the late stream without starting capture', async ({
+test('opening the connection guide while microphone acquisition is pending releases the late stream without starting capture', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -1344,7 +1352,7 @@ test('opening settings while microphone acquisition is pending releases the late
   await expect
     .poll(() => page.evaluate(() => typeof Reflect.get(window, 'releaseMic')))
     .toBe('function');
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSetup(page);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page.evaluate(() => Reflect.get(window, 'releaseMic')());
   await expect
@@ -1391,7 +1399,7 @@ test('copy and Fork remain as icons while quotes and Sidechat require a text sel
   await expect(page.getByRole('table')).toHaveCount(0);
 });
 
-test('permanent settings keep the active composer and manage voice consent and the session wake keyword', async ({
+test('the connection guide keeps the active composer and manages voice consent and the session wake keyword', async ({
   page,
 }) => {
   const source = turn('保留设置前的工作');
@@ -1410,8 +1418,8 @@ test('permanent settings keep the active composer and manage voice consent and t
   await page.getByLabel('给 Codex 的本轮指令').fill('设置前没有发送的草稿');
   await selectExcerpt(page, source.id, '保留设置前的工作的回答');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
-  await page.getByRole('button', { name: '设置', exact: true }).click();
-  await expect(page).toHaveURL(/\/settings$/);
+  await openSetup(page);
+  await expect(page).toHaveURL(/\/setup$/);
   await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
   await page
     .getByRole('navigation', { name: '设置分类' })
@@ -1440,17 +1448,28 @@ test('permanent settings keep the active composer and manage voice consent and t
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('保留设置前的工作的回答');
   for (let cycle = 0; cycle < 2; cycle++) {
-    await page.getByRole('button', { name: '设置', exact: true }).click();
+    await openSetup(page);
     await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
     if (cycle === 0) {
       await page.goBack();
     } else {
-      await page.getByRole('button', { name: '连接向导', exact: true }).click();
+      await page
+        .getByRole('navigation', { name: '设置分类' })
+        .getByRole('button', { name: /语音唤醒与麦克风/ })
+        .click();
+      await expect(page).toHaveURL(/\/setup#wake$/);
       await expect(
-        page.getByRole('heading', { name: '先检查，再配置。', exact: true }),
+        page.getByRole('heading', { name: '语音唤醒与麦克风', exact: true }),
       ).toBeVisible();
-      await page.getByRole('button', { name: '设置', exact: true }).click();
-      await expect(page.getByRole('heading', { name: '配置与连接', exact: true })).toBeVisible();
+      await page
+        .getByRole('navigation', { name: '设置分类' })
+        .getByRole('button', { name: /丽塔同学与语音执行/ })
+        .click();
+      await expect(page).toHaveURL(/\/setup#lingxi$/);
+      await expect(
+        page.getByRole('heading', { name: '丽塔同学与语音执行', exact: true }),
+      ).toBeVisible();
+      await expect(page.getByRole('button', { name: '连接向导', exact: true })).toHaveCount(0);
       await page.getByRole('button', { name: '返回工作台', exact: true }).click();
     }
     await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('设置前没有发送的草稿');
@@ -1463,7 +1482,7 @@ test('permanent settings keep the active composer and manage voice consent and t
     ),
   ).toBe(false);
 });
-test('voice connection failure can be retried and disconnected in settings without microphone capture or task submission', async ({
+test('voice connection failure can be retried and disconnected in the connection guide without microphone capture or task submission', async ({
   page,
 }) => {
   const fixture = await open(page, runtime());
@@ -1482,7 +1501,7 @@ test('voice connection failure can be retried and disconnected in settings witho
   await page.getByRole('button', { name: '连接丽塔同学', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '待唤醒 · 麦克风已关闭' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await openSetup(page);
   await page
     .getByRole('navigation', { name: '设置分类' })
     .getByRole('button', { name: /丽塔同学与语音执行/ })
@@ -1536,6 +1555,7 @@ test('voice handoff distinguishes draft-only, unhandled voice replies and accept
   await page.goto('/display');
   await expect(page.getByRole('region', { name: '语音交接状态' })).toContainText('已交给 Codex');
   await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '连接向导', exact: true })).toHaveCount(0);
 });
 
 async function syntheticMicrophone(page: Page) {
@@ -1842,6 +1862,37 @@ test('normal preview clicks operate the page while annotation clicks only select
   expect(await page.evaluate(() => Reflect.get(window, 'previewClicks').length)).toBe(1);
 });
 
+test('project tools start collapsed and keep element picking beside the four project views', async ({
+  page,
+}, testInfo) => {
+  const f = await previewFixture(page);
+  const workspace = page.locator('.workbench-menu');
+  const tools = page.locator('.workspace-project-tools');
+  await workspace.locator(':scope > summary').click();
+  await expect(tools).not.toHaveAttribute('open');
+  await expect(
+    page
+      .locator('.workbench-display-actions')
+      .getByRole('button', { name: '点选修改', exact: true }),
+  ).toHaveCount(0);
+  await expect(tools.getByRole('button', { name: '点选修改', exact: true })).not.toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('workspace-tools-collapsed.png') });
+  await tools.locator(':scope > summary').click();
+  const navigation = tools.getByRole('navigation', { name: '项目工作区' });
+  for (const name of ['预览', '终端', 'Diff', '工具与额度', '点选修改'])
+    await expect(navigation.getByRole('button', { name, exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('workspace-tools-expanded.png') });
+  await navigation.getByRole('button', { name: '点选修改', exact: true }).click();
+  await expect(workspace).not.toHaveAttribute('open');
+  await expect(page.locator('.preview-pick')).toHaveClass(/picking/);
+  await workspace.locator(':scope > summary').click();
+  if (!(await tools.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await tools.locator(':scope > summary').click();
+  await navigation.getByRole('button', { name: '取消点选', exact: true }).click();
+  await expect(page.locator('.preview-pick')).not.toHaveClass(/picking/);
+  expect(f.commands).toHaveLength(0);
+  expect(f.contexts).toHaveLength(0);
+});
 test('annotation hover switches targets, locks into the draft, supports preview scrolling and clears on cancel', async ({
   page,
 }) => {
@@ -1908,32 +1959,45 @@ test('header project controls reuse existing actions and respect project and tas
   const project = page.locator('.project-toolbar');
   const create = page.getByRole('button', { name: '新建项目', exact: true });
   const menu = page.getByLabel('更多项目操作');
-  const settings = page.getByRole('button', { name: '设置', exact: true });
   const workspace = page.locator('.workbench-menu > summary');
-  await expect(settings).toHaveClass(/rt-variant-surface/);
+  const tools = page.locator('.workspace-project-tools');
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+  await expect(tools).not.toHaveAttribute('open');
   for (const width of [1440, 998, 759]) {
     await page.setViewportSize({ width, height: 940 });
+    await page.mouse.move(0, 0);
+    for (const property of ['color', 'font-weight', 'font-size', 'background-color'])
+      await expect(workspace).toHaveCSS(
+        property,
+        await create.evaluate(
+          (element, name) => getComputedStyle(element).getPropertyValue(name),
+          property,
+        ),
+      );
+    for (const property of ['border-top-color', 'border-top-width', 'border-top-style'])
+      await expect(workspace).toHaveCSS(
+        property,
+        await project.evaluate(
+          (element, name) => getComputedStyle(element).getPropertyValue(name),
+          property,
+        ),
+      );
     const group = await project.boundingBox();
     const button = await create.boundingBox();
     const arrow = await menu.boundingBox();
-    const settingsBox = await settings.boundingBox();
     const workspaceBox = await workspace.boundingBox();
-    if (!group || !button || !arrow || !settingsBox || !workspaceBox)
-      throw new Error('Header control is missing');
+    if (!group || !button || !arrow || !workspaceBox) throw new Error('Header control is missing');
     expect(Math.abs(button.y - arrow.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(button.height - arrow.height)).toBeLessThanOrEqual(1);
     expect(Math.abs(button.x + button.width - arrow.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(button.x - group.x - 1)).toBeLessThanOrEqual(1);
     expect(Math.abs(arrow.x + arrow.width - (group.x + group.width - 1))).toBeLessThanOrEqual(1);
-    for (const control of [settingsBox, workspaceBox]) {
-      expect(Math.abs(group.y - control.y)).toBeLessThanOrEqual(1);
-      expect(Math.abs(group.height - control.height)).toBeLessThanOrEqual(1);
-    }
+    expect(Math.abs(group.y - workspaceBox.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(group.height - workspaceBox.height)).toBeLessThanOrEqual(1);
     await menu.click();
     expect(await project.boundingBox()).toEqual(group);
     expect(await create.boundingBox()).toEqual(button);
     expect(await menu.boundingBox()).toEqual(arrow);
-    expect(await settings.boundingBox()).toEqual(settingsBox);
     expect(await workspace.boundingBox()).toEqual(workspaceBox);
     const popup = await page.locator('.project-menu-content').boundingBox();
     if (!popup) throw new Error('Project menu is missing');
@@ -1942,6 +2006,19 @@ test('header project controls reuse existing actions and respect project and tas
     expect(popup.y + popup.height).toBeLessThanOrEqual(940);
     await page.keyboard.press('Escape');
     await expect(page.locator('.project-menu')).not.toHaveAttribute('open');
+    await workspace.click();
+    const guide = page.getByRole('button', { name: '连接向导', exact: true });
+    await expect(guide).toBeVisible();
+    await expect(guide).toHaveClass(/rt-Button/);
+    await expect(guide.locator('svg')).toHaveCount(1);
+    await expect(tools).not.toHaveAttribute('open');
+    await expect(tools.getByRole('button', { name: '预览', exact: true })).not.toBeVisible();
+    await tools.locator(':scope > summary').click();
+    for (const name of ['预览', '终端', 'Diff', '工具与额度'])
+      await expect(tools.getByRole('button', { name, exact: true })).toBeVisible();
+    await tools.locator(':scope > summary').click();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.workbench-menu')).not.toHaveAttribute('open');
     await page.screenshot({ path: testInfo.outputPath(`project-header-grouped-${width}.png`) });
   }
   await expect(
@@ -1957,7 +2034,8 @@ test('header project controls reuse existing actions and respect project and tas
     'rgb(35, 115, 74)',
   );
   await expect(page.locator('.voice-status > svg > path').first()).toHaveAttribute('d', /^m2 2/);
-  await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
+  await expect(workspace).toBeVisible();
+  await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('project-header-connected.png') });
   await page.getByRole('button', { name: '打开项目', exact: true }).click();
   await expect.poll(() => actions).toEqual(['new-project', 'select-project']);
@@ -2034,6 +2112,7 @@ test('operator and display distinguish service connection, local wake and actual
     }
     if (path === '/display') {
       await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '连接向导', exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
     }
   }
@@ -2372,7 +2451,7 @@ test('detailed voice logs always record, copy separately with a warning, and con
   expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
 });
 
-test('settings show all three defaults on while preserving saved off choices without requesting audio', async ({
+test('the connection guide shows all three defaults on while preserving saved off choices without requesting audio', async ({
   page,
 }) => {
   const f = await open(page, runtime());

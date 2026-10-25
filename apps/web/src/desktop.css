@@ -315,6 +315,25 @@
   font-size: 12px;
   font-weight: 500;
 }
+.workspace-project-tools > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--live-muted);
+  font-size: 12px;
+  font-weight: 500;
+  list-style: none;
+}
+.workspace-project-tools > summary::-webkit-details-marker {
+  display: none;
+}
+.workspace-project-tools > summary svg {
+  width: 15px;
+  height: 15px;
+}
+.workspace-project-tools[open] > summary svg {
+  transform: rotate(180deg);
+}
 .workbench-section-heading {
   display: flex;
   align-items: baseline;
@@ -1614,7 +1633,8 @@
   box-shadow: none;
 }
 .live-header .settings-link,
-.live-header .project-toolbar > button {
+.live-header .project-toolbar > button,
+.live-header .workbench-menu > summary {
   font-weight: 500;
 }
 .workbench-theme .live-workbench :is(.rt-TextFieldRoot, .rt-TextAreaRoot) {

@@ -1,12 +1,19 @@
 import { errorSchema, type Session, sessionSchema } from '@lingxi/protocol';
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { WorkbenchTheme } from './ConfigurationControls';
 import { DesktopWorkbench } from './DesktopWorkbench.js';
 import { SettingsLink } from './Navigation';
 
 const sourceLabels = { keyboard: '键盘', voice: '语音', pointer: '点选' } as const;
 
 export function App({ active = true }: { active?: boolean }) {
-  return window.lingxiDesktop ? <DesktopWorkbench active={active} /> : <DraftApp />;
+  return window.lingxiDesktop ? (
+    <WorkbenchTheme>
+      <DesktopWorkbench active={active} />
+    </WorkbenchTheme>
+  ) : (
+    <DraftApp />
+  );
 }
 
 function DraftApp() {

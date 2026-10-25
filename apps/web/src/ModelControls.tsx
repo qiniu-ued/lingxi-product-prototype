@@ -5,6 +5,7 @@ import {
   type WorkbenchState,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ConfigurationButton, ConfigurationSelect } from './ConfigurationControls.js';
 
 export function ModelControls({
   state,
@@ -66,17 +67,18 @@ export function ModelControls({
       <fieldset disabled={busy || !connected || !projectId}>
         <legend>用于新提交的轮次</legend>
         <label htmlFor="codex-model">模型</label>
-        <select
+        <ConfigurationSelect
           id="codex-model"
+          disabled={busy || !connected || !projectId}
           value={state.settings.model ?? ''}
-          onChange={(event) => {
-            const model = event.target.value || null,
+          onValueChange={(value) => {
+            const model = value || null,
               descriptor = models.find((item) => item.model === model);
-            const value = reasoningEffortSchema.safeParse(descriptor?.defaultReasoningEffort);
+            const parsed = reasoningEffortSchema.safeParse(descriptor?.defaultReasoningEffort);
             const effort =
-              value.success &&
-              descriptor?.supportedReasoningEfforts.some((e) => e.reasoningEffort === value.data)
-                ? value.data
+              parsed.success &&
+              descriptor?.supportedReasoningEfforts.some((e) => e.reasoningEffort === parsed.data)
+                ? parsed.data
                 : null;
             void save(model, effort);
           }}
@@ -96,14 +98,14 @@ export function ModelControls({
               {model.displayName}
             </option>
           ))}
-        </select>
+        </ConfigurationSelect>
         <label htmlFor="codex-effort">Reasoning Effort</label>
-        <select
+        <ConfigurationSelect
           id="codex-effort"
           value={state.settings.effort ?? ''}
-          disabled={!efforts.length}
-          onChange={(event) => {
-            const parsed = reasoningEffortSchema.safeParse(event.target.value);
+          disabled={busy || !connected || !projectId || !efforts.length}
+          onValueChange={(value) => {
+            const parsed = reasoningEffortSchema.safeParse(value);
             void save(state.settings.model, parsed.success ? parsed.data : null);
           }}
         >
@@ -117,11 +119,15 @@ export function ModelControls({
               {selected?.defaultReasoningEffort === effort.value ? '（模型默认）' : ''}
             </option>
           ))}
-        </select>
+        </ConfigurationSelect>
       </fieldset>
-      <button type="button" disabled={loading || !projectId} onClick={() => void load()}>
+      <ConfigurationButton
+        type="button"
+        disabled={loading || !projectId}
+        onClick={() => void load()}
+      >
         {loading ? '读取模型中…' : '刷新模型列表'}
-      </button>
+      </ConfigurationButton>
       {state.runtime?.model && (
         <small>
           Codex 已确认的线程设置：{state.runtime.model} · {state.runtime.effort ?? '强度未报告'}

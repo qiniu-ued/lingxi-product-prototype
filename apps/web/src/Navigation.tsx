@@ -1,4 +1,5 @@
-import { createContext, useContext } from 'react';
+import { createContext, type ReactNode, useContext } from 'react';
+import { ConfigurationButton } from './ConfigurationControls';
 
 export type SettingsSection = 'codex' | 'lingxi' | 'wake';
 export const Navigation = createContext({
@@ -9,22 +10,32 @@ export const Navigation = createContext({
 export function SettingsLink({
   section,
   label = '设置',
+  variant = 'ghost',
+  icon,
 }: {
   section?: SettingsSection;
   label?: string;
+  variant?: 'ghost' | 'surface';
+  icon?: ReactNode;
 }) {
   const navigation = useContext(Navigation);
   return (
-    <button type="button" className="settings-link" onClick={() => navigation.settings(section)}>
+    <ConfigurationButton
+      type="button"
+      className="settings-link"
+      variant={variant}
+      onClick={() => navigation.settings(section)}
+    >
+      {icon}
       {label}
-    </button>
+    </ConfigurationButton>
   );
 }
 export function SetupLink({ label = '连接向导' }: { label?: string }) {
   const navigation = useContext(Navigation);
   return (
-    <button type="button" onClick={navigation.setup}>
+    <ConfigurationButton type="button" onClick={navigation.setup}>
       {label}
-    </button>
+    </ConfigurationButton>
   );
 }

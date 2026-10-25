@@ -1,5 +1,10 @@
+import { SettingsTheme } from './ConfigurationControls';
 import { SetupPage } from './SetupPage';
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
-  return <SetupPage mode="settings" onContinue={onClose} />;
+  return (
+    <SettingsTheme>
+      <SetupPage mode="settings" onContinue={onClose} />
+    </SettingsTheme>
+  );
 }

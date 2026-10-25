@@ -1,5 +1,11 @@
 import type { WorkbenchState } from '@lingxi/protocol';
+import { ArrowLeft, Plus } from 'lucide-react';
 import { useState } from 'react';
+import {
+  ConfigurationButton,
+  ConfigurationInput,
+  ConfigurationSelect,
+} from './ConfigurationControls';
 
 export function ConversationNavigation({
   state,
@@ -38,35 +44,39 @@ export function ConversationNavigation({
     <nav className="conversation-navigation" aria-label="项目会话">
       <div className="conversation-navigation-row">
         <label htmlFor="conversation-select">会话</label>
-        <select
+        <ConfigurationSelect
           id="conversation-select"
           aria-label="切换对话"
           title={current?.title}
           disabled={unavailable || !conversations.length}
           value={current?.id ?? ''}
-          onChange={(event) => onSelect(event.target.value)}
+          onValueChange={onSelect}
         >
           <option value="" disabled>
             {!state ? '正在读取会话…' : '选择对话'}
           </option>
           {visible.map((thread) => (
             <option key={thread.id} value={thread.id}>
+              {thread.kind !== 'main' &&
+              !thread.title.startsWith(thread.kind === 'sidechat' ? 'Sidechat ·' : 'Fork ·')
+                ? `${thread.kind === 'sidechat' ? 'Sidechat' : 'Fork'} · `
+                : ''}
               {thread.title}
               {thread.archived ? '（已归档）' : ''}
             </option>
           ))}
-        </select>
-        <button
+        </ConfigurationSelect>
+        <ConfigurationButton
           type="button"
           aria-label="新对话"
           title="新对话"
           disabled={unavailable}
           onClick={onNew}
         >
-          ＋
-        </button>
+          <Plus aria-hidden="true" />
+        </ConfigurationButton>
         {current?.parentId && (
-          <button
+          <ConfigurationButton
             type="button"
             disabled={unavailable || !parent}
             title={parent ? `返回：${parent.title}` : '原对话已不可用，请从会话列表选择'}
@@ -74,12 +84,12 @@ export function ConversationNavigation({
               if (parent) onSelect(parent.id);
             }}
           >
-            返回原对话
-          </button>
+            <ArrowLeft aria-hidden="true" /> 返回原对话
+          </ConfigurationButton>
         )}
       </div>
       {!!conversations.length && (
-        <input
+        <ConfigurationInput
           type="search"
           aria-label="搜索对话"
           placeholder="搜索会话"
@@ -109,7 +119,7 @@ export function ConversationNavigation({
                         ? '分支对话 · 与原对话共享项目文件'
                         : current?.kind === 'sidechat'
                           ? 'Sidechat · 只读讨论'
-                          : '切换会话只切换聊天，不回退项目文件。'}
+                          : ''}
       </small>
     </nav>
   );

@@ -136,8 +136,8 @@ async function open(
           broadcast = (event: Event) => this.listener?.({ data: (event as CustomEvent).detail });
           disconnect = () => this.onerror?.();
           constructor() {
-            window.addEventListener('fixture-snapshot', this.broadcast);
             window.addEventListener('fixture-disconnect', this.disconnect);
+            window.addEventListener('fixture-snapshot', this.broadcast);
             this.timer = setTimeout(() => {
               this.onopen?.();
               this.listener?.({ data: snapshot });
@@ -420,19 +420,41 @@ async function open(
     },
   };
 }
+async function openVoiceMenu(page: Page) {
+  const menu = page.locator('.voice-more');
+  if (!(await menu.evaluate((element) => (element as HTMLDetailsElement).open)))
+    await page.getByLabel('更多语音操作', { exact: true }).click();
+}
+
 test('composer loads models automatically, limits effort choices and resets incompatible effort', async ({
   page,
 }) => {
   const fixture = await open(page, runtime(), true);
-  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
+  await page.locator('.composer-options > summary').click();
   await expect(page.getByText('模型列表读取失败，已保存的选择仍保留。')).toBeVisible();
-  await expect(page.getByLabel('模型', { exact: true })).toHaveValue('test-model');
-  await expect(page.getByLabel('Reasoning Effort', { exact: true })).toHaveValue('high');
+  await expect(page.getByRole('combobox', { name: '模型', exact: true })).toHaveText(
+    '已保存：test-model',
+  );
+  await expect(page.getByRole('combobox', { name: 'Reasoning Effort', exact: true })).toHaveText(
+    '已保存：high',
+  );
   fixture.allowModels();
   await page.getByRole('button', { name: '刷新模型列表' }).click();
-  await page.getByLabel('模型', { exact: true }).selectOption('fast-model');
-  await expect(page.getByLabel('Reasoning Effort', { exact: true })).toHaveValue('low');
-  await expect(page.locator('#codex-effort option[value="high"]')).toHaveCount(0);
+  await page.getByRole('combobox', { name: '模型', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText([
+    '沿用线程（test-model）',
+    'Test Model',
+    'Fast Model',
+  ]);
+  await page.getByRole('option', { name: 'Fast Model', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: 'Reasoning Effort', exact: true })).toHaveText(
+    'low（模型默认）',
+  );
+  await page.getByRole('combobox', { name: 'Reasoning Effort', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText(['沿用 Codex 设置', 'low（模型默认）']);
+  await expect(page.getByRole('option', { name: /^high/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   expect(fixture.state().settings).toMatchObject({ model: 'fast-model', effort: 'low' });
 });
 
@@ -453,6 +475,13 @@ async function selectExcerpt(page: Page, taskId: string, text: string, role = 'a
     .locator(`[data-history-task="${taskId}"][data-history-role="${role}"]`)
     .first();
   await bubble.scrollIntoViewIfNeeded();
+  // Settle the scroll before selecting text in the resized conversation column.
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   await bubble.evaluate((element, excerpt) => {
     const node = element.firstChild;
     const start = node?.textContent?.indexOf(excerpt) ?? -1;
@@ -469,7 +498,7 @@ async function selectExcerpt(page: Page, taskId: string, text: string, role = 'a
 }
 test('selecting an excerpt quotes only that text and preserves a written reply without starting a task', async ({
   page,
-}) => {
+}, testInfo) => {
   const source = turn('原始要求');
   source.messages = [
     { id: 'answer', text: '第一段介绍。\n这一段需要重新设计。\n最后一段保持不变。' },
@@ -480,8 +509,55 @@ test('selecting an excerpt quotes only that text and preserves a written reply w
     history: [source],
     task: source,
   });
-  await page.locator('.keyboard-composer > summary').click();
+  await expect(page.getByText('选中文字引用', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('请解释这里的设计考虑');
+  await selectExcerpt(page, source.id, '这一段需要重新设计。');
+  const toolbar = page.getByRole('toolbar', { name: '所选对话文字操作' });
+  const bounds = await toolbar.boundingBox();
+  const conversation = await page.locator('.live-transcript').boundingBox();
+  const selection = await page.evaluate(() => {
+    const range = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+    return range ? { top: range.top, bottom: range.bottom } : null;
+  });
+  if (!bounds || !selection || !conversation) throw new Error('Selected text toolbar is missing');
+  expect(bounds.x).toBeGreaterThanOrEqual(conversation.x);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(conversation.x + conversation.width);
+  const sizing = await toolbar.evaluate((element) =>
+    [element, ...element.querySelectorAll('button')].map((node) => {
+      const style = getComputedStyle(node);
+      return {
+        name: node.getAttribute('aria-label') || node.textContent,
+        height: style.height,
+        minHeight: style.minHeight,
+        boxSizing: style.boxSizing,
+        padding: style.padding,
+        margin: style.margin,
+        bounds: node.getBoundingClientRect().height,
+      };
+    }),
+  );
+  expect(bounds.height, JSON.stringify(sizing)).toBeLessThanOrEqual(44);
+  for (const control of sizing.slice(1)) {
+    expect(control.boxSizing).toBe('border-box');
+    expect(control.bounds).toBe(30);
+  }
+  await testInfo.attach('history-toolbar-layout', {
+    body: JSON.stringify(sizing, null, 2),
+    contentType: 'application/json',
+  });
+  if (selection.top >= bounds.height + 16)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(selection.top - 4);
+  else expect(bounds.y).toBeGreaterThanOrEqual(selection.bottom + 4);
+  for (const action of ['引用到对话', '选段 Sidechat', '关闭选段操作'])
+    await expect(
+      toolbar.getByRole('button', { name: action, exact: true }).locator('svg'),
+    ).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('history-selection-compact.png') });
+  await page.getByRole('button', { name: '关闭选段操作', exact: true }).click();
+  await expect(toolbar).not.toBeVisible();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('请解释这里的设计考虑');
+  expect(fixture.commands).toHaveLength(0);
   await selectExcerpt(page, source.id, '这一段需要重新设计。');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('请解释这里的设计考虑');
@@ -501,15 +577,19 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
     history: [source],
     task: source,
   });
-  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('主对话未发送的草稿');
   await selectExcerpt(page, source.id, '请讨论这个按钮。');
   await page.getByRole('button', { name: '关闭选段操作', exact: true }).click();
   expect(fixture.commands).toHaveLength(0);
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   await selectExcerpt(page, source.id, '请讨论这个按钮。');
   await page.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
-  await expect(page.getByLabel('权限', { exact: true })).toHaveValue('sidechat');
+  await page.locator('.composer-options > summary').click();
+  await expect(page.getByRole('combobox', { name: '权限', exact: true })).toHaveText(
+    'Sidechat · 只读',
+  );
+  await expect(page.getByRole('combobox', { name: '权限', exact: true })).toBeDisabled();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('');
   await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
   await expect(page.locator('.context-attachments')).not.toContainText('其他内容');
@@ -529,15 +609,29 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
     messages: [{ id: 'response', text: '讨论结论：保留这个按钮。' }],
   };
   await fixture.publish({ history: [answer], task: answer });
-  await page.locator('.keyboard-composer > summary').click();
+  await page.setViewportSize({ width: 759, height: 767 });
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await selectExcerpt(page, answer.id, '讨论结论：保留这个按钮。');
+  const toolbar = await page.getByRole('toolbar', { name: '所选对话文字操作' }).boundingBox();
+  const conversation = await page.locator('.live-transcript').boundingBox();
+  if (!toolbar || !conversation) throw new Error('Sidechat selection toolbar is missing');
+  expect(toolbar.height).toBeLessThanOrEqual(80);
+  expect(toolbar.x).toBeGreaterThanOrEqual(conversation.x);
+  expect(toolbar.x + toolbar.width).toBeLessThanOrEqual(conversation.x + conversation.width);
   await page.getByRole('button', { name: '引用到原对话' }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话未发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('讨论结论：保留这个按钮。');
-  await page.getByLabel('切换对话').selectOption(sideId);
+  await page.getByRole('combobox', { name: '切换对话' }).click();
+  await page.getByRole('option', { name: 'Sidechat · 选段讨论', exact: true }).click();
+  await expect.poll(() => fixture.state().selectedThreadId).toBe(sideId);
+  await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('Sidechat 的问题草稿');
   await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
 });
+async function ensureComposer(page: Page) {
+  const trigger = page.getByRole('button', { name: '文字输入', exact: true });
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') await trigger.click();
+}
 test('a fork exposes the current conversation list and a direct return without opening Workspace', async ({
   page,
 }) => {
@@ -548,9 +642,9 @@ test('a fork exposes the current conversation list and a direct return without o
     history: [source],
     task: source,
   });
-  await page.locator('.keyboard-composer > summary').click();
+  await ensureComposer(page);
   await page.getByLabel('给 Codex 的本轮指令').fill('主对话草稿');
-  await page.locator('.keyboard-composer > summary').click();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Fork 对话', exact: true }).click();
   await expect(page.getByLabel('切换对话')).toBeVisible();
   await expect(page.getByRole('button', { name: '返回原对话', exact: true })).toBeVisible();
@@ -558,34 +652,37 @@ test('a fork exposes the current conversation list and a direct return without o
     'fork',
   );
   const child = f.state().selectedThreadId as string;
-  await page.locator('.keyboard-composer > summary').click();
+  await ensureComposer(page);
   await page.getByLabel('给 Codex 的本轮指令').fill('分支草稿');
   await page.getByLabel('搜索对话').fill('不存在的名字');
-  await expect(page.getByLabel('切换对话')).toHaveValue(child);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('Fork · 分支对话');
   await expect(page.getByText('没有匹配的会话，当前选择仍保留。')).toBeVisible();
   await page.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话草稿');
   await expect(page.getByLabel('搜索对话')).toHaveValue('');
-  await page.getByLabel('切换对话').selectOption(child);
+  await page.getByRole('combobox', { name: '切换对话' }).click();
+  await page.getByRole('option', { name: 'Fork · 分支对话', exact: true }).click();
+  await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('分支草稿');
   await page.getByRole('button', { name: '返回原对话', exact: true }).click();
-  await page.locator('.keyboard-composer > summary').click();
+  await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Fork 对话', exact: true }).click();
   await expect
     .poll(() => f.state().threads.filter((thread) => thread.kind === 'fork').length)
     .toBe(2);
   await page.getByRole('button', { name: '返回原对话', exact: true }).click();
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   expect(f.commands.filter((command) => command.action === 'fork')).toHaveLength(2);
   expect(f.state().history[0]?.id).toBe(source.id);
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page).toHaveURL(/\/settings$/);
   await page.goBack();
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   await page.goForward();
   await expect(page).toHaveURL(/\/settings$/);
   await page.goBack();
-  await page.locator('.keyboard-composer > summary').click();
+  await ensureComposer(page);
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话草稿');
 });
 
@@ -615,7 +712,7 @@ test('failed or pending forks retain the source, prevent repeated clicks and lea
   const fork = page.getByRole('button', { name: 'Fork 对话', exact: true });
   await fork.click();
   await expect(page.getByRole('alert')).toContainText('操作未完成');
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   expect(f.state().threads).toHaveLength(1);
   fail = false;
   await fork.click();
@@ -624,7 +721,7 @@ test('failed or pending forks retain the source, prevent repeated clicks and lea
   expect(requests).toBe(2);
   release();
   await page.getByRole('button', { name: '返回原对话', exact: true }).click();
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   expect(f.state().threads).toHaveLength(2);
   await f.publish({ task: { ...source, status: 'running' } });
   await expect(page.getByLabel('切换对话')).toBeDisabled();
@@ -648,20 +745,20 @@ test('conversation navigation handles empty projects and filters other projects 
     title: 'Other project conversation',
   };
   await f.publish({ threads: [historyThread(), foreign], selectedThreadId: conversationId });
-  await expect(page.getByLabel('切换对话').locator('option')).toHaveCount(2);
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
-  await expect(
-    page.getByLabel('切换对话').locator('option').filter({ hasText: foreign.title }),
-  ).toHaveCount(0);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
+  await page.getByRole('combobox', { name: '切换对话' }).click();
+  await expect(page.getByRole('option')).toHaveCount(2);
+  await expect(page.getByRole('option', { name: foreign.title })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await page.evaluate(() => window.dispatchEvent(new Event('fixture-disconnect')));
   await expect(page.getByLabel('切换对话')).toBeDisabled();
   await expect(page.getByText('会话列表连接中断，正在重连；当前内容保留。')).toBeVisible();
-  await expect(page.getByLabel('切换对话')).toHaveValue(conversationId);
+  await expect(page.getByRole('combobox', { name: '切换对话' })).toHaveText('主对话');
   await page.goto('/display');
   await expect(page.getByRole('navigation', { name: '项目会话', exact: true })).toHaveCount(0);
 });
 
-test('usage summaries remain visible with auxiliary menus closed, including on the passive display', async ({
+test('turn usage stays in operator details and remains absent from the passive display', async ({
   page,
 }) => {
   const source = turn('查看统计');
@@ -674,12 +771,21 @@ test('usage summaries remain visible with auxiliary menus closed, including on t
   });
   for (const path of ['/', '/display']) {
     if (path !== '/') await page.goto(path);
-    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '32,000 Token used',
-    );
-    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '40.0% Cache hit.',
-    );
+    await expect(page.getByRole('region', { name: '本轮用量摘要' })).not.toBeVisible();
+    if (path === '/') {
+      await page.locator('.turn-tools > summary').click();
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+        '32,000 Token used',
+      );
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+        '40.0% Cache hit.',
+      );
+      await page.locator('.turn-tools > summary').click();
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).not.toBeVisible();
+    } else {
+      await expect(page.locator('.turn-usage')).toHaveCount(0);
+      await expect(page.locator('.turn-tools')).toHaveCount(0);
+    }
     await expect(page.getByRole('table')).toHaveCount(0);
     await page.getByRole('button', { name: '上下文使用详情', exact: true }).hover();
     await expect(page.getByRole('tooltip')).toHaveText('Context Window: 32,000/128,000 used.');
@@ -754,6 +860,7 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
   const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
   const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
   const runningTurn = page.locator('article.conversation-turn').filter({ hasText: '运行中' });
+  await firstTurn.locator('.turn-tools > summary').click();
   await expect(firstTurn.getByRole('region', { name: '本轮用量摘要' })).toContainText(
     '32,000 Token used',
   );
@@ -778,6 +885,8 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
       },
     ],
   });
+  await secondTurn.locator('.turn-tools > summary').click();
+  await expect(secondTurn.getByRole('region', { name: '本轮用量摘要' })).toBeVisible();
   await expect(secondTurn).toContainText('48,000 Token used');
   await expect(secondTurn).toContainText('25.0% Cache hit.');
   await expect(firstTurn).toContainText('40.0% Cache hit.');
@@ -819,6 +928,8 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
   });
   const article = (text: string) =>
     page.locator('article.conversation-turn').filter({ hasText: text });
+  for (const prompt of ['缺少基线', '缺少缓存', '无输入', '已中断'])
+    await article(prompt).locator('.turn-tools > summary').click();
   await expect(article('缺少基线').locator('.turn-usage')).toHaveCount(0);
   await expect(article('缺少缓存').locator('.turn-usage')).toContainText('32,000 Token used');
   await expect(article('缺少缓存').locator('.turn-usage')).not.toContainText('Cache hit');
@@ -831,22 +942,37 @@ test('composer selects collaboration modes and permissions, and reports explicit
   page,
 }) => {
   const fixture = await open(page, runtime());
-  await page.locator('.keyboard-composer > summary').click();
-  await expect(page.locator('#collaboration-mode option[value="plan"]')).toBeEnabled();
-  await page.getByLabel('工作模式', { exact: true }).selectOption('plan');
-  await expect(page.getByLabel('工作模式', { exact: true })).toHaveValue('plan');
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
+  await page.locator('.composer-options > summary').click();
+  await page.getByRole('combobox', { name: '工作模式', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText(['执行模式', '计划模式']);
+  await expect(page.getByRole('option', { name: '计划模式', exact: true })).toBeEnabled();
+  await page.getByRole('option', { name: '计划模式', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '工作模式', exact: true })).toHaveText(
+    '计划模式',
+  );
   expect(fixture.state().settings.plan).toBe(true);
-  await page.getByLabel('权限', { exact: true }).selectOption('full-access');
+  await page.getByRole('combobox', { name: '权限', exact: true }).click();
+  await expect(page.getByRole('option')).toHaveText([
+    'Manual · 手动审批',
+    'Approve for me · 自动审查',
+    'Full Access · 完整访问',
+  ]);
+  await page.getByRole('option', { name: 'Full Access · 完整访问', exact: true }).click();
   await expect(page.getByRole('region', { name: '执行设置' })).toContainText(
     '可访问沙箱外文件和网络',
   );
   expect(fixture.state().permission).toBe('full-access');
-  await page.getByLabel('权限', { exact: true }).selectOption('auto-review');
+  await page.getByRole('combobox', { name: '权限', exact: true }).click();
+  await page.getByRole('option', { name: 'Approve for me · 自动审查', exact: true }).click();
   await expect(page.getByRole('region', { name: '执行设置' })).toContainText(
     '越界请求由 Codex 自动审查',
   );
-  await page.getByLabel('工作模式', { exact: true }).selectOption('default');
-  await expect(page.getByLabel('工作模式', { exact: true })).toHaveValue('default');
+  await page.getByRole('combobox', { name: '工作模式', exact: true }).click();
+  await page.getByRole('option', { name: '执行模式', exact: true }).click();
+  await expect(page.getByRole('combobox', { name: '工作模式', exact: true })).toHaveText(
+    '执行模式',
+  );
   await page.getByText('模式说明与兼容验证', { exact: true }).click();
   await page.getByRole('button', { name: '验证执行设置', exact: true }).click();
   await expect(
@@ -854,6 +980,80 @@ test('composer selects collaboration modes and permissions, and reports explicit
   ).toBeVisible();
   await expect(page.getByText('先给计划并请求确认', { exact: true })).toHaveCount(0);
 });
+
+test('selection controls cannot open or send changes while saving or verifying settings', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  let releaseSave = () => {};
+  let releaseVerification = () => {};
+  const saving = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  const verifying = new Promise<void>((resolve) => {
+    releaseVerification = resolve;
+  });
+  let workspaceRequests = 0;
+  let verificationRequests = 0;
+  await page.route('**/api/workbench/workspace', async (route) => {
+    workspaceRequests++;
+    await saving;
+    return route.fallback();
+  });
+  await page.route('**/api/workbench/verify-execution', async (route) => {
+    verificationRequests++;
+    await verifying;
+    return route.fallback();
+  });
+  try {
+    await page.getByRole('button', { name: '文字输入', exact: true }).click();
+    await page.locator('.composer-options > summary').click();
+    await page.getByRole('combobox', { name: '模型', exact: true }).click();
+    await page.getByRole('option', { name: 'Fast Model', exact: true }).click();
+    await expect.poll(() => workspaceRequests).toBe(1);
+    for (const name of ['模型', 'Reasoning Effort', '工作模式', '权限']) {
+      const control = page.getByRole('combobox', { name, exact: true });
+      await expect(control).toBeDisabled();
+      await expect(control).toHaveAttribute('disabled', '');
+      await control.click({ force: true });
+      await expect(page.getByRole('option')).toHaveCount(0);
+    }
+    expect(workspaceRequests).toBe(1);
+    expect(f.commands).toHaveLength(0);
+    releaseSave();
+    await expect(page.getByRole('combobox', { name: '模型', exact: true })).toHaveText(
+      'Fast Model',
+    );
+    await expect(
+      page.getByRole('combobox', { name: 'Reasoning Effort', exact: true }),
+    ).toBeEnabled();
+    expect(f.state().settings).toMatchObject({ model: 'fast-model', effort: 'low' });
+
+    await page.getByText('模式说明与兼容验证', { exact: true }).click();
+    await page.getByRole('button', { name: '验证执行设置', exact: true }).click();
+    await expect.poll(() => verificationRequests).toBe(1);
+    for (const name of ['工作模式', '权限']) {
+      const control = page.getByRole('combobox', { name, exact: true });
+      await expect(control).toBeDisabled();
+      await expect(control).toHaveAttribute('disabled', '');
+      await control.click({ force: true });
+      await expect(page.getByRole('option')).toHaveCount(0);
+    }
+    expect(workspaceRequests).toBe(1);
+    expect(verificationRequests).toBe(1);
+    expect(f.commands).toHaveLength(1);
+    releaseVerification();
+    await expect(
+      page.getByText('已由 Codex 确认：计划模式、执行模式、Manual · 手动审批'),
+    ).toBeVisible();
+    await expect(page.getByRole('combobox', { name: '工作模式', exact: true })).toBeEnabled();
+    await expect(page.getByRole('combobox', { name: '权限', exact: true })).toBeEnabled();
+  } finally {
+    releaseSave();
+    releaseVerification();
+  }
+});
+
 test('tools show readable skill, MCP and quota cards with independent errors and no raw JSON', async ({
   page,
 }) => {
@@ -965,9 +1165,9 @@ test('voice wake uses the real audio worklet, stages current drafts after detect
     status: 'ready',
     wake: { status: 'off', keyword: '丽塔同学', installed: true, detectionId: null, error: null },
   });
-  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('本轮待发送草稿');
-  await page.getByText('语音唤醒', { exact: true }).click();
+  await openVoiceMenu(page);
   await page.getByRole('button', { name: '启用自动唤醒', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本地待唤醒' })).toContainText(
     '丽塔同学',
@@ -1044,7 +1244,7 @@ test('an explicit voice conversation keeps its microphone through responses and 
     selectedThreadId: conversationId,
   });
   fixture.publishVoice({ configured: true, status: 'ready' });
-  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('第一句话的草稿');
   await page.getByRole('button', { name: '开始收音', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
@@ -1069,6 +1269,7 @@ test('an explicit voice conversation keeps its microphone through responses and 
   await expect(page.getByRole('status').filter({ hasText: '正在播报' })).toBeVisible();
   fixture.publishVoice({ status: 'ready', speechId: null });
   await expect(page.getByRole('status').filter({ hasText: '本机待说话' })).toBeVisible();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('第二句话的新草稿');
   fixture.publishVoice({ speechId: randomUUID() });
   await expect.poll(() => fixture.contexts.length).toBe(3);
@@ -1189,7 +1390,7 @@ test('permanent settings keep the active composer and manage voice consent and t
     status: 'ready',
     wake: { status: 'off', keyword: '丽塔同学', installed: true, detectionId: null, error: null },
   });
-  await page.locator('.keyboard-composer > summary').click();
+  await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('设置前没有发送的草稿');
   await selectExcerpt(page, source.id, '保留设置前的工作的回答');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
@@ -1391,7 +1592,7 @@ test('default wake and an existing service connection stay separate; only a wake
     )
     .toBe(true);
   await page.reload();
-  await page.getByText('语音唤醒', { exact: true }).click();
+  await openVoiceMenu(page);
   await expect(page.getByRole('button', { name: '启用自动唤醒', exact: true })).toBeVisible();
   expect(f.voiceCommands.filter((c) => c.action === 'arm-wake')).toHaveLength(1);
 });
@@ -1500,7 +1701,7 @@ test('own TTS and its short echo tail mute outgoing microphone frames, then norm
   );
   expect(tail.length).toBeGreaterThan(5);
   expect(tail.every((frame: { max: number }) => frame.max === 0)).toBe(true);
-  await page.getByText('语音唤醒', { exact: true }).click();
+  await openVoiceMenu(page);
   await page.getByText('音频来源与回声', { exact: true }).click();
   await expect(page.getByText(/浏览器报告：回声消除/)).toBeVisible();
   await page.getByRole('button', { name: '关闭语音', exact: true }).click();
@@ -1551,7 +1752,7 @@ test('service reconnect status is separate from local wake and explicit disconne
   );
   await page.evaluate(() => window.dispatchEvent(new Event('online')));
   expect(f.voiceCommands.some((c) => c.action === 'retry-connection')).toBe(false);
-  await page.getByText('语音唤醒', { exact: true }).click();
+  await openVoiceMenu(page);
   await page.getByRole('button', { name: '关闭语音唤醒', exact: true }).click();
 });
 
@@ -1667,12 +1868,50 @@ test('header project controls reuse existing actions and respect project and tas
     actions.push(route.request().postDataJSON().action);
     return route.fulfill({ json: fixture.state() });
   });
+  const project = page.locator('.project-toolbar');
+  const create = page.getByRole('button', { name: '新建项目', exact: true });
+  const menu = page.getByLabel('更多项目操作');
+  const settings = page.getByRole('button', { name: '设置', exact: true });
+  const workspace = page.locator('.workbench-menu > summary');
+  await expect(settings).toHaveClass(/rt-variant-surface/);
+  for (const width of [1440, 998, 759]) {
+    await page.setViewportSize({ width, height: 940 });
+    const group = await project.boundingBox();
+    const button = await create.boundingBox();
+    const arrow = await menu.boundingBox();
+    const settingsBox = await settings.boundingBox();
+    const workspaceBox = await workspace.boundingBox();
+    if (!group || !button || !arrow || !settingsBox || !workspaceBox)
+      throw new Error('Header control is missing');
+    expect(Math.abs(button.y - arrow.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.height - arrow.height)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.x + button.width - arrow.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(button.x - group.x - 1)).toBeLessThanOrEqual(1);
+    expect(Math.abs(arrow.x + arrow.width - (group.x + group.width - 1))).toBeLessThanOrEqual(1);
+    for (const control of [settingsBox, workspaceBox]) {
+      expect(Math.abs(group.y - control.y)).toBeLessThanOrEqual(1);
+      expect(Math.abs(group.height - control.height)).toBeLessThanOrEqual(1);
+    }
+    await menu.click();
+    expect(await project.boundingBox()).toEqual(group);
+    expect(await create.boundingBox()).toEqual(button);
+    expect(await menu.boundingBox()).toEqual(arrow);
+    expect(await settings.boundingBox()).toEqual(settingsBox);
+    expect(await workspace.boundingBox()).toEqual(workspaceBox);
+    const popup = await page.locator('.project-menu-content').boundingBox();
+    if (!popup) throw new Error('Project menu is missing');
+    expect(popup.x).toBeGreaterThanOrEqual(0);
+    expect(popup.x + popup.width).toBeLessThanOrEqual(width);
+    expect(popup.y + popup.height).toBeLessThanOrEqual(940);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.project-menu')).not.toHaveAttribute('open');
+    await page.screenshot({ path: testInfo.outputPath(`project-header-grouped-${width}.png`) });
+  }
   await expect(
     page.getByText('点击右上角新建项目或者打开项目，开始和我聊聊你的想法吧', { exact: true }),
   ).toBeVisible();
   await page.getByRole('button', { name: '新建项目', exact: true }).click();
   await expect.poll(() => actions).toEqual(['new-project']);
-  const menu = page.getByLabel('更多项目操作');
   await menu.click();
   await expect(page.getByRole('button', { name: '刷新作品', exact: true })).toBeDisabled();
   fixture.publishVoice({ configured: true, status: 'ready' });
@@ -1700,7 +1939,7 @@ test('header project controls reuse existing actions and respect project and tas
 
 test('operator and display distinguish service connection, local wake and actual microphone state', async ({
   page,
-}) => {
+}, testInfo) => {
   const f = await open(page, runtime());
   const cases = [
     { status: 'ready', active: false, wake: 'off', muted: true, label: '服务已连接' },
@@ -1744,10 +1983,147 @@ test('operator and display distinguish service connection, local wake and actual
       if (row.muted) await expect(icon).toHaveAttribute('d', /^m2 2/);
       else await expect(icon).not.toHaveAttribute('d', /^m2 2/);
       if (row.label === '服务已连接') await expect(service).toHaveCSS('color', 'rgb(35, 115, 74)');
+      if (row.status === 'listening') {
+        await expect(page.locator(path === '/' ? '.voice-status' : '.live-mic-state')).toHaveCSS(
+          'color',
+          'rgb(35, 115, 74)',
+        );
+        await page.screenshot({
+          path: testInfo.outputPath(
+            `microphone-listening-${path === '/' ? 'operator' : 'display'}.png`,
+          ),
+        });
+      }
     }
     if (path === '/display') {
       await expect(page.getByRole('button', { name: '设置', exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: '新建项目', exact: true })).toHaveCount(0);
+    }
+  }
+  expect(f.commands).toHaveLength(0);
+});
+
+test('long conversation content and turn controls never create horizontal scrolling on either screen', async ({
+  page,
+}, testInfo) => {
+  const path = `/Users/designer/${'long-project-folder/'.repeat(18)}final-artifact.html`;
+  const word = `${'UnbrokenConversationContent'.repeat(28)}ReadableEnd`;
+  const completed = turn('检查完整对话');
+  completed.messages = [{ id: 'long-answer', text: `${path}\n${word}` }];
+  const f = await open(page, runtime(), false, {
+    task: completed,
+    history: [completed],
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  const currentTurn = {
+    id: randomUUID(),
+    sessionId: randomUUID(),
+    captureId: randomUUID(),
+    projectId,
+    conversationId,
+    at: new Date().toISOString(),
+    handoff: { captureId: null, status: 'unhandled', taskId: null, message: '本轮未交给 Codex' },
+    taskStatus: null,
+    messages: [
+      {
+        id: randomUUID(),
+        role: 'user',
+        text: path,
+        state: 'final',
+        at: new Date().toISOString(),
+      },
+      {
+        id: randomUUID(),
+        role: 'assistant',
+        text: word,
+        state: 'final',
+        at: new Date().toISOString(),
+      },
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) =>
+    route.fulfill({
+      json: {
+        revision: 1,
+        turns: [
+          currentTurn,
+          { ...currentTurn, id: randomUUID(), projectId: null, conversationId: null },
+        ],
+      },
+    }),
+  );
+  for (const screen of ['/', '/display']) {
+    await page.goto(screen);
+    await expect(page.locator('.voice-chat-turn')).toHaveCount(2);
+    await page.locator('.projectless-voice > summary').click();
+    for (const width of [1440, 998, 759]) {
+      await page.setViewportSize({ width, height: 767 });
+      const transcript = page.locator('.live-transcript');
+      const bounds = await transcript.boundingBox();
+      if (!bounds) throw new Error('Conversation viewport is missing');
+      const metrics = await transcript.evaluate((element) => ({
+        width: element.clientWidth,
+        content: element.scrollWidth,
+      }));
+      expect(metrics.content).toBeLessThanOrEqual(metrics.width + 1);
+      const children = await transcript
+        .locator(
+          '.conversation-turn, .chat-row, .chat-message, .live-bubble, .turn-icons, .turn-icons button, .voice-chat-turn, .voice-chat-controls, .voice-chat-controls button',
+        )
+        .evaluateAll((elements) =>
+          elements.map((element) => {
+            const rect = element.getBoundingClientRect();
+            return { className: element.className, left: rect.left, right: rect.right };
+          }),
+        );
+      for (const child of children) {
+        expect(child.left, child.className).toBeGreaterThanOrEqual(bounds.x - 1);
+        expect(child.right, child.className).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
+      }
+      const bubbles = transcript.locator(
+        '[data-history-message="long-answer"], [data-voice-message]',
+      );
+      await expect(transcript).toContainText('final-artifact.html');
+      await expect(transcript).toContainText('ReadableEnd');
+      for (const bubble of await bubbles.all()) {
+        const fullText = await bubble.evaluate((element) => {
+          const range = document.createRange();
+          const text = element.firstChild;
+          if (!text) throw new Error('Message text is missing');
+          const length = text.textContent?.length ?? 0;
+          range.setStart(text, Math.max(0, length - 16));
+          range.setEnd(text, length);
+          const tail = range.getBoundingClientRect(),
+            rect = element.getBoundingClientRect();
+          return {
+            left: tail.left - rect.left,
+            right: tail.right - rect.left,
+            width: rect.width,
+            clipped: element.scrollHeight > element.clientHeight + 1,
+          };
+        });
+        expect(fullText.left).toBeGreaterThanOrEqual(-1);
+        expect(fullText.right).toBeLessThanOrEqual(fullText.width + 1);
+        expect(fullText.clipped).toBe(false);
+      }
+      await transcript.hover();
+      await page.mouse.wheel(900, 0);
+      await expect.poll(() => transcript.evaluate((element) => element.scrollLeft)).toBe(0);
+      await expect(transcript).not.toContainText('语音文字仅保留本次应用运行');
+      const clear = page.getByRole('button', { name: '清除本次语音记录', exact: true });
+      await expect(clear).toHaveCount(screen === '/' ? 1 : 0);
+      if (screen === '/')
+        await expect(clear).toHaveAttribute('title', /语音记录仅保留.*本次应用运行/);
+      const copy = page.getByRole('button', { name: '复制本轮回复', exact: true });
+      const fork = page.getByRole('button', { name: 'Fork 对话', exact: true });
+      await expect(copy).toHaveCount(screen === '/' ? 1 : 0);
+      await expect(fork).toHaveCount(screen === '/' ? 1 : 0);
+      await page.screenshot({
+        path: testInfo.outputPath(
+          `conversation-no-horizontal-${screen === '/' ? 'operator' : 'display'}-${width}.png`,
+        ),
+      });
     }
   }
   expect(f.commands).toHaveLength(0);
@@ -1819,6 +2195,7 @@ test('voice diagnostics show actual status calls and copy only bounded metadata'
     return route.fulfill({ json: diagnostics });
   });
   f.publishVoice({ configured: true, status: 'ready', draft: 'PRIVATE_TRANSCRIPT' });
+  await page.locator('.voice-handoff-menu > summary').click();
   await page.getByRole('button', { name: '语音诊断', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '语音交接诊断' });
   await expect(dialog).toContainText('收到工具调用');
@@ -1901,6 +2278,7 @@ test('detailed voice logs always record, copy separately with a warning, and con
     return route.fulfill({ json: debug });
   });
   f.publishVoice({ configured: true, status: 'ready' });
+  await page.locator('.voice-handoff-menu > summary').click();
   await page.getByRole('button', { name: '语音诊断', exact: true }).click();
   const panel = page.getByRole('region', { name: '详细语音调试' });
   await expect(panel.getByRole('checkbox')).toHaveCount(0);
@@ -2161,4 +2539,275 @@ test('accepted voice links the actual task and never treats spoken completion as
   };
   await expect(page.getByText('Codex 执行失败', { exact: false })).toBeVisible();
   expect(f.commands).toHaveLength(0);
+});
+
+test('auxiliary forms stay within their column, close predictably and preserve drafts', async ({
+  page,
+}) => {
+  await open(page, runtime());
+  for (const width of [1440, 998, 759]) {
+    await page.setViewportSize({ width, height: 767 });
+    await page.getByRole('button', { name: '文字输入', exact: true }).click();
+    await page.getByLabel('给 Codex 的本轮指令').fill('保留这份草稿');
+    const composer = page.getByRole('form', { name: '文字指令' });
+    const form = await composer.boundingBox();
+    const conversation = await page.locator('.live-discussion').boundingBox();
+    if (!form || !conversation) throw new Error('Composer is missing');
+    expect(form.x).toBeGreaterThanOrEqual(conversation.x);
+    expect(form.x + form.width).toBeLessThanOrEqual(conversation.x + conversation.width);
+    if (
+      !(await page
+        .locator('.composer-options')
+        .evaluate((element) => (element as HTMLDetailsElement).open))
+    )
+      await page.locator('.composer-options > summary').click();
+    await page.getByRole('combobox', { name: '模型', exact: true }).click();
+    await page.getByRole('option', { name: 'Fast Model', exact: true }).click();
+    await expect(composer).toBeVisible();
+    const workspaceTrigger = page.locator('.workbench-menu > summary');
+    const triggerBefore = await workspaceTrigger.boundingBox();
+    await workspaceTrigger.click();
+    expect(await workspaceTrigger.boundingBox()).toEqual(triggerBefore);
+    await expect(workspaceTrigger.locator('svg')).toHaveCSS(
+      'transform',
+      'matrix(-1, 0, 0, -1, 0, 0)',
+    );
+    await expect(composer).not.toBeVisible();
+    const panel = await page.locator('.workbench-menu-content').boundingBox();
+    if (!panel) throw new Error('Workspace panel is missing');
+    expect(panel.x).toBeGreaterThanOrEqual(0);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(width);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.workbench-menu')).not.toHaveAttribute('open', '');
+    await page.getByRole('button', { name: '文字输入', exact: true }).click();
+    await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('保留这份草稿');
+    await openVoiceMenu(page);
+    await expect(composer).not.toBeVisible();
+    const wake = await page.locator('.voice-menu-content').boundingBox();
+    if (!wake) throw new Error('Wake panel is missing');
+    expect(wake.x).toBeGreaterThanOrEqual(0);
+    expect(wake.x + wake.width).toBeLessThanOrEqual(width);
+    await page.keyboard.press('Escape');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+});
+
+test('footer groups actions beside text input and keeps healthy diagnostics compact', async ({
+  page,
+}, testInfo) => {
+  const f = await open(page, runtime());
+  f.publishVoice({ configured: true, status: 'ready', subtitle: '上一轮已经结束的字幕' });
+  const footer = page.locator('.live-footer');
+  await expect(footer).not.toContainText('上一轮已经结束的字幕');
+  await expect(page.locator('.voice-handoff-details')).not.toBeVisible();
+  for (const width of [1440, 998, 759]) {
+    await page.setViewportSize({ width, height: 767 });
+    const status = await footer.locator('.voice-status').boundingBox();
+    const listen = await page.getByRole('button', { name: '开始收音', exact: true }).boundingBox();
+    const more = await page.getByLabel('更多语音操作', { exact: true }).boundingBox();
+    const text = await page.getByRole('button', { name: '文字输入', exact: true }).boundingBox();
+    if (!status || !listen || !more || !text) throw new Error('Voice action is missing');
+    expect(status.x).toBeLessThan(listen.x);
+    expect(listen.x + listen.width).toBeLessThanOrEqual(more.x);
+    expect(more.x + more.width).toBeLessThanOrEqual(text.x);
+    expect(Math.abs(listen.y - text.y)).toBeLessThanOrEqual(2);
+    await expect(footer.getByRole('heading', { name: '语音唤醒', exact: true })).not.toBeVisible();
+    const meter = await page.getByRole('meter', { name: '当前上下文占用' }).boundingBox();
+    if (!meter) throw new Error('Context meter is missing');
+    expect(meter.width).toBeLessThanOrEqual(48);
+    const context = await page.locator('.context-toggle-compact').boundingBox();
+    if (!context) throw new Error('Compact context control is missing');
+    expect(context.height).toBeLessThanOrEqual(28);
+    const panelBefore = await page.locator('.live-grid').boundingBox();
+    const footerBefore = await footer.boundingBox();
+    await openVoiceMenu(page);
+    await expect(footer.getByRole('heading', { name: '语音唤醒', exact: true })).toBeVisible();
+    const menu = page.locator('.voice-menu-content');
+    await expect(menu.getByRole('region', { name: '语音连接', exact: true })).toBeVisible();
+    await expect(menu.getByRole('region', { name: '语音设置', exact: true })).toBeVisible();
+    for (const action of await menu.getByRole('button').all()) {
+      await expect(action).toHaveClass(/rt-variant-ghost/);
+      await expect(action.locator('svg')).toHaveCount(1);
+      await expect(action).toHaveCSS('border-width', '0px');
+    }
+    await page.screenshot({ path: testInfo.outputPath(`voice-more-menu-${width}.png`) });
+    expect(await page.locator('.live-grid').boundingBox()).toEqual(panelBefore);
+    expect(await footer.boundingBox()).toEqual(footerBefore);
+    await page.getByText('音频来源与回声', { exact: true }).click();
+    expect(await page.locator('.live-grid').boundingBox()).toEqual(panelBefore);
+    expect(await footer.boundingBox()).toEqual(footerBefore);
+    await expect(page.getByRole('button', { name: '语音设置', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+  f.publishVoice({
+    status: 'speaking',
+    conversationActive: true,
+    captureId: randomUUID(),
+    subtitle: '正在播报的回复\n第二行语音字幕',
+  });
+  await expect(footer).toContainText('第二行语音字幕');
+  const keyboard = await page.getByRole('button', { name: '文字输入', exact: true }).boundingBox();
+  const close = await page.getByRole('button', { name: '关闭语音', exact: true }).boundingBox();
+  const stop = await page.getByRole('button', { name: '停止播报', exact: true }).boundingBox();
+  if (!keyboard || !close || !stop) throw new Error('Voice action is missing during playback');
+  expect(Math.abs(keyboard.y - close.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(keyboard.y - stop.y)).toBeLessThanOrEqual(2);
+  f.publishVoice({ status: 'ready', conversationActive: false });
+  await expect(footer).not.toContainText('正在播报的回复');
+});
+
+test('context and voice details stay exclusive and dismissible for clicks, failures and server updates', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  f.publishVoice({
+    configured: true,
+    status: 'ready',
+    allowVoiceSubmit: true,
+    deviceToolsReady: true,
+  });
+  const context = page.getByRole('button', { name: '上下文使用详情', exact: true });
+  const voice = page.locator('.voice-handoff-menu');
+  const voiceDetails = page.locator('.voice-handoff-details');
+  await expect(voice.locator(':scope > summary')).toHaveText('语音执行已开启');
+  await context.click();
+  await expect(context).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('table')).toBeVisible();
+
+  await voice.locator(':scope > summary').click();
+  await expect(voiceDetails).toBeVisible();
+  await expect(context).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('table')).not.toBeVisible();
+  await expect(voice.locator('.voice-handoff-chevron')).toHaveCSS(
+    'transform',
+    'matrix(-1, 0, 0, -1, 0, 0)',
+  );
+  expect(f.voiceCommands).toContainEqual({ action: 'context-details', open: false });
+
+  await context.click();
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(voiceDetails).not.toBeVisible();
+  f.publishVoice({
+    handoff: {
+      captureId: randomUUID(),
+      status: 'unhandled',
+      message: '本次语音尚未交给 Codex，请检查连接后重试。',
+      taskId: null,
+    },
+  });
+  await expect(voice.locator(':scope > summary')).toHaveText('未交给 Codex');
+  await expect(voiceDetails).toBeVisible();
+  await expect(voiceDetails).toContainText('本次语音尚未交给 Codex，请检查连接后重试。');
+  await expect(context).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('table')).not.toBeVisible();
+
+  const contextCommands = f.voiceCommands.filter((command) => command.action === 'context-details');
+  f.publishVoice({ contextDetailsOpen: true });
+  await expect(context).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(voiceDetails).not.toBeVisible();
+  await expect(voice.locator(':scope > summary')).toHaveText('未交给 Codex');
+  expect(f.voiceCommands.filter((command) => command.action === 'context-details')).toEqual(
+    contextCommands,
+  );
+  await page.keyboard.press('Escape');
+  await expect(context).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('table')).not.toBeVisible();
+  await expect(context).toBeFocused();
+  await context.click();
+  await expect(page.getByRole('table')).toBeVisible();
+  await page.getByRole('heading', { name: '项目预览', exact: true }).click();
+  await expect(context).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('table')).not.toBeVisible();
+
+  const voiceTrigger = voice.locator(':scope > summary');
+  await voiceTrigger.click();
+  await expect(voiceDetails).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(voiceDetails).not.toBeVisible();
+  await expect(voiceTrigger).toBeFocused();
+  await voiceTrigger.click();
+  await expect(voiceDetails).toBeVisible();
+  await page.getByRole('heading', { name: '项目预览', exact: true }).click();
+  await expect(voiceDetails).not.toBeVisible();
+  expect(f.commands).toHaveLength(0);
+  expect(f.contexts).toHaveLength(0);
+});
+
+test('long voice captions and errors scroll without displacing the footer action row', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  const footer = page.locator('.live-footer');
+  const subtitle = `${'正在播报完整的共创回复。\n'.repeat(30)}字幕最后一行仍可阅读。`;
+  const error = `${'语音连接提示：请检查后重试。\n'.repeat(30)}错误最后一行仍可阅读。`;
+  for (const width of [998, 759]) {
+    await page.setViewportSize({ width, height: 767 });
+    f.publishVoice({
+      configured: true,
+      status: 'ready',
+      conversationActive: false,
+      subtitle: '',
+      error: null,
+    });
+    await expect(footer.locator('.voice-subtitle')).not.toBeVisible();
+    await expect(footer.locator('.voice-controls > p[role="alert"]')).not.toBeVisible();
+    const beforeFooter = await footer.boundingBox();
+    const beforeAction = await page
+      .getByRole('button', { name: '开始收音', exact: true })
+      .boundingBox();
+    if (!beforeFooter || !beforeAction) throw new Error('Idle voice controls are missing');
+
+    f.publishVoice({
+      status: 'speaking',
+      conversationActive: true,
+      captureId: randomUUID(),
+      subtitle,
+      error,
+    });
+    const caption = footer.locator('.voice-subtitle');
+    const notice = footer.locator('.voice-controls > p[role="alert"]');
+    await expect(caption).toHaveText(subtitle);
+    await expect(notice).toHaveText(error);
+    const afterFooter = await footer.boundingBox();
+    if (!afterFooter) throw new Error('Footer is missing');
+    expect(afterFooter.y + afterFooter.height).toBeLessThanOrEqual(768);
+    for (const text of [caption, notice]) {
+      const bounds = await text.boundingBox();
+      if (!bounds) throw new Error('Scrollable voice text is missing');
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(afterFooter.y + afterFooter.height);
+      const metrics = await text.evaluate((element) => ({
+        height: element.clientHeight,
+        content: element.scrollHeight,
+        font: Number.parseFloat(getComputedStyle(element).fontSize),
+        overflow: getComputedStyle(element).overflowY,
+      }));
+      expect(metrics.height).toBeLessThanOrEqual(Math.min(76.7, metrics.font * 4.8) + 1);
+      expect(metrics.content).toBeGreaterThan(metrics.height);
+      expect(metrics.overflow).toBe('auto');
+      await text.hover();
+      await page.mouse.wheel(0, 2000);
+      await expect.poll(() => text.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      await expect
+        .poll(() =>
+          text.evaluate(
+            (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+          ),
+        )
+        .toBeLessThanOrEqual(1);
+    }
+    const keyboard = await page
+      .getByRole('button', { name: '文字输入', exact: true })
+      .boundingBox();
+    const close = await page.getByRole('button', { name: '关闭语音', exact: true }).boundingBox();
+    const stop = await page.getByRole('button', { name: '停止播报', exact: true }).boundingBox();
+    if (!keyboard || !close || !stop) throw new Error('Active voice controls are missing');
+    expect(Math.abs(keyboard.y - close.y)).toBeLessThanOrEqual(2);
+    expect(Math.abs(keyboard.y - stop.y)).toBeLessThanOrEqual(2);
+    expect(
+      Math.abs(keyboard.y - afterFooter.y - (beforeAction.y - beforeFooter.y)),
+    ).toBeLessThanOrEqual(2);
+  }
 });

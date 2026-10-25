@@ -138,7 +138,7 @@ export class VoiceBinding {
             endpoint: 'wss://xrobo-io.qiniuapi.com/v1/ws/',
             ...identity,
             token: result.websocket.token,
-            allowVoiceSubmit: false,
+            allowVoiceSubmit: true,
           }),
         );
         signal.throwIfAborted();

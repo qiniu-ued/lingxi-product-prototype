@@ -40,9 +40,11 @@ Codex 使用常驻 App Server 连接的线程/任务接口，默认 Manual（`wo
 
 所有写动作严格 Zod 校验。桌面任务/配置动作要求允许的本地 Origin；所有路由校验 Host/Origin，不开放 CORS。MCP 不向页面提供令牌，不能代用任意工具名或脚本。私有 IPC 只响应固定方法；preload 限于可信主框架，生成页面无 IPC 入口。
 
-操作台滚轮通过固定 `desktop.scroll` 私有 IPC 传到唯一作品页面，校验完整绑定、归一化坐标和有界滚动量。与预览操作串行，不重试、不导航或发布；被动大屏不能调用。见 [ADR 0014](adr/0014-operator-preview-scrolling.md)。
+操作台滚轮通过固定 `desktop.scroll` 私有 IPC 传到唯一作品页面，校验完整绑定、归一化坐标和有界滚动量。与预览操作串行，不重试、不导航或发布；被动大屏不能调用。见 [ADR 0018](adr/0018-operator-preview-scrolling.md)。
 
-普通预览的固定 `desktop.preview-click` 将经过绑定与 requestId 校验的归一化坐标转为唯一页面的原生左键点击，派发前去重；批注模式不调用该入口。生成页面仍无 preload 或服务权限。见 [ADR 0015](adr/0015-operator-preview-clicks.md)。
+普通预览的固定 `desktop.preview-click` 将经过绑定与 requestId 校验的归一化坐标转为唯一页面的原生左键点击，派发前去重；批注模式不调用该入口。生成页面仍无 preload 或服务权限。见 [ADR 0019](adr/0019-operator-preview-clicks.md)。
+
+语音投票复用 `workbench_submit` 和 Codex 共享预览操作。仅自有预览工具的空确认表单进入现有批准面板，按当前线程/轮次和动作校验后响应 `mcpServer/elicitation/request`；不自动批准或扩大权限。见 [ADR 0020](adr/0020-voice-voting-and-preview-approval.md)。
 
 ## 状态、兼容和基础模式
 
@@ -84,4 +86,11 @@ SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_
 
 主动语音会话跨静音/播报保持，逐句重新暂存当前上下文，手动或设备工具可关闭；故障断连仅重连服务，不恢复旧收音。预览旁「批注修改」提供元素批注并进入真实任务，大屏启动默认打开，即使无项目也有空状态；AirPlay 仍由系统管理。可见品牌统一「丽塔同学」，技术标识与数据目录不变。详见 [ADR 0012](adr/0012-continuous-voice-and-preview-annotations.md)。
 
-新安装启动即自动连接已有绑定的语音服务，并在模型与现有麦克风授权满足时本地监听“丽塔同学”；待唤醒音频不上传。连接通过保活与最多六次退避重试维护，失败状态如实显示。连接与唤醒选择分别保存在 voice-connection-preferences.v1.json、wake-preferences.v1.json；既有安装无记录时分别确认一次，损坏/无法保存时关闭。关闭语音会保存两项关闭；仅关闭唤醒或断开服务可分别操作。设置返回可按偏好恢复本地唤醒，重连不能恢复旧收音或重放任务。行为与兼容见 [ADR 0013](adr/0013-default-local-wake.md)，输入来源和物理回声验收见 [音频审计](audio-input-and-echo.md)。
+新安装启动即自动连接已有绑定的语音服务，并在模型与现有麦克风授权满足时本地监听“丽塔同学”；待唤醒音频不上传。连接通过保活与最多六次退避重试维护，失败状态如实显示。连接与唤醒选择分别保存在 voice-connection-preferences.v1.json、wake-preferences.v1.json；新安装与旧配置缺字段时默认开启，可识别的 legacy-review 旧默认也迁移为开启；保留已存 false，损坏/无法保存时关闭。关闭语音会保存两项关闭；仅关闭唤醒或断开服务可分别操作。设置返回可按偏好恢复本地唤醒，重连不能恢复旧收音或重放任务。连接行为见 [ADR 0013](adr/0013-default-local-wake.md)，最新默认值与日志策略见 [ADR 0014](adr/0014-default-voice-and-always-on-diagnostics.md)，输入来源和物理回声验收见 [音频审计](audio-input-and-echo.md)。
+
+
+## 公开时间线与截图同步恢复
+
+新公开消息的本机首次观察时间和稳定序号使用 `workspace_message_times_v1` 独立元数据表，并通过 `messageTimes` 派生字段提供；严格 Task/v2 与语音正文的内存生命周期不变。语音、Codex 回复与补充输入按已知消息时间排列，流式修正/最终快照不更改原位置；旧记录缺逐条时间时保留原顺序，不伪造历史时序。详见 [ADR 0017](adr/0017-message-timeline-and-preview-sync.md)。
+
+本机唯一预览对同一页面/动作版本合并截图请求，等待者最多 4 秒，原始请求未返回时不靠自动重试堆积 capture。电脑端另有 5 秒看门狗，连续错误最多三次（1.2 / 2.4 秒退避），显示真实错误并提供手动重试；当前版本最后成功图可保留并标明未更新，版本变化拒绝旧图，失败禁用新点选。此防护与实际 Electron/GPU surface 故障分开验收，不自动改 GPU、焦点或重载作品。

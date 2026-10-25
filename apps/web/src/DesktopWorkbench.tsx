@@ -1,15 +1,22 @@
 import {
   type ContextAttachment,
   type HistoryQuote,
-  type PreviewSnapshot,
-  previewSnapshotSchema,
   type VoiceState,
   voiceStateSchema,
   type WorkbenchState,
   workbenchSchema,
 } from '@lingxi/protocol';
+import { ChevronDown, MessageSquare, Monitor, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ConfigurationButton,
+  ConfigurationInput,
+  ConfigurationSelect,
+  ConfigurationTextArea,
+} from './ConfigurationControls';
 import { ContextUsage } from './ContextUsage';
+import { ConversationNavigation } from './ConversationNavigation';
+import { conversationTimeline } from './conversationTimeline';
 import { DiffPanel } from './DiffPanel';
 import { ExecutionControls } from './ExecutionControls';
 import { HistoryActions } from './HistoryActions';
@@ -19,6 +26,7 @@ import { SettingsLink, SetupLink } from './Navigation';
 import { PreviewPicker } from './PreviewPicker';
 import { TurnUsage } from './TurnUsage';
 import { composerTarget, useComposerDraft } from './useComposerDraft';
+import { usePreviewSnapshot } from './usePreviewSnapshot';
 import {
   VoiceControls,
   voiceConnectionLabel,
@@ -26,6 +34,7 @@ import {
   voicePresentation,
   voiceServiceConnected,
 } from './VoiceControls';
+import { useVoiceConversation, VoiceTurns } from './VoiceConversation';
 import { VoiceHandoff } from './VoiceHandoff';
 import { WorkspaceTools } from './WorkspaceTools';
 
@@ -59,7 +68,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     [connected, setConnected] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
-    [shot, setShot] = useState<PreviewSnapshot | null>(null),
     [answers, setAnswers] = useState<Record<string, Record<string, string>>>({}),
     [displayVoice, setDisplayVoice] = useState<VoiceState | null>(null);
   const transcript = useRef<HTMLDivElement>(null),
@@ -67,13 +75,15 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     workspaceMenu = useRef<HTMLDetailsElement>(null),
     projectMenu = useRef<HTMLDetailsElement>(null),
     composer = useRef<HTMLDetailsElement>(null);
+  const workbench = useRef<HTMLDivElement>(null),
+    composerTrigger = useRef<HTMLButtonElement>(null);
+  const [composerOpen, setComposerOpen] = useState(false);
   const viewport = useRef<HTMLDivElement>(null),
     retry = useRef<{ text: string; id: string } | null>(null);
   const [picking, setPicking] = useState(false);
   const [runtimeUrl, setRuntimeUrl] = useState('http://127.0.0.1:5174/');
   const [tab, setTab] = useState('preview');
   const [mode, setMode] = useState<'queue' | 'steer'>('queue'),
-    [search, setSearch] = useState(''),
     [rename, setRename] = useState('');
   const target = composerTarget(state);
   const retryTarget = useRef(target);
@@ -109,14 +119,127 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     [setVoiceDraft],
   );
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
+  const {
+    shot,
+    accept: acceptPreview,
+    error: previewError,
+    retrying: retryingPreview,
+    retry: retryPreview,
+  } = usePreviewSnapshot(!display && active ? bindingKey : '', picking);
   const thread = state?.threads.find((t) => t.id === state.selectedThreadId);
-  function attach(value: ContextAttachment) {
+  const voiceChat = useVoiceConversation();
+  const scopedVoice = voiceChat.turns.filter(
+    (turn) =>
+      turn.projectId === (state?.project?.id ?? null) &&
+      turn.conversationId === (state?.selectedThreadId ?? null),
+  );
+  const pendingVoice = scopedVoice.filter(
+    (turn) =>
+      !turn.handoff?.taskId || !state?.history.some((task) => task.id === turn.handoff?.taskId),
+  );
+  const projectlessVoice = state?.project ? voiceChat.turns.filter((turn) => !turn.projectId) : [];
+  const transcriptEntries = conversationTimeline(
+    state?.history ?? [],
+    scopedVoice,
+    state?.messageTimes ?? [],
+  );
+
+  const contextDetails = useCallback(async (open: boolean) => {
+    if (open) {
+      const handoff = workbench.current?.querySelector<HTMLDetailsElement>('.voice-handoff-menu');
+      if (handoff) handoff.open = false;
+    }
+    try {
+      const response = await fetch('/api/voice/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'context-details', open }),
+      });
+      if (!response.ok) throw new Error();
+      setDisplayVoice(voiceStateSchema.parse(await response.json()));
+    } catch {
+      setError('上下文详情切换失败，请检查本机连接。');
+    }
+  }, []);
+  useEffect(() => {
+    const root = workbench.current;
+    if (!root) return;
+    const selector =
+      '.project-menu, .workbench-menu, .keyboard-composer, .voice-more, .voice-handoff-menu';
+    const panels = () => Array.from(root.querySelectorAll<HTMLDetailsElement>(selector));
+    const positionWake = () => {
+      const content = root.querySelector<HTMLElement>('.voice-more[open] .voice-menu-content');
+      if (!content) return;
+      content.style.setProperty('--voice-menu-shift', '0px');
+      const bounds = content.getBoundingClientRect();
+      const shift = Math.max(16 - bounds.left, Math.min(0, innerWidth - 16 - bounds.right));
+      content.style.setProperty('--voice-menu-shift', `${shift}px`);
+    };
+    const toggle = (event: Event) => {
+      const panel = event.target;
+      if (!(panel instanceof HTMLDetailsElement) || !panel.matches(selector)) return;
+      if (panel.open) {
+        for (const other of panels()) if (other !== panel) other.open = false;
+        positionWake();
+      }
+      if (panel === composer.current) setComposerOpen(panel.open);
+    };
+    const outside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (
+        composerTrigger.current?.contains(target) ||
+        target.closest('.history-actions') ||
+        target.closest('[data-radix-popper-content-wrapper]')
+      )
+        return;
+      for (const panel of panels()) if (panel.open && !panel.contains(target)) panel.open = false;
+      if (root.querySelector('.context-details') && !target.closest('.context-usage-compact'))
+        void contextDetails(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (root.querySelector('.context-details')) {
+        event.preventDefault();
+        void contextDetails(false);
+        root.querySelector<HTMLElement>('.context-toggle')?.focus();
+        return;
+      }
+      const panel = panels().find((item) => item.open);
+      if (!panel) return;
+      event.preventDefault();
+      panel.open = false;
+      (panel === composer.current
+        ? composerTrigger.current
+        : panel.querySelector<HTMLElement>(':scope > summary')
+      )?.focus();
+    };
+    root.addEventListener('toggle', toggle, true);
+    document.addEventListener('pointerdown', outside);
+    document.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('resize', positionWake);
+    return () => {
+      root.removeEventListener('toggle', toggle, true);
+      document.removeEventListener('pointerdown', outside);
+      document.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('resize', positionWake);
+    };
+  }, [contextDetails]);
+  function openComposer() {
+    if (projectMenu.current) projectMenu.current.open = false;
+    if (workspaceMenu.current) workspaceMenu.current.open = false;
+    const wake = workbench.current?.querySelector<HTMLDetailsElement>('.voice-more');
+    if (wake) wake.open = false;
     if (composer.current) composer.current.open = true;
+    setComposerOpen(true);
+  }
+  function attach(value: ContextAttachment) {
+    openComposer();
     setAttachments((old) => (old.length < 20 ? [...old, value] : old));
     retry.current = null;
   }
   function focusComposer() {
-    if (composer.current) composer.current.open = true;
+    openComposer();
     requestAnimationFrame(() => document.getElementById('task-prompt')?.focus());
   }
   function quoteAttachment(quote: HistoryQuote): ContextAttachment | null {
@@ -248,37 +371,24 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       window.removeEventListener('resize', update);
     };
   }, [display, bindingKey]);
+
   useEffect(() => {
-    if (display || !bindingKey) {
-      setShot(null);
-      return;
-    }
-    let active = true;
-    let pending = false;
-    const update = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const value = await window.lingxiDesktop?.snapshot();
-        if (active && value) setShot(previewSnapshotSchema.parse(value));
-      } catch {
-        /* Preview may be changing. */
-      } finally {
-        pending = false;
-      }
-    };
-    void update();
-    const timer = setInterval(() => void update(), picking ? 200 : 1200);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
-  }, [display, bindingKey, picking]);
+    if (!voiceChat.revision || (!display && !followTranscript.current)) return;
+    const frame = requestAnimationFrame(() =>
+      transcript.current?.scrollTo({ top: transcript.current.scrollHeight }),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [voiceChat.revision, display]);
   useEffect(() => {
     if (!state?.revision) return;
     const node = transcript.current;
     if (node && (display || followTranscript.current)) node.scrollTop = node.scrollHeight;
   }, [display, state?.revision]);
+  useEffect(() => {
+    if (!displayVoice?.contextDetailsOpen) return;
+    const handoff = workbench.current?.querySelector<HTMLDetailsElement>('.voice-handoff-menu');
+    if (handoff) handoff.open = false;
+  }, [displayVoice?.contextDetailsOpen]);
   const staleSelection =
     (!!selection && JSON.stringify(selection.binding) !== JSON.stringify(state?.preview)) ||
     attachments.some(
@@ -331,6 +441,16 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       if (!response.ok) throw new Error();
       const next = workbenchSchema.parse(await response.json());
       setState((old) => (!old || next.revision >= old.revision ? next : old));
+      if (
+        operation === 'workspace' &&
+        body &&
+        typeof body === 'object' &&
+        'action' in body &&
+        typeof body.action === 'string' &&
+        ['fork', 'new-thread', 'select-thread'].includes(body.action) &&
+        workspaceMenu.current
+      )
+        workspaceMenu.current.open = false;
       after?.(next);
       return true;
     } catch {
@@ -338,19 +458,6 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
       return false;
     } finally {
       setBusy(false);
-    }
-  }
-  async function contextDetails(open: boolean) {
-    try {
-      const response = await fetch('/api/voice/command', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'context-details', open }),
-      });
-      if (!response.ok) throw new Error();
-      setDisplayVoice(voiceStateSchema.parse(await response.json()));
-    } catch {
-      setError('上下文详情切换失败，请检查本机连接。');
     }
   }
   async function submit(event: FormEvent) {
@@ -381,7 +488,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
     }
   }
   return (
-    <div className={`live-workbench ${display ? 'live-display' : ''}`}>
+    <div className={`live-workbench ${display ? 'live-display' : ''}`} ref={workbench}>
       <header className="live-header">
         <a href="/" className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -423,7 +530,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           </span>
           {!display && (
             <div className="project-toolbar">
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={running || busy}
                 onClick={() => {
@@ -432,13 +539,13 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 }}
               >
                 新建项目
-              </button>
+              </ConfigurationButton>
               <details className="project-menu" name="header-menu" ref={projectMenu}>
                 <summary aria-label="更多项目操作" title="打开项目或刷新作品">
-                  ▾
+                  <ChevronDown aria-hidden="true" />
                 </summary>
                 <nav className="project-menu-content" aria-label="项目操作">
-                  <button
+                  <ConfigurationButton
                     type="button"
                     disabled={running || busy}
                     onClick={() => {
@@ -447,8 +554,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     }}
                   >
                     打开项目
-                  </button>
-                  <button
+                  </ConfigurationButton>
+                  <ConfigurationButton
                     type="button"
                     disabled={!state?.project || running || busy}
                     onClick={() => {
@@ -457,141 +564,117 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     }}
                   >
                     刷新作品
-                  </button>
+                  </ConfigurationButton>
                 </nav>
               </details>
             </div>
           )}
-          {!display && <SettingsLink />}
+          {!display && <SettingsLink variant="surface" />}
           {!display && (
             <details className="workbench-menu" name="header-menu" ref={workspaceMenu}>
-              <summary>工作区</summary>
+              <summary>
+                工作区 <ChevronDown aria-hidden="true" />
+              </summary>
               <div className="workbench-menu-content">
-                <div className="live-actions">
-                  <button
-                    type="button"
-                    onClick={() => void operate('action', { action: 'open-display' })}
-                  >
-                    打开大屏
-                  </button>
-                  {state?.preview && (
-                    <button
+                <section className="workbench-section" aria-label="项目与显示">
+                  <div className="workbench-section-heading">
+                    <h2>当前项目</h2>
+                    <span title={state?.project?.path}>
+                      {state?.project?.name ?? '尚未打开项目'}
+                    </span>
+                  </div>
+                  <div className="workbench-display-actions">
+                    <ConfigurationButton
                       type="button"
-                      onClick={() => {
-                        setTab('preview');
-                        setPicking((value) => !value);
-                        retry.current = null;
-                        if (workspaceMenu.current) workspaceMenu.current.open = false;
-                      }}
+                      onClick={() => void operate('action', { action: 'open-display' })}
                     >
-                      {picking ? '取消点选' : '点选修改'}
-                    </button>
-                  )}
-                  <SetupLink />
-                </div>
-                <p className="workspace-project" title={state?.project?.path}>
-                  {state?.project?.name ?? '选择一个项目'}
-                </p>
-                {!display && state?.project && (
-                  <section className="conversation-bar">
-                    <input
-                      aria-label="搜索对话"
-                      placeholder="搜索对话"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                    />
-                    <select
-                      aria-label="切换对话"
-                      disabled={running || busy}
-                      value={state.selectedThreadId ?? ''}
-                      onChange={(e) => {
-                        void operate('workspace', { action: 'select-thread', id: e.target.value });
-                      }}
-                    >
-                      <option value="" disabled>
-                        选择对话
-                      </option>
-                      {state.threads
-                        .filter(
-                          (t) =>
-                            t.projectId === state.project?.id &&
-                            !t.archived &&
-                            t.title.toLowerCase().includes(search.toLowerCase()),
-                        )
-                        .map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.kind === 'sidechat'
-                              ? 'Sidechat · '
-                              : t.kind === 'fork'
-                                ? 'Fork · '
-                                : ''}
-                            {t.title}
-                          </option>
-                        ))}
-                    </select>
-                    <button
-                      type="button"
-                      disabled={running || busy}
-                      onClick={() =>
-                        void operate('workspace', { action: 'new-thread', title: '新对话' })
-                      }
-                    >
-                      新对话
-                    </button>
-                    <input
-                      aria-label="对话名称"
-                      placeholder={thread?.title ?? '对话名称'}
-                      value={rename}
-                      onChange={(e) => setRename(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      disabled={!thread || !rename.trim() || running}
-                      onClick={() => {
-                        void operate('workspace', {
-                          action: 'rename-thread',
-                          id: thread?.id,
-                          title: rename.trim(),
-                        });
-                        setRename('');
-                      }}
-                    >
-                      重命名
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!thread || running}
-                      onClick={() =>
-                        void operate('workspace', {
-                          action: 'archive-thread',
-                          id: thread?.id,
-                          archived: !thread?.archived,
-                        })
-                      }
-                    >
-                      {thread?.archived ? '恢复对话' : '归档'}
-                    </button>
-                    <details>
-                      <summary>已归档</summary>
-                      {state.threads
-                        .filter((t) => t.projectId === state.project?.id && t.archived)
-                        .map((t) => (
-                          <button
+                      <Monitor aria-hidden="true" /> 打开大屏
+                    </ConfigurationButton>
+                    {state?.preview && (
+                      <ConfigurationButton
+                        type="button"
+                        onClick={() => {
+                          setTab('preview');
+                          setPicking((value) => !value);
+                          retry.current = null;
+                          if (workspaceMenu.current) workspaceMenu.current.open = false;
+                        }}
+                      >
+                        {picking ? '取消点选' : '点选修改'}
+                      </ConfigurationButton>
+                    )}
+                    <SetupLink />
+                  </div>
+                </section>
+                {state?.project && (
+                  <details className="workspace-conversations workbench-section">
+                    <summary>
+                      <MessageSquare aria-hidden="true" /> 对话
+                      <span>{thread?.title ?? '选择对话'}</span>
+                    </summary>
+                    <div className="conversation-bar">
+                      <details className="conversation-management">
+                        <summary>管理当前对话</summary>
+                        <label htmlFor="conversation-name">对话名称</label>
+                        <ConfigurationInput
+                          id="conversation-name"
+                          aria-label="对话名称"
+                          placeholder={thread?.title ?? '对话名称'}
+                          value={rename}
+                          onChange={(e) => setRename(e.target.value)}
+                        />
+                        <div className="live-actions">
+                          <ConfigurationButton
                             type="button"
-                            key={t.id}
-                            disabled={running}
+                            disabled={!thread || !rename.trim() || running}
+                            onClick={() => {
+                              void operate('workspace', {
+                                action: 'rename-thread',
+                                id: thread?.id,
+                                title: rename.trim(),
+                              });
+                              setRename('');
+                            }}
+                          >
+                            重命名
+                          </ConfigurationButton>
+                          <ConfigurationButton
+                            type="button"
+                            disabled={!thread || running}
                             onClick={() =>
-                              void operate('workspace', { action: 'select-thread', id: t.id })
+                              void operate('workspace', {
+                                action: 'archive-thread',
+                                id: thread?.id,
+                                archived: !thread?.archived,
+                              })
                             }
                           >
-                            {t.title}
-                          </button>
-                        ))}
-                    </details>
-                  </section>
+                            {thread?.archived ? '恢复对话' : '归档'}
+                          </ConfigurationButton>
+                        </div>
+                      </details>
+                      <details className="archived-conversations">
+                        <summary>已归档</summary>
+                        {state.threads
+                          .filter((t) => t.projectId === state.project?.id && t.archived)
+                          .map((t) => (
+                            <ConfigurationButton
+                              type="button"
+                              key={t.id}
+                              disabled={running}
+                              onClick={() =>
+                                void operate('workspace', { action: 'select-thread', id: t.id })
+                              }
+                            >
+                              {t.title}
+                            </ConfigurationButton>
+                          ))}
+                      </details>
+                    </div>
+                  </details>
                 )}
-
-                {!display && (
+                <section className="workbench-section">
+                  <h2>项目工具</h2>
                   <nav className="workspace-tabs" aria-label="项目工作区">
                     {[
                       ['preview', '预览'],
@@ -599,7 +682,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       ['diff', 'Diff'],
                       ['tools', '工具与额度'],
                     ].map(([value, label]) => (
-                      <button
+                      <ConfigurationButton
                         type="button"
                         key={value}
                         aria-pressed={tab === value}
@@ -609,34 +692,35 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                         }}
                       >
                         {label}
-                      </button>
+                      </ConfigurationButton>
                     ))}
                   </nav>
-                )}
-                {!display && tab === 'preview' && (
-                  <details>
-                    <summary>连接项目开发服务器</summary>
-                    <p>
-                      先在终端启动项目（如 npm run dev -- --port 5174），再连接其本机地址。大屏和
-                      Codex 会使用同一页面。
-                    </p>
-                    <input
-                      aria-label="项目预览地址"
-                      value={runtimeUrl}
-                      onChange={(e) => setRuntimeUrl(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (await operate('preview-url', { url: runtimeUrl })) {
-                          if (workspaceMenu.current) workspaceMenu.current.open = false;
-                        }
-                      }}
-                    >
-                      连接预览
-                    </button>
-                  </details>
-                )}
+                  {tab === 'preview' && (
+                    <details className="workspace-preview-connection">
+                      <summary>连接项目开发服务器</summary>
+                      <p>连接已在本机启动的项目页面。</p>
+                      <label htmlFor="runtime-preview-url">项目预览地址</label>
+                      <div className="workspace-preview-address">
+                        <ConfigurationInput
+                          id="runtime-preview-url"
+                          aria-label="项目预览地址"
+                          value={runtimeUrl}
+                          onChange={(e) => setRuntimeUrl(e.target.value)}
+                        />
+                        <ConfigurationButton
+                          type="button"
+                          onClick={async () => {
+                            if (await operate('preview-url', { url: runtimeUrl })) {
+                              if (workspaceMenu.current) workspaceMenu.current.open = false;
+                            }
+                          }}
+                        >
+                          连接预览
+                        </ConfigurationButton>
+                      </div>
+                    </details>
+                  )}
+                </section>
               </div>
             </details>
           )}
@@ -667,22 +751,39 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               <h1>项目预览</h1>
               {previewStatus && <span role="status">{previewStatus}</span>}
               {!display && state?.preview && (
-                <button
+                <ConfigurationButton
                   type="button"
                   aria-pressed={picking}
+                  disabled={!shot || !!previewError}
                   onClick={() => {
                     setPicking((value) => !value);
                     retry.current = null;
                   }}
                 >
                   {picking ? '取消批注点选' : '批注修改'}
-                </button>
+                </ConfigurationButton>
               )}
             </div>
             {!display && picking && (
               <p role="status">
                 移动鼠标预览元素边界，点击锁定并填写修改要求；Esc 取消，滚轮浏览页面。
               </p>
+            )}
+            {!display && previewError && (
+              <div className="preview-sync-error" role="status">
+                <span>
+                  {previewError}
+                  {shot ? ' 当前保留上次成功截图。' : ''}
+                </span>
+                <ConfigurationButton
+                  type="button"
+                  onClick={retryPreview}
+                  disabled={retryingPreview}
+                  aria-busy={retryingPreview}
+                >
+                  重试同步预览
+                </ConfigurationButton>
+              </div>
             )}
             <div ref={viewport} className="live-viewport" data-testid="canonical-viewport">
               {!state?.preview ? (
@@ -694,19 +795,20 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <PreviewPicker
                   key={JSON.stringify(shot.binding)}
                   shot={shot}
-                  active={picking}
+                  active={picking && !previewError}
+                  disabled={!!previewError}
                   selection={selection}
                   onCancel={() => setPicking(false)}
                   onError={setError}
-                  onInteract={setShot}
+                  onInteract={acceptPreview}
                   onPick={(value) => {
                     setSelection(value);
-                    if (composer.current) composer.current.open = true;
+                    openComposer();
                     setPicking(false);
                     retry.current = null;
                   }}
                 />
-              ) : !display ? (
+              ) : !display && !previewError ? (
                 <p>正在同步大屏中的作品…</p>
               ) : null}
             </div>
@@ -728,10 +830,19 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               </svg>
               与丽塔同学对话
             </h2>
-            <span title="选中单条消息中的文字，可引用或开启只读 Sidechat">
-              {display ? '发言人' : '选中文字引用'}
-            </span>
+            {display && <span>发言人</span>}
           </div>
+          {!display && (
+            <ConversationNavigation
+              key={target}
+              state={state}
+              connected={connected}
+              busy={busy}
+              running={running}
+              onSelect={(id) => void operate('workspace', { action: 'select-thread', id })}
+              onNew={() => void operate('workspace', { action: 'new-thread', title: '新对话' })}
+            />
+          )}
           <div
             className="live-transcript"
             ref={transcript}
@@ -741,197 +852,234 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 node.scrollHeight - node.clientHeight - node.scrollTop < 50;
             }}
           >
-            {state?.history.length ? (
-              state.history.map((turn) => (
-                <article key={turn.id} className="conversation-turn">
-                  <div className="chat-row user">
-                    <span className="chat-avatar" aria-hidden="true">
-                      发
-                    </span>
-                    <div className="chat-message">
-                      <span className="bubble-speaker">发言人</span>
-                      <div
-                        className="live-bubble"
-                        data-history-task={turn.id}
-                        data-history-role="user"
-                        data-history-message="prompt"
-                      >
-                        {turn.prompt}
-                      </div>
-                    </div>
-                  </div>
-                  {turn.messages.map((message) => (
-                    <div className="chat-row" key={message.id}>
-                      <span className="chat-avatar" aria-hidden="true">
-                        灵
-                      </span>
-                      <div className="chat-message">
-                        <span className="bubble-speaker">丽塔同学</span>
-                        <div
-                          className="live-bubble"
-                          data-history-task={turn.id}
-                          data-history-role="assistant"
-                          data-history-message={message.id}
-                        >
-                          {message.text}
+            {transcriptEntries.length ? (
+              transcriptEntries.map((entry) => {
+                if (entry.kind === 'voice')
+                  return (
+                    <VoiceTurns
+                      key={entry.id}
+                      turns={[entry.voice]}
+                      messageIds={entry.messageIds}
+                      showOutcome={entry.outcome}
+                    />
+                  );
+                const turn = entry.task;
+                return (
+                  <article
+                    key={entry.id}
+                    id={entry.part === 'prompt' ? `codex-turn-${turn.id}` : undefined}
+                    className="conversation-turn"
+                    data-task-part={entry.part}
+                    data-task={turn.id}
+                  >
+                    {entry.part === 'prompt' && (
+                      <div className="chat-row user">
+                        <span className="chat-avatar" aria-hidden="true">
+                          发
+                        </span>
+                        <div className="chat-message">
+                          <span className="bubble-speaker">
+                            {scopedVoice.some((voice) => voice.handoff?.taskId === turn.id)
+                              ? '发言人 · 语音交接'
+                              : '发言人'}
+                          </span>
+                          <div
+                            className="live-bubble"
+                            data-history-task={turn.id}
+                            data-history-role="user"
+                            data-history-message="prompt"
+                          >
+                            {turn.prompt}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                  {turn.additions?.map((a) => (
-                    <div className="chat-row user" key={a.id}>
-                      <span className="chat-avatar" aria-hidden="true">
-                        发
-                      </span>
-                      <div className="chat-message">
-                        <span className="bubble-speaker">发言人</span>
-                        <div className="live-bubble">
-                          补充：{a.text}{' '}
-                          {a.status === 'unconfirmed' || a.status === 'pending'
-                            ? '（送达未确认，不会自动重复发送）'
-                            : ''}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <TurnUsage
-                    usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
-                    status={turn.status}
-                  />
-                  <div className="turn-footer">
-                    {!display && (
-                      <details className="turn-tools">
-                        <summary aria-label="本轮详情" title="本轮详情">
-                          ⋯
-                        </summary>
-                        {turn.attachments?.length ? (
-                          <details>
-                            <summary>本轮上下文 · {turn.attachments.length}</summary>
-                            {turn.attachments.map((a) => (
-                              <pre key={a.id}>
-                                {a.title}\n{a.text}
-                              </pre>
-                            ))}
-                          </details>
-                        ) : null}
-                        {!!turn.plan?.length && (
-                          <details>
-                            <summary>执行步骤 · {turn.plan.length}</summary>
-                            <ol>
-                              {turn.plan.map((step) => (
-                                <li key={step.step}>
-                                  {step.step} · {step.status}
-                                </li>
-                              ))}
-                            </ol>
-                          </details>
-                        )}
-                        {!!turn.items?.length && (
-                          <details>
-                            <summary>执行记录 · {turn.items.length}</summary>
-                            {turn.items.map((item) => (
-                              <details key={item.id}>
-                                <summary>
-                                  {item.type} · {item.status ?? '执行中'}
-                                </summary>
-                                <pre>{item.text}</pre>
-                              </details>
-                            ))}
-                          </details>
-                        )}
-                        <small>
-                          {turn.status} · {new Date(turn.createdAt).toLocaleString()}
-                        </small>
-                      </details>
                     )}
-                    {!display && (
-                      <div className="turn-icons">
-                        {' '}
+
+                    {turn.messages
+                      .filter(
+                        (message) => entry.part === 'assistant' && message.id === entry.messageId,
+                      )
+                      .map((message) => (
+                        <div className="chat-row" key={message.id}>
+                          <span className="chat-avatar" aria-hidden="true">
+                            灵
+                          </span>
+                          <div className="chat-message">
+                            <span className="bubble-speaker">丽塔同学</span>
+                            <div
+                              className="live-bubble"
+                              data-history-task={turn.id}
+                              data-history-role="assistant"
+                              data-history-message={message.id}
+                            >
+                              {message.text}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {turn.additions
+                      ?.filter((a) => entry.part === 'addition' && a.id === entry.messageId)
+                      .map((a) => (
+                        <div className="chat-row user" key={a.id}>
+                          <span className="chat-avatar" aria-hidden="true">
+                            发
+                          </span>
+                          <div className="chat-message">
+                            <span className="bubble-speaker">发言人</span>
+                            <div className="live-bubble">
+                              补充：{a.text}{' '}
+                              {a.status === 'unconfirmed' || a.status === 'pending'
+                                ? '（送达未确认，不会自动重复发送）'
+                                : ''}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    {entry.part === 'footer' && (
+                      <div className="turn-footer" data-task-footer={turn.id}>
                         {!display && (
-                          <div className="live-actions">
-                            {turn.status === 'queued' ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void operate('workspace', {
-                                    action: 'cancel-queued',
-                                    id: turn.id,
-                                  })
-                                }
-                              >
-                                取消排队
-                              </button>
-                            ) : (
-                              <>
-                                <button
-                                  type="button"
-                                  aria-label="Fork 对话"
-                                  title="Fork 对话"
-                                  disabled={running || !turn.turnId}
-                                  onClick={() =>
-                                    void operate('workspace', {
-                                      action: 'fork',
-                                      taskId: turn.id,
-                                      kind: 'fork',
-                                    })
-                                  }
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.7"
-                                  >
-                                    <circle cx="6" cy="5" r="2" />
-                                    <circle cx="18" cy="5" r="2" />
-                                    <circle cx="6" cy="19" r="2" />
-                                    <path d="M6 7v10M18 7v1a5 5 0 0 1-5 5H6" />
-                                  </svg>
-                                </button>
-                                <button
-                                  type="button"
-                                  aria-label="复制本轮回复"
-                                  title="复制本轮回复"
-                                  disabled={!turn.messages.length}
-                                  onClick={async () => {
-                                    try {
-                                      const value = turn.messages
-                                        .map((message) => message.text)
-                                        .join('\n\n');
-                                      if (window.lingxiDesktop)
-                                        await window.lingxiDesktop.copy(value);
-                                      else await navigator.clipboard.writeText(value);
-                                    } catch {
-                                      setError('复制失败，请选中文字后复制。');
+                          <details className="turn-tools">
+                            <summary aria-label="本轮详情" title="本轮详情">
+                              ⋯
+                            </summary>
+                            <TurnUsage
+                              usage={state?.turnUsage.find((usage) => usage.taskId === turn.id)}
+                              status={turn.status}
+                            />
+                            {turn.attachments?.length ? (
+                              <details>
+                                <summary>本轮上下文 · {turn.attachments.length}</summary>
+                                {turn.attachments.map((a) => (
+                                  <pre key={a.id}>
+                                    {a.title}\n{a.text}
+                                  </pre>
+                                ))}
+                              </details>
+                            ) : null}
+                            {!!turn.plan?.length && (
+                              <details>
+                                <summary>执行步骤 · {turn.plan.length}</summary>
+                                <ol>
+                                  {turn.plan.map((step) => (
+                                    <li key={step.step}>
+                                      {step.step} · {step.status}
+                                    </li>
+                                  ))}
+                                </ol>
+                              </details>
+                            )}
+                            {!!turn.items?.length && (
+                              <details>
+                                <summary>执行记录 · {turn.items.length}</summary>
+                                {turn.items.map((item) => (
+                                  <details key={item.id}>
+                                    <summary>
+                                      {item.type} · {item.status ?? '执行中'}
+                                    </summary>
+                                    <pre>{item.text}</pre>
+                                  </details>
+                                ))}
+                              </details>
+                            )}
+                            <small>
+                              {turn.status} · {new Date(turn.createdAt).toLocaleString()}
+                            </small>
+                          </details>
+                        )}
+                        {!display && (
+                          <div className="turn-icons">
+                            {' '}
+                            {!display && (
+                              <div className="live-actions">
+                                {turn.status === 'queued' ? (
+                                  <ConfigurationButton
+                                    type="button"
+                                    onClick={() =>
+                                      void operate('workspace', {
+                                        action: 'cancel-queued',
+                                        id: turn.id,
+                                      })
                                     }
-                                  }}
-                                >
-                                  <svg
-                                    aria-hidden="true"
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="1.7"
                                   >
-                                    <rect x="8" y="8" width="12" height="12" rx="2" />
-                                    <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" />
-                                  </svg>
-                                </button>
-                              </>
+                                    取消排队
+                                  </ConfigurationButton>
+                                ) : (
+                                  <>
+                                    <ConfigurationButton
+                                      type="button"
+                                      className="icon-button"
+                                      variant="ghost"
+                                      aria-label="Fork 对话"
+                                      title="Fork 对话"
+                                      disabled={running || busy || !turn.turnId}
+                                      onClick={() =>
+                                        void operate('workspace', {
+                                          action: 'fork',
+                                          taskId: turn.id,
+                                          kind: 'fork',
+                                        })
+                                      }
+                                    >
+                                      <svg
+                                        aria-hidden="true"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.7"
+                                      >
+                                        <circle cx="6" cy="5" r="2" />
+                                        <circle cx="18" cy="5" r="2" />
+                                        <circle cx="6" cy="19" r="2" />
+                                        <path d="M6 7v10M18 7v1a5 5 0 0 1-5 5H6" />
+                                      </svg>
+                                    </ConfigurationButton>
+                                    <ConfigurationButton
+                                      type="button"
+                                      className="icon-button"
+                                      variant="ghost"
+                                      aria-label="复制本轮回复"
+                                      title="复制本轮回复"
+                                      disabled={!turn.messages.length}
+                                      onClick={async () => {
+                                        try {
+                                          const value = turn.messages
+                                            .map((message) => message.text)
+                                            .join('\n\n');
+                                          if (window.lingxiDesktop)
+                                            await window.lingxiDesktop.copy(value);
+                                          else await navigator.clipboard.writeText(value);
+                                        } catch {
+                                          setError('复制失败，请选中文字后复制。');
+                                        }
+                                      }}
+                                    >
+                                      <svg
+                                        aria-hidden="true"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.7"
+                                      >
+                                        <rect x="8" y="8" width="12" height="12" rx="2" />
+                                        <path d="M16 8V4a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h4" />
+                                      </svg>
+                                    </ConfigurationButton>
+                                  </>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
                       </div>
                     )}
-                  </div>
-                </article>
-              ))
-            ) : (
+                  </article>
+                );
+              })
+            ) : !pendingVoice.length && !projectlessVoice.length ? (
               <div className="live-empty">
                 <p>
                   {thread?.kind === 'sidechat'
@@ -939,18 +1087,47 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                     : '这一轮想做什么？'}
                 </p>
               </div>
-            )}
+            ) : null}
             {!display && thread?.kind === 'fork' && (
               <p>此 Fork 复制对话历史，共享当前项目文件。独立代码工作区尚未创建。</p>
             )}
+            {!!projectlessVoice.length && (
+              <details className="projectless-voice">
+                <summary>项目外语音 · 未用于当前项目</summary>
+                <VoiceTurns turns={projectlessVoice} />
+              </details>
+            )}
+            {!!voiceChat.turns.length && !display && (
+              <div className="voice-chat-controls">
+                <ConfigurationButton
+                  type="button"
+                  variant="ghost"
+                  title="语音记录仅保留在本次应用运行中，重连或刷新可继续查看，退出后清除。"
+                  onClick={() => void voiceChat.clear()}
+                >
+                  <Trash2 aria-hidden="true" /> 清除本次语音记录
+                </ConfigurationButton>
+              </div>
+            )}
+            {voiceChat.error && <small role="status">{voiceChat.error}</small>}
           </div>
-          <ContextUsage
-            runtime={state?.runtime ?? null}
-            turnId={task?.turnId}
-            expanded={displayVoice?.contextDetailsOpen ?? false}
-            onExpand={(open) => void contextDetails(open)}
-          />
-          <VoiceHandoff state={displayVoice} showSettings={!display} />
+          <div className="conversation-status">
+            <ContextUsage
+              runtime={state?.runtime ?? null}
+              turnId={task?.turnId}
+              compact
+              expanded={displayVoice?.contextDetailsOpen ?? false}
+              onExpand={(open) => void contextDetails(open)}
+            />
+            <VoiceHandoff
+              state={displayVoice}
+              showSettings={!display}
+              compact
+              onOpen={() => {
+                if (displayVoice?.contextDetailsOpen) void contextDetails(false);
+              }}
+            />
+          </div>
           {task && (
             <section
               className="live-agents"
@@ -1027,7 +1204,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                         {question.header && <strong>{question.header} · </strong>}
                         {question.question}
                         {question.options?.map((option) => (
-                          <button
+                          <ConfigurationButton
                             type="button"
                             key={option.label}
                             title={option.description}
@@ -1035,10 +1212,10 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                           >
                             {option.label}
                             <small>{option.description}</small>
-                          </button>
+                          </ConfigurationButton>
                         ))}
                         {question.isSecret ? (
-                          <input
+                          <ConfigurationInput
                             type="password"
                             id={`question-${approval.id}-${question.id}`}
                             value={approvalAnswers[question.id] ?? ''}
@@ -1046,23 +1223,23 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                             autoComplete="off"
                           />
                         ) : (
-                          <textarea
+                          <ConfigurationTextArea
                             id={`question-${approval.id}-${question.id}`}
                             value={approvalAnswers[question.id] ?? ''}
                             onChange={(e) => answer(question.id, e.target.value)}
                           />
                         )}
                         {!question.isSecret && voiceDraft && (
-                          <button
+                          <ConfigurationButton
                             type="button"
                             onClick={() => answer(question.id, voiceDraft.text)}
                           >
                             使用语音转写
-                          </button>
+                          </ConfigurationButton>
                         )}
                       </label>
                     ))}
-                    <button
+                    <ConfigurationButton
                       type="button"
                       disabled={busy}
                       onClick={() => {
@@ -1082,8 +1259,8 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       }}
                     >
                       {approval.kind === 'question' ? '提交回答' : '批准并继续'}
-                    </button>
-                    <button
+                    </ConfigurationButton>
+                    <ConfigurationButton
                       type="button"
                       disabled={busy}
                       onClick={() =>
@@ -1095,11 +1272,179 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       }
                     >
                       {approval.kind === 'question' ? '停止任务' : '拒绝'}
-                    </button>
+                    </ConfigurationButton>
                   </section>
                 );
               })}
             </div>
+          )}
+          {!display && (
+            <details id="workbench-composer" className="keyboard-composer" ref={composer}>
+              <summary>
+                <span>本轮指令</span>
+                <ChevronDown aria-hidden="true" />
+              </summary>
+              <form aria-label="文字指令" onSubmit={submit}>
+                {voiceDraft && (
+                  <div className="voice-draft">
+                    <p>语音转写：{voiceDraft.text}</p>
+                    <ConfigurationButton
+                      type="button"
+                      disabled={state?.task?.id === voiceDraft.id}
+                      onClick={() => {
+                        openComposer();
+                        setText((old) => {
+                          const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
+                          retry.current = { text, id: voiceDraft.id };
+                          return text;
+                        });
+                      }}
+                    >
+                      使用转写草稿
+                    </ConfigurationButton>
+                    <ConfigurationButton type="button" onClick={() => setVoiceDraft(null)}>
+                      忽略转写
+                    </ConfigurationButton>
+                  </div>
+                )}
+                {state && (
+                  <details className="composer-options">
+                    <summary>
+                      <SlidersHorizontal aria-hidden="true" /> 模型与执行设置
+                      <span>{state.settings.plan ? '计划模式' : '执行模式'}</span>
+                    </summary>
+                    <div className="composer-options-content">
+                      <ModelControls
+                        state={state}
+                        busy={busy}
+                        connected={connected}
+                        operate={operate}
+                      />
+                      <ExecutionControls
+                        state={state}
+                        busy={busy}
+                        connected={connected}
+                        operate={operate}
+                      />
+                    </div>
+                  </details>
+                )}
+                <label htmlFor="task-prompt">给 Codex 的本轮指令</label>
+                <ConfigurationTextArea
+                  id="task-prompt"
+                  maxLength={4000}
+                  rows={3}
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  placeholder="做一个周末出游投票页；或者：给金山城市沙滩投一票"
+                />
+                {!!attachments.length && (
+                  <div className="context-attachments">
+                    {attachments.map((a) => (
+                      <div key={a.id}>
+                        <strong>{a.title}</strong>
+                        <p>{a.text.slice(0, 150)}</p>
+                        <ConfigurationButton
+                          type="button"
+                          onClick={() => {
+                            setAttachments((old) => old.filter((item) => item.id !== a.id));
+                            retry.current = null;
+                          }}
+                        >
+                          移除
+                        </ConfigurationButton>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selection && (
+                  <div className="selection-tools">
+                    <p>已选：{selection.description.slice(0, 80)}</p>
+                    <label htmlFor="selection-annotation">
+                      给选中元素的批注
+                      <ConfigurationTextArea
+                        id="selection-annotation"
+                        value={annotation}
+                        maxLength={4000}
+                        onChange={(event) => setAnnotation(event.target.value)}
+                        placeholder="例如：背景改成粉色，保留文字"
+                      />
+                    </label>
+                    <p>
+                      可添加带批注的标记，也可在下方输入本轮指令直接提交；都会携带这个元素的上下文。
+                    </p>
+                    <ConfigurationButton
+                      type="button"
+                      onClick={() => {
+                        attach({
+                          id: crypto.randomUUID(),
+                          kind: 'browser',
+                          title: selection.description.slice(0, 100),
+                          text: `预览点选：${selection.description}${annotation.trim() ? `\n修改要求：${annotation.trim()}` : ''}`,
+                          selection,
+                        });
+                        setSelection(null);
+                        setAnnotation('');
+                      }}
+                    >
+                      把此标记加入上下文
+                    </ConfigurationButton>
+                    <ConfigurationButton
+                      type="button"
+                      onClick={() => {
+                        setSelection(null);
+                        setAnnotation('');
+                        retry.current = null;
+                      }}
+                    >
+                      清除选择
+                    </ConfigurationButton>
+                  </div>
+                )}
+                {running && (
+                  <label htmlFor="composer-send-mode">
+                    发送方式
+                    <ConfigurationSelect
+                      id="composer-send-mode"
+                      value={mode}
+                      onValueChange={(value) => setMode(value as 'queue' | 'steer')}
+                    >
+                      <option value="queue">排队到下一轮</option>
+                      <option value="steer">立即补充当前任务</option>
+                    </ConfigurationSelect>
+                  </label>
+                )}
+                {staleSelection && (
+                  <p className="error" role="alert">
+                    作品已更新，请移除过期标记并重新点选。输入已保留。
+                  </p>
+                )}
+                <div className="live-actions">
+                  <ConfigurationButton
+                    className="send-task"
+                    type="submit"
+                    disabled={
+                      busy ||
+                      staleSelection ||
+                      !state?.project ||
+                      (!text.trim() && !(selection && annotation.trim())) ||
+                      !connected
+                    }
+                  >
+                    {running ? (mode === 'queue' ? '排队发送' : '补充当前任务') : '提交给 Codex'}
+                  </ConfigurationButton>
+                  {running && (
+                    <ConfigurationButton
+                      type="button"
+                      disabled={busy || task?.status === 'stopping'}
+                      onClick={() => void operate('interrupt', {})}
+                    >
+                      停止任务
+                    </ConfigurationButton>
+                  )}
+                </div>
+              </form>
+            </details>
           )}
         </aside>
       </main>
@@ -1147,11 +1492,10 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           <VoiceControls
             onDraft={receiveVoice}
             task={task}
-            listenUnavailable={!state?.project ? '请先新建或打开项目，再开始收音。' : undefined}
             onState={setDisplayVoice}
             prepare={async () => {
+              if (!state?.project) return;
               if (
-                !state?.project ||
                 !(await operate('context', {
                   projectId: state.project.id,
                   conversationId: state.selectedThreadId,
@@ -1165,156 +1509,23 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
           />
         )}
         {!display && (
-          <details className="keyboard-composer" ref={composer}>
-            <summary>文字输入</summary>
-            <form onSubmit={submit}>
-              {voiceDraft && (
-                <div className="voice-draft">
-                  <p>语音转写：{voiceDraft.text}</p>
-                  <button
-                    type="button"
-                    disabled={state?.task?.id === voiceDraft.id}
-                    onClick={() => {
-                      if (composer.current) composer.current.open = true;
-                      setText((old) => {
-                        const text = old ? `${old}\n${voiceDraft.text}` : voiceDraft.text;
-                        retry.current = { text, id: voiceDraft.id };
-                        return text;
-                      });
-                    }}
-                  >
-                    使用转写草稿
-                  </button>
-                  <button type="button" onClick={() => setVoiceDraft(null)}>
-                    忽略转写
-                  </button>
-                </div>
-              )}
-              {state && (
-                <ModelControls state={state} busy={busy} connected={connected} operate={operate} />
-              )}
-              {state && (
-                <ExecutionControls
-                  state={state}
-                  busy={busy}
-                  connected={connected}
-                  operate={operate}
-                />
-              )}
-              <label htmlFor="task-prompt">给 Codex 的本轮指令</label>
-              <textarea
-                id="task-prompt"
-                maxLength={4000}
-                rows={3}
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                placeholder="做一个周末出游投票页；或者：给金山城市沙滩投一票"
-              />
-              {!!attachments.length && (
-                <div className="context-attachments">
-                  {attachments.map((a) => (
-                    <div key={a.id}>
-                      <strong>{a.title}</strong>
-                      <p>{a.text.slice(0, 150)}</p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAttachments((old) => old.filter((item) => item.id !== a.id));
-                          retry.current = null;
-                        }}
-                      >
-                        移除
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {selection && (
-                <div className="selection-tools">
-                  <p>已选：{selection.description.slice(0, 80)}</p>
-                  <label>
-                    给选中元素的批注
-                    <textarea
-                      value={annotation}
-                      maxLength={4000}
-                      onChange={(event) => setAnnotation(event.target.value)}
-                      placeholder="例如：背景改成粉色，保留文字"
-                    />
-                  </label>
-                  <p>
-                    可添加带批注的标记，也可在下方输入本轮指令直接提交；都会携带这个元素的上下文。
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      attach({
-                        id: crypto.randomUUID(),
-                        kind: 'browser',
-                        title: selection.description.slice(0, 100),
-                        text: `预览点选：${selection.description}${annotation.trim() ? `\n修改要求：${annotation.trim()}` : ''}`,
-                        selection,
-                      });
-                      setSelection(null);
-                      setAnnotation('');
-                    }}
-                  >
-                    把此标记加入上下文
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelection(null);
-                      setAnnotation('');
-                      retry.current = null;
-                    }}
-                  >
-                    清除选择
-                  </button>
-                </div>
-              )}
-              {running && (
-                <label>
-                  发送方式
-                  <select
-                    value={mode}
-                    onChange={(e) => setMode(e.target.value as 'queue' | 'steer')}
-                  >
-                    <option value="queue">排队到下一轮</option>
-                    <option value="steer">立即补充当前任务</option>
-                  </select>
-                </label>
-              )}
-              {staleSelection && (
-                <p className="error" role="alert">
-                  作品已更新，请移除过期标记并重新点选。输入已保留。
-                </p>
-              )}
-              <div className="live-actions">
-                <button
-                  className="send-task"
-                  type="submit"
-                  disabled={
-                    busy ||
-                    staleSelection ||
-                    !state?.project ||
-                    (!text.trim() && !(selection && annotation.trim())) ||
-                    !connected
-                  }
-                >
-                  {running ? (mode === 'queue' ? '排队发送' : '补充当前任务') : '提交给 Codex'}
-                </button>
-                {running && (
-                  <button
-                    type="button"
-                    disabled={busy || task?.status === 'stopping'}
-                    onClick={() => void operate('interrupt', {})}
-                  >
-                    停止任务
-                  </button>
-                )}
-              </div>
-            </form>
-          </details>
+          <ConfigurationButton
+            type="button"
+            className="composer-trigger"
+            ref={composerTrigger}
+            aria-expanded={composerOpen}
+            aria-controls="workbench-composer"
+            onClick={() => {
+              if (composer.current?.open) {
+                composer.current.open = false;
+                setComposerOpen(false);
+              } else {
+                focusComposer();
+              }
+            }}
+          >
+            文字输入 <ChevronDown aria-hidden="true" />
+          </ConfigurationButton>
         )}
         {!display && error && (
           <p className="error" role="alert">

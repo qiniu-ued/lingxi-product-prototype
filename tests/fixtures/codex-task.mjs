@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createInterface } from 'node:readline';
+import { isDeepStrictEqual } from 'node:util';
 
 if (process.argv.includes('--version')) {
   console.log('codex-cli 0.999.0');
@@ -144,6 +145,60 @@ const complete = (status = mode === 'failed' ? 'failed' : 'completed') => {
     emit(usage(-1));
   }
 };
+async function publicProgress() {
+  const scope = { threadId: currentThread, turnId: currentTurn };
+  const event = (method, params) => emit({ method, params: { ...scope, ...params } });
+  const pause = () => new Promise((resolve) => setTimeout(resolve, 800));
+  event('item/agentMessage/delta', { itemId: 'progress-1', delta: '先检查页面。' });
+  await pause();
+  event('item/started', {
+    item: {
+      id: 'progress-command',
+      type: 'commandExecution',
+      command: 'printf progress',
+      aggregatedOutput: null,
+      status: 'inProgress',
+    },
+  });
+  event('item/commandExecution/outputDelta', { itemId: 'progress-command', delta: 'step one\n' });
+  event('item/started', {
+    item: {
+      id: 'internal',
+      type: 'reasoning',
+      summary: 'PRIVATE_REASONING',
+      content: ['DO_NOT_SHOW'],
+    },
+  });
+  await pause();
+  event('item/agentMessage/delta', { itemId: 'progress-2', delta: '检查完成，正在验证。' });
+  // A delayed final snapshot must not move the earlier message after progress-2.
+  const first = { item: { id: 'progress-1', type: 'agentMessage', text: '先检查页面。' } };
+  event('item/completed', first);
+  event('item/completed', first);
+  event('item/commandExecution/outputDelta', { itemId: 'progress-command', delta: 'step two\n' });
+  emit({
+    method: 'item/agentMessage/delta',
+    params: { ...scope, threadId: 'foreign-thread', itemId: 'foreign', delta: 'FOREIGN_PROGRESS' },
+  });
+  await pause();
+  event('item/completed', {
+    item: {
+      id: 'progress-command',
+      type: 'commandExecution',
+      command: 'printf progress',
+      aggregatedOutput: 'step one\nstep two\n',
+      status: 'completed',
+    },
+  });
+  event('item/completed', {
+    item: { id: 'progress-2', type: 'agentMessage', text: '检查完成，正在验证。' },
+  });
+  event('item/agentMessage/delta', { itemId: 'progress-final', delta: '已完成两步验证。' });
+  event('item/completed', {
+    item: { id: 'progress-final', type: 'agentMessage', text: '已完成两步验证。' },
+  });
+  event('turn/completed', { turn: { id: scope.turnId, status: 'completed' } });
+}
 let config;
 async function browser(prompt) {
   const endpoint = config.mcp_servers.lingxi_preview.url;
@@ -213,7 +268,45 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     config = message.params.config;
     currentThread = message.params.threadId ?? `thread-${++threadSequence}`;
     if (mode === 'rpc-error') emit({ id: message.id, error: { message: 'PRIVATE ERROR' } });
-    else
+    else if (mode.startsWith('resume-noop')) {
+      const actual = {
+        threadId: currentThread,
+        cwd: process.cwd(),
+        approvalPolicy: 'on-request',
+        approvalsReviewer: mode === 'resume-noop-mismatch' ? 'auto_review' : 'user',
+        sandboxPolicy: {
+          type: 'workspaceWrite',
+          writableRoots: [process.cwd()],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+        collaborationMode: {
+          mode: 'default',
+          settings: {
+            model: 'test-model',
+            reasoning_effort: 'medium',
+            developer_instructions: null,
+          },
+        },
+      };
+      threadSettings.set(currentThread, actual);
+      emit({
+        id: message.id,
+        result: {
+          thread: { id: mode === 'resume-noop-wrong-thread' ? 'unrelated' : currentThread },
+          cwd: actual.cwd,
+          approvalPolicy: actual.approvalPolicy,
+          approvalsReviewer: actual.approvalsReviewer,
+          sandbox: actual.sandboxPolicy,
+          model: 'test-model',
+          reasoningEffort: 'medium',
+          ...(mode === 'resume-noop-missing'
+            ? {}
+            : { collaborationMode: actual.collaborationMode }),
+        },
+      });
+    } else
       emit({
         id: message.id,
         result: { thread: { id: currentThread }, model: 'test-model', reasoningEffort: 'medium' },
@@ -251,11 +344,16 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
       },
     });
   } else if (message.method === 'thread/settings/update') {
-    if (mode === 'settings-error')
+    if (mode === 'settings-error' || mode === 'resume-noop-error')
       emit({ id: message.id, error: { message: 'PRIVATE SETTINGS ERROR' } });
     else {
       emit({ id: message.id, result: {} });
       const previous = threadSettings.get(message.params.threadId);
+      if (
+        mode.startsWith('resume-noop') &&
+        (mode !== 'resume-noop' || isDeepStrictEqual(previous, message.params))
+      )
+        return;
       threadSettings.set(message.params.threadId, message.params);
       if (JSON.stringify(previous) === JSON.stringify(message.params)) return;
       emit({
@@ -317,7 +415,24 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           },
         });
     }
-    if (mode === 'approval' || mode === 'file')
+    if (mode === 'progress-empty') {
+      const scope = { threadId: currentThread, turnId: currentTurn };
+      const event = (method, params) => emit({ method, params: { ...scope, ...params } });
+      event('item/started', { item: { type: 'agentMessage', id: 'empty-first', text: '' } });
+      event('item/agentMessage/delta', { itemId: 'later-second', delta: '第二条先收到正文' });
+      event('item/completed', {
+        item: { type: 'agentMessage', id: 'empty-first', text: '第一条迟到正文' },
+      });
+      event('item/completed', {
+        item: { type: 'agentMessage', id: 'later-second', text: '第二条先收到正文' },
+      });
+      event('turn/completed', { turn: { id: currentTurn, status: 'completed' } });
+    } else if (
+      mode === 'progress' ||
+      (mode === 'rich' && message.params.input[0].text.includes('public-progress'))
+    )
+      void publicProgress();
+    else if (mode === 'approval' || mode === 'file')
       emit({
         id: 70,
         method:
@@ -330,6 +445,23 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           command: 'echo hello',
           cwd: process.cwd(),
           reason: 'test approval',
+        },
+      });
+    else if (mode.startsWith('preview-approval'))
+      emit({
+        id: 92,
+        method: 'mcpServer/elicitation/request',
+        params: {
+          threadId: currentThread,
+          turnId: currentTurn,
+          serverName: mode === 'preview-approval-foreign' ? 'other_server' : 'lingxi_preview',
+          mode: 'form',
+          message: 'Allow the preview tool?',
+          requestedSchema: {
+            type: 'object',
+            properties: mode === 'preview-approval-fields' ? { secret: { type: 'string' } } : {},
+          },
+          _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { action: 'snapshot' } },
         },
       });
     else if (mode === 'question')
@@ -394,7 +526,13 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         ? { data: [{ name: 'second_page_tools', pluginId: 'fixture-plugin' }], nextCursor: null }
         : { data: [], nextCursor: 'page2' },
     });
-  else if ((message.id === 71 || message.id === 72) && message.result) {
+  else if (message.id === 92 && (message.result || message.error)) {
+    emit({
+      method: 'serverRequest/resolved',
+      params: { threadId: currentThread, requestId: message.id },
+    });
+    complete();
+  } else if ((message.id === 71 || message.id === 72) && message.result) {
     emit({
       method: 'serverRequest/resolved',
       params: { threadId: currentThread, requestId: message.id },

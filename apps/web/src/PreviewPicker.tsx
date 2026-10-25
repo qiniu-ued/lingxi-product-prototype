@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export function PreviewPicker({
   shot,
   active,
+  disabled = false,
   selection,
   onPick,
   onCancel,
@@ -18,6 +19,7 @@ export function PreviewPicker({
 }: {
   shot: PreviewSnapshot;
   active: boolean;
+  disabled?: boolean;
   selection: PreviewSelection | null;
   onPick: (value: PreviewSelection) => void;
   onCancel: () => void;
@@ -131,7 +133,7 @@ export function PreviewPicker({
   useEffect(() => {
     const element = host.current;
     const scroll = (event: WheelEvent) => {
-      if (event.ctrlKey) return;
+      if (event.ctrlKey || disabled) return;
       const position = at(event.clientX, event.clientY);
       const api = window.lingxiDesktop;
       if (!position || !api?.scroll) return;
@@ -152,13 +154,14 @@ export function PreviewPicker({
     };
     element?.addEventListener('wheel', scroll, { passive: false });
     return () => element?.removeEventListener('wheel', scroll);
-  }, [binding, at, surface.height]);
+  }, [binding, at, surface.height, disabled]);
   return (
     <button
       ref={host}
       type="button"
       className={`preview-pick ${active ? 'picking' : ''}`}
       aria-label={active ? '选择预览元素' : '操作作品预览'}
+      disabled={disabled}
       onPointerMove={(event) => {
         if (!active) return;
         point.current = at(event.clientX, event.clientY);
@@ -175,7 +178,7 @@ export function PreviewPicker({
         event.preventDefault();
         event.stopPropagation();
         const position = at(event.clientX, event.clientY);
-        if (!position || locking.current) return;
+        if (disabled || !position || locking.current) return;
         const epoch = ++generation.current;
         locking.current = true;
         try {

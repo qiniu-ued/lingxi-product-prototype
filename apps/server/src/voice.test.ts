@@ -162,6 +162,7 @@ async function create(
   return {
     voice,
     drop: () => peer?.terminate(),
+    remoteClose: (code: number, reason: string) => peer?.close(code, reason),
     connections: () => connections,
     denyAuthentication: () => {
       deniedAuthentication = true;
@@ -294,7 +295,7 @@ it('switches modes only through armed device MCP and never lets speech elevate p
   expect((await f.call(34, 'workbench_set_mode', { mode: 'default' })).isError).toBeUndefined();
   expect(f.command).toHaveBeenCalledTimes(2);
 });
-it('requires explicit permission for voice submission and can save preferences without exposing the token', async () => {
+it('respects a saved voice-execution choice and can change it without exposing the token', async () => {
   const f = await create('pcm', false);
   await f.voice.inspect();
   await f.voice.preferences(true);
@@ -588,6 +589,28 @@ it('only reports submission after a real receipt and resets the next capture', a
   expect(f.voice.read().handoff).toMatchObject({ status: 'awaiting-tool', taskId: null });
   expect(f.voice.read().handoff?.captureId).not.toBe(id);
 });
+it('hands a spoken vote to Codex with its exact participant and destination only after the device tool call', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 880, method: 'initialize' } });
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 881, method: 'tools/list' } });
+  await vi.waitFor(() => expect(f.voice.read().deviceToolsReady).toBe(true));
+  expect(JSON.stringify(f.frames)).toContain('参与者2投给广西北海');
+  await f.voice.command({ action: 'listen' });
+  const captureId = f.voice.read().captureId;
+  const text = '参与者2投给广西北海';
+  f.send({ type: 'stt', text });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe(text));
+  expect(f.start).not.toHaveBeenCalled();
+  const result = await f.call(882, 'workbench_submit', { text });
+  expect(result.isError).toBeUndefined();
+  expect(f.start.mock.calls[0]?.slice(0, 2)).toEqual([captureId, text]);
+  expect(f.voice.read().handoff).toMatchObject({ status: 'submitted', taskId: captureId });
+  expect(JSON.stringify(result)).toContain('不能提前声称已完成');
+  expect((await f.call(883, 'workbench_submit', { text: '参与者3投给三亚' })).isError).toBe(true);
+  expect(f.start).toHaveBeenCalledTimes(1);
+});
 it('rejects stale transcripts and projects missing on submission with specific public reasons', async () => {
   const f = await create();
   await f.voice.command({ action: 'connect' });
@@ -696,6 +719,14 @@ it('ends the active microphone lease when audio is lost, not when frames are sil
   await vi.advanceTimersByTimeAsync(6000);
   expect(f.voice.read()).toMatchObject({ conversationActive: false, status: 'ready' });
   expect(f.voice.read().error).toContain('麦克风音频已中断');
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'voice-paused',
+      source: 'microphone',
+      reason: 'audio_frames_lost',
+    }),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'service-failed')).toBe(false);
 });
 it('does not reopen a capture whose audio setup finishes after an explicit close', async () => {
   let release = () => {};
@@ -745,10 +776,12 @@ it('starts local default wake without connecting or uploading and requires exist
     f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true }),
   ).rejects.toThrow('wake_auto_not_ready');
 });
-it('refuses automatic wake for denied permission, legacy intent or suspended audio without creating a provider session', async () => {
+it('refuses automatic wake for denied permission, explicit off or suspended audio without creating a provider session', async () => {
+  const disabled = new WakePreferences(null);
+  disabled.save(false);
   for (const [prefs, permission] of [
     [new WakePreferences(null), 'denied'],
-    [new WakePreferences(null, true), 'granted'],
+    [disabled, 'granted'],
   ] as const) {
     const wake = wakePeer(),
       f = await create('pcm', true, wake, undefined, prefs, permission);
@@ -950,6 +983,14 @@ it('detects an unresponsive connection through missing pongs and clears heartbea
     error: '语音服务保活响应超时。',
     connection: { attempt: 1 },
   });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      source: 'heartbeat',
+      reason: 'keepalive_timeout',
+      explicitClose: false,
+    }),
+  );
   expect(f.audio).toHaveLength(0);
   f.voice.close();
   await vi.advanceTimersByTimeAsync(120000);
@@ -999,3 +1040,563 @@ it.each(['disconnected', 'armed', 'conversation', 'retrying'] as const)(
     });
   },
 );
+it('traces actual status calls and results separately from discovery without saving content', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: 'PRIVATE_TRANSCRIPT' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('PRIVATE_TRANSCRIPT'));
+  await f.call(1401, 'workbench_status');
+  expect(f.voice.read().handoff).toMatchObject({ status: 'handled', taskId: null });
+  const events = f.voice.diagnostics().events;
+  expect(events).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool-called', tool: 'workbench_status' }),
+      expect.objectContaining({ kind: 'tool-returned', tool: 'workbench_status' }),
+    ]),
+  );
+  expect(JSON.stringify(f.voice.diagnostics())).not.toMatch(/PRIVATE_TRANSCRIPT|PRIVATE_TOKEN/);
+  expect(f.voice.readConversation().turns[0]?.messages[0]?.text).toBe('PRIVATE_TRANSCRIPT');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('keeps multiple voice turns when only tools are discovered and no submit tool is called', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 1402, method: 'tools/list' } });
+  await vi.waitFor(() => expect(f.voice.read().deviceToolsReady).toBe(true));
+  for (const text of ['第一轮', '第二轮']) {
+    await f.voice.command({ action: 'listen' });
+    f.send({ type: 'stt', text });
+    f.send({ type: 'tts', state: 'start' });
+    f.send({ type: 'tts', state: 'sentence_start', text: '只是语音回复' });
+    f.send({ type: 'tts', state: 'stop' });
+    await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('unhandled'));
+  }
+  expect(f.voice.readConversation().turns).toHaveLength(2);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'tool-called')).toBe(false);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(true);
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('traces rejected submission and permits projectless chat without pretending to create a task', async () => {
+  const f = await create('pcm', false);
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.state({ project: null });
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '你好' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('你好'));
+  await f.call(1403, 'workbench_submit', { text: 'PRIVATE_PROMPT' });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'tool-rejected',
+      tool: 'workbench_submit',
+      code: 'voice_submit_disabled',
+    }),
+  );
+  expect(f.voice.readConversation().turns[0]).toMatchObject({
+    projectId: null,
+    handoff: { status: 'blocked' },
+  });
+  expect(JSON.stringify(f.voice.diagnostics())).not.toContain('PRIVATE_PROMPT');
+  expect(f.start).not.toHaveBeenCalled();
+});
+it('associates a submit receipt and runner outcome, and retains session text through a reconnect', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: '只读检查' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('只读检查'));
+  const id = f.voice.read().captureId as string,
+    projectId = f.voice.diagnostics().events.find((event) => event.kind === 'capture-started')!
+      .projectId as string;
+  const task = {
+    id,
+    projectId,
+    conversationId: randomUUID(),
+    threadId: 'codex-thread-external',
+    status: 'starting',
+    prompt: '只读检查',
+  } as Task;
+  f.start.mockReturnValueOnce(task);
+  await f.call(1404, 'workbench_submit', { text: '只读检查' });
+  f.state({ task: { ...task, status: 'completed' } });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'task-submitted', taskId: id }),
+  );
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'task-status', taskId: id, status: 'completed' }),
+  );
+  expect(f.voice.readConversation().turns[0]).toMatchObject({
+    conversationId: task.conversationId,
+    taskStatus: 'completed',
+    handoff: { taskId: id },
+  });
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.readConversation().turns[0]?.messages[0]?.text).toBe('只读检查');
+  f.voice.clearConversation();
+  expect(f.voice.readConversation().turns).toEqual([]);
+});
+
+it('reports missing handoff after a spoken reply even when the provider never supplies STT', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '口头答复' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().handoff?.status).toBe('unhandled'));
+  expect(f.voice.read().draft).toBe('');
+  expect(f.voice.readConversation().turns[0]?.messages[0]).toMatchObject({
+    role: 'assistant',
+    text: '口头答复',
+    state: 'final',
+  });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({ kind: 'handoff-missing', code: 'no_tool_call' }),
+  );
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('distinguishes a peer close after TTS from idle capture, and reconnects without an old capture identity', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  const capture = f.voice.read().captureId;
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read().conversationActive).toBe(true);
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'service-failed')).toBe(false);
+  vi.useFakeTimers();
+  f.remoteClose(1000, 'idle timeout token=PRIVATE_TOKEN');
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read()).toMatchObject({ captureId: null, conversationActive: false });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      source: 'websocket',
+      reason: 'transport_close',
+      closeCode: 1000,
+      explicitClose: false,
+      captureId: capture,
+    }),
+  );
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-retry-scheduled',
+      retryAttempt: 1,
+      retryDelayMs: 1000,
+      captureId: null,
+    }),
+  );
+  const detailedClose = f.voice.readDebug().events.find((event) => event.event === 'close');
+  expect(detailedClose?.payload).toContain('idle timeout');
+  expect(detailedClose?.payload).not.toContain('PRIVATE_TOKEN');
+  await vi.advanceTimersByTimeAsync(1000);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  const latest = f.voice
+    .diagnostics()
+    .events.filter((event) => event.kind === 'service-ready')
+    .at(-1);
+  expect(latest?.captureId).toBeNull();
+  expect(f.voice.read().conversationActive).toBe(false);
+  await f.voice.command({ action: 'disconnect' });
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-disconnected',
+      source: 'operator',
+      reason: 'manual_disconnect',
+      explicitClose: true,
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.connections()).toBe(2);
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('always records redacted protocol bodies, including before opening diagnostics, and continues after clear', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'stt', text: 'before debug' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('before debug'));
+  expect(f.voice.readDebug().enabled).toBe(true);
+  expect(JSON.stringify(f.voice.readDebug())).toContain('before debug');
+  f.voice.debugAction({ action: 'clear' });
+  await f.voice.command({ action: 'listen' });
+  f.send({
+    type: 'stt',
+    text: '把标题变粉色',
+    provider_extra: { token: 'UNRELATED_PROVIDER_SECRET' },
+  });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '收到，交给 Codex' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe('把标题变粉色'));
+  await f.call(1601, 'workbench_status');
+  await f.call(1602, 'workbench_submit', { text: '把标题变粉色' });
+  const detailed = JSON.stringify(f.voice.readDebug());
+  expect(detailed).toContain('把标题变粉色');
+  expect(detailed).toContain('收到，交给 Codex');
+  expect(detailed).toContain('arguments');
+  expect(detailed).toContain('result');
+  expect(detailed).not.toMatch(
+    /PRIVATE_TOKEN|UNRELATED_PROVIDER_SECRET|02:12:34:56:78:90|before debug/,
+  );
+  expect(JSON.stringify(f.voice.diagnostics())).not.toMatch(/把标题变粉色|收到，交给/);
+  f.voice.debugAction({ action: 'clear' });
+  expect(f.voice.readDebug().events).toEqual([]);
+  await f.call(1603, 'workbench_status');
+  expect(f.voice.readDebug().enabled).toBe(true);
+  expect(f.voice.readDebug().events.length).toBeGreaterThan(0);
+});
+
+it('defaults a new binding on, preserves a stored false during rebinding, and enforces it after reconnection', async () => {
+  const fresh = await create();
+  const binding = { ...fresh.config()!, allowVoiceSubmit: true };
+  fresh.removeConfiguration();
+  await fresh.voice.saveBinding(binding);
+  expect(fresh.config()?.allowVoiceSubmit).toBe(true);
+  const off = await create('pcm', false);
+  await off.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(off.voice.read().status).toBe('ready'));
+  await off.voice.saveBinding({ ...binding, token: 'NEW_FIXTURE_TOKEN' });
+  await vi.waitFor(() => expect(off.voice.read().status).toBe('ready'));
+  expect(off.config()?.allowVoiceSubmit).toBe(false);
+  expect(off.voice.read().allowVoiceSubmit).toBe(false);
+  await off.voice.command({ action: 'listen' });
+  expect((await off.call(1604, 'workbench_submit', { text: 'must remain disabled' })).isError).toBe(
+    true,
+  );
+  expect(off.start).not.toHaveBeenCalled();
+});
+
+it('retires an idle remote goodbye immediately, clears playback and retains local wake without replaying the capture', async () => {
+  const wake = wakePeer();
+  const f = await create(
+    'pcm',
+    true,
+    wake,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
+  await f.voice.command({ action: 'listen' });
+  const captureId = f.voice.read().captureId;
+  await f.voice.command({ action: 'stop-listening' });
+  f.send({ type: 'stt', text: '看看页面' });
+  await f.call(1700, 'workbench_status');
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '普通回复' });
+  f.sendBinary(Buffer.alloc(640));
+  await vi.waitFor(() =>
+    expect(f.native.some((call) => (call.params as { pcm?: string })?.pcm)).toBe(true),
+  );
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await vi.waitFor(() =>
+    expect(f.frames).toContainEqual(expect.objectContaining({ state: 'start' })),
+  );
+  const nativeBefore = f.native.length,
+    framesBefore = f.frames.length,
+    audioBefore = f.audio.length;
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.now() + 31000);
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  wake.frame.mockClear();
+  f.send({ type: 'goodbye' });
+  // Queue farewell messages before the peer observes our close, including PCM.
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '后会有期' });
+  f.sendBinary(Buffer.alloc(640));
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read()).toMatchObject({
+    captureId: null,
+    conversationActive: false,
+    wake: { status: 'armed' },
+    wakeAutoSuspended: false,
+    connection: { attempt: 1 },
+  });
+  expect(f.native.slice(nativeBefore)).toEqual([
+    { method: 'voice-audio', params: { reset: true } },
+  ]);
+  expect(f.frames).toHaveLength(framesBefore); // No fake user abort or keepalive utterance.
+  expect(f.voice.readConversation().turns.flatMap((turn) => turn.messages)).toContainEqual(
+    expect.objectContaining({ text: '普通回复', state: 'final' }),
+  );
+  expect(
+    f.voice
+      .readConversation()
+      .turns.some((turn) => turn.messages.some((message) => message.text.includes('后会有期'))),
+  ).toBe(false);
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.audio).toHaveLength(audioBefore);
+  await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_not_ready');
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-ending',
+      reason: 'remote_goodbye',
+      code: 'remote_session_end',
+    }),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+    false,
+  );
+  expect(f.connections()).toBe(1);
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      source: 'app',
+      reason: 'remote_goodbye',
+      code: 'remote_session_end',
+      remoteGoodbye: true,
+      explicitClose: false,
+    }),
+  );
+  expect(f.voice.diagnostics().events.filter((event) => event.closeCode !== undefined)).toEqual([]);
+  expect(f.voice.readDebug().events).toContainEqual(
+    expect.objectContaining({
+      direction: 'local',
+      event: 'close',
+      payload: expect.stringContaining('remote_goodbye'),
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(1000);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read()).toMatchObject({
+    remoteSessionEnding: false,
+    captureId: null,
+    conversationActive: false,
+  });
+  expect(f.connections()).toBe(2);
+  expect(f.frames.filter((frame) => (frame as { state?: string }).state === 'start')).toHaveLength(
+    1,
+  );
+  expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'listen' });
+  expect(f.voice.read().captureId).not.toBe(captureId);
+  await f.call(1701, 'workbench_submit', { text: '本次新要求' });
+  expect(f.start).toHaveBeenCalledTimes(1);
+});
+
+it.each(['disconnect', 'stop-session', 'close'] as const)(
+  'cancels remote-goodbye recovery on explicit %s and never enables an idle microphone',
+  async (action) => {
+    const f = await create();
+    vi.useFakeTimers();
+    await f.voice.command({ action: 'connect' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    f.send({ type: 'goodbye', session_id: 'other-session' });
+    await vi.waitFor(() =>
+      expect(
+        f.voice
+          .readDebug()
+          .events.some(
+            (event) => event.direction === 'inbound' && event.payload.includes('goodbye'),
+          ),
+      ).toBe(true),
+    );
+    expect(f.voice.read().status).toBe('ready');
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().connection.attempt).toBe(1));
+    expect(f.voice.read()).toMatchObject({ wake: { status: 'off' }, conversationActive: false });
+    if (action === 'close') await f.voice.close();
+    else await f.voice.command({ action });
+    await vi.advanceTimersByTimeAsync(120000);
+    await f.voice.startAutoConnection();
+    expect(f.connections()).toBe(1);
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.audio).toHaveLength(0);
+    expect(f.native.every((call) => call.method !== 'microphone-status')).toBe(true);
+  },
+);
+
+it.each([false, true])(
+  'preserves a fresh user reply on goodbye (reply already playing: %s)',
+  async (playing) => {
+    const f = await create();
+    await f.voice.command({ action: 'connect' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    await f.voice.command({ action: 'listen' });
+    f.send({ type: 'stt', text: '今天先聊到这里' });
+    await vi.waitFor(() => expect(f.voice.read().draft).toBe('今天先聊到这里'));
+    if (playing) {
+      f.send({ type: 'tts', state: 'start' });
+      f.send({ type: 'tts', state: 'sentence_start', text: '好的' });
+      await vi.waitFor(() => expect(f.voice.read().status).toBe('speaking'));
+    }
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().remoteSessionEnding).toBe(true));
+    await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_session_ending');
+    if (!playing) f.send({ type: 'tts', state: 'start' });
+    f.send({ type: 'tts', state: 'sentence_start', text: '下次见' });
+    f.sendBinary(Buffer.alloc(640));
+    f.send({ type: 'tts', state: 'stop' });
+    await vi.waitFor(() =>
+      expect(f.native.some((call) => (call.params as { pcm?: string })?.pcm)).toBe(true),
+    );
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    expect(f.voice.readConversation().turns.flatMap((turn) => turn.messages)).toContainEqual(
+      expect.objectContaining({ text: playing ? '好的\n下次见' : '下次见', state: 'final' }),
+    );
+    expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+      false,
+    );
+    expect(f.connections()).toBe(1);
+    f.remoteClose(1000, 'session ended');
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+    expect(f.voice.diagnostics().events).toContainEqual(
+      expect.objectContaining({
+        kind: 'service-failed',
+        source: 'websocket',
+        reason: 'transport_close',
+        closeCode: 1000,
+        remoteGoodbye: true,
+        code: 'remote_session_end',
+        explicitClose: false,
+      }),
+    );
+    await f.voice.command({ action: 'stop-session' });
+    expect(f.voice.read()).toMatchObject({
+      status: 'disconnected',
+      connectionPreference: { enabled: false },
+    });
+    expect(f.start).not.toHaveBeenCalled();
+  },
+);
+
+it('bounds repeated remote goodbyes rather than reconnecting in an endless fast loop', async () => {
+  const f = await create();
+  vi.useFakeTimers();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  for (const delay of [1000, 2000, 4000, 8000, 16000, 30000]) {
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+    await vi.advanceTimersByTimeAsync(delay);
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  }
+  f.send({ type: 'goodbye' });
+  await vi.waitFor(() => expect(f.voice.read().connection.exhausted).toBe(true));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.connections()).toBe(7);
+  expect(f.frames.every((frame) => (frame as { type: string }).type === 'hello')).toBe(true);
+  expect(f.audio).toHaveLength(0);
+});
+
+it('does not accuse a local status broadcast of missing a development tool after capture was closed', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'speak', text: '已连接' });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '已连接' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() =>
+    expect(
+      f.voice
+        .readConversation()
+        .turns.some(
+          (turn) =>
+            turn.captureId === null && turn.messages.some((message) => message.text === '已连接'),
+        ),
+    ).toBe(true),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+    false,
+  );
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('preserves actual tool request and result payloads through noisy tool-list handshakes', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.call(1900, 'workbench_status');
+  for (let id = 2000; id < 2120; id++)
+    f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id, method: 'tools/list' } });
+  await vi.waitFor(() =>
+    expect(
+      f.frames.some((value) => (value as { payload?: { id?: number } }).payload?.id === 2119),
+    ).toBe(true),
+  );
+  const log = f.voice.readDebug();
+  expect(log.dropped).toBeGreaterThan(0);
+  expect(log.droppedImportant).toBe(0);
+  expect(log.events).toContainEqual(
+    expect.objectContaining({
+      direction: 'inbound',
+      priority: 'important',
+      payload: expect.stringContaining('workbench_status'),
+    }),
+  );
+  expect(log.events).toContainEqual(
+    expect.objectContaining({
+      direction: 'outbound',
+      priority: 'important',
+      payload: expect.stringContaining('voiceSubmitEnabled'),
+    }),
+  );
+  expect(log.events.length).toBeLessThanOrEqual(256);
+});
+
+it('retains a linked task failure reason after voice disconnect without inventing model execution', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  const task = {
+    id: f.voice.read().captureId,
+    projectId: f.voice.diagnostics().events.find((event) => event.kind === 'capture-started')
+      ?.projectId,
+    conversationId: randomUUID(),
+    threadId: 'codex-thread',
+    turnId: null,
+    status: 'starting',
+    error: null,
+  } as Task;
+  f.start.mockReturnValueOnce(task);
+  await f.call(2190, 'workbench_submit', { text: '检查入口' });
+  await f.voice.command({ action: 'disconnect' });
+  f.state({
+    task: {
+      ...task,
+      status: 'failed',
+      error: 'Codex 未确认所选执行设置，未提交模型任务。',
+      activity: '准备失败',
+    },
+  });
+  const failure = f.voice
+    .readDebug()
+    .events.find((event) => event.taskId === task.id && event.payload.includes('task-failure'));
+  expect(failure?.priority).toBe('important');
+  expect(failure?.payload).toContain('未提交模型任务');
+  expect(failure?.payload).toContain('"turnStarted": false');
+  expect(JSON.stringify(f.voice.diagnostics())).not.toContain('未提交模型任务');
+});

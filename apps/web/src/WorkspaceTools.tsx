@@ -5,6 +5,11 @@ import {
   type WorkbenchState,
 } from '@lingxi/protocol';
 import { useEffect, useRef, useState } from 'react';
+import {
+  ConfigurationButton,
+  ConfigurationInput,
+  ConfigurationTextArea,
+} from './ConfigurationControls.js';
 
 const connection: Record<string, string> = {
   notStarted: '尚未启动',
@@ -97,13 +102,17 @@ export function WorkspaceTools({
   const current = catalog?.projectId === projectId ? catalog : null;
   return (
     <section className="workspace-tool">
-      <button type="button" disabled={loading || !projectId} onClick={() => void load()}>
+      <ConfigurationButton
+        type="button"
+        disabled={loading || !projectId}
+        onClick={() => void load()}
+      >
         {loading
           ? '正在读取…'
           : current
             ? '刷新 Skills、MCP 和账号额度'
             : '读取 Skills、MCP 和账号额度'}
-      </button>
+      </ConfigurationButton>
       {current ? (
         <>
           <section aria-label="Skills">
@@ -222,18 +231,23 @@ export function WorkspaceTools({
         <p>读取后查看可用技能、工具连接与账号额度。</p>
       )}
       <h3>添加上下文</h3>
-      <label>
+      <label htmlFor="workspace-context-title">
         标题
-        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+        <ConfigurationInput
+          id="workspace-context-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={200}
+        />
       </label>
-      <textarea
+      <ConfigurationTextArea
         aria-label="上下文内容"
         placeholder="粘贴代码、文件片段、讨论结论或准确文本；注明文件路径和行号。"
         value={context}
         maxLength={32000}
         onChange={(e) => setContext(e.target.value)}
       />
-      <button
+      <ConfigurationButton
         type="button"
         disabled={!context.trim()}
         onClick={() => {
@@ -242,7 +256,7 @@ export function WorkspaceTools({
         }}
       >
         添加到对话
-      </button>
+      </ConfigurationButton>
       {error && <p role="alert">{error}</p>}
     </section>
   );

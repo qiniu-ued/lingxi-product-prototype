@@ -4,6 +4,7 @@ import {
   type WorkbenchState,
 } from '@lingxi/protocol';
 import { useEffect, useState } from 'react';
+import { ConfigurationButton, ConfigurationSelect } from './ConfigurationControls.js';
 
 const labels = {
   manual: 'Manual · 手动审批',
@@ -68,23 +69,24 @@ export function ExecutionControls({
       <fieldset disabled={busy || verifying || !connected || !projectId}>
         <legend>执行设置 · 新提交生效</legend>
         <label htmlFor="collaboration-mode">工作模式</label>
-        <select
+        <ConfigurationSelect
           id="collaboration-mode"
+          disabled={busy || verifying || !connected || !projectId}
           value={state.settings.plan ? 'plan' : 'default'}
-          onChange={(e) => void operate('workspace', { action: 'set-mode', mode: e.target.value })}
+          onValueChange={(mode) => void operate('workspace', { action: 'set-mode', mode })}
         >
           <option value="default">执行模式</option>
           <option value="plan" disabled={!active?.plan}>
             计划模式{!active?.plan ? '（尚不可用）' : ''}
           </option>
-        </select>
+        </ConfigurationSelect>
         <label htmlFor="permission-mode">权限</label>
-        <select
+        <ConfigurationSelect
           id="permission-mode"
           value={readonly ? 'sidechat' : state.permission}
-          disabled={readonly || !active}
-          onChange={(e) =>
-            void operate('workspace', { action: 'set-permission', permission: e.target.value })
+          disabled={busy || verifying || !connected || !projectId || readonly || !active}
+          onValueChange={(permission) =>
+            void operate('workspace', { action: 'set-permission', permission })
           }
         >
           {readonly && <option value="sidechat">Sidechat · 只读</option>}
@@ -98,7 +100,7 @@ export function ExecutionControls({
               {active && !active.permissions[key as keyof typeof labels] ? '（不可用）' : ''}
             </option>
           ))}
-        </select>
+        </ConfigurationSelect>
       </fieldset>
       <small>
         {readonly
@@ -114,13 +116,13 @@ export function ExecutionControls({
         <small>
           计划模式先讨论与制定计划；切回执行模式后再提交实施要求。连接丽塔同学并启用语音控制后，可说“切换到计划模式”或“切换到执行模式”。
         </small>
-        <button
+        <ConfigurationButton
           type="button"
           disabled={verifying || !connected || !projectId}
           onClick={() => void verify()}
         >
           {verifying ? '正在验证…' : '验证执行设置'}
-        </button>
+        </ConfigurationButton>
         {active?.verified.length ? (
           <p role="status">
             已由 Codex 确认：

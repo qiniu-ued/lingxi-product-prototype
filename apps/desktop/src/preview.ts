@@ -38,6 +38,8 @@ export class Preview {
   private digest = '';
   private runtimeOrigin = '';
   private serviceOrigin = '';
+  private captureVersion = 0;
+  private snapshotFlight: { key: string; promise: ReturnType<Preview['snapshotNow']> } | undefined;
   protectService(origin: string) {
     this.serviceOrigin = origin;
   }
@@ -215,6 +217,7 @@ export class Preview {
       )
         throw new Error('stale_preview');
       const { width, height } = this.view.getBounds();
+      this.captureVersion++;
       const point = {
         x: Math.min(width - 1, Math.floor(input.x * width)),
         y: Math.min(height - 1, Math.floor(input.y * height)),
@@ -248,6 +251,7 @@ export class Preview {
       if (this.requests.size >= 1000) throw new Error('preview_action_limit');
       // Reserve before native dispatch; an IPC retry must never cast another vote.
       this.requests.set(input.requestId, { input: serialized, result: null });
+      this.captureVersion++;
       const { width, height } = this.view.getBounds();
       const point = {
         x: Math.min(width - 1, Math.floor(input.x * width)),
@@ -284,17 +288,61 @@ export class Preview {
     }
   }
   async snapshot() {
-    if (!this.view || !this.binding || this.view.webContents.isDestroyed())
+    const view = this.view;
+    if (!view || !this.binding || view.webContents.isDestroyed())
       throw new Error('preview_missing');
     const binding = { ...this.binding };
-    const text = await this.view.webContents.executeJavaScriptInIsolatedWorld(1001, [
+    const captureVersion = this.captureVersion;
+    const key = JSON.stringify([binding, captureVersion]);
+    let flight = this.snapshotFlight;
+    if (!flight || flight.key !== key) {
+      flight = { key, promise: this.snapshotNow(view, binding, captureVersion) };
+      this.snapshotFlight = flight;
+      const current = flight;
+      void flight.promise
+        .finally(() => {
+          if (this.snapshotFlight === current) this.snapshotFlight = undefined;
+        })
+        .catch(() => {});
+    }
+    // Keep the raw flight until it settles, even after this caller times out.
+    // UI/MCP retries cannot start overlapping native captures of the same page.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        flight.promise,
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('preview_snapshot_timeout')), 4000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  private async snapshotNow(
+    view: WebContentsView,
+    binding: PreviewBinding,
+    captureVersion: number,
+  ) {
+    const current = () => {
+      if (
+        this.view !== view ||
+        this.captureVersion !== captureVersion ||
+        view.webContents.isDestroyed() ||
+        JSON.stringify(this.binding) !== JSON.stringify(binding)
+      )
+        throw new Error('preview_changed');
+    };
+    const text = await view.webContents.executeJavaScriptInIsolatedWorld(1001, [
       { code: targetScript },
     ]);
-    const captured = await this.view.webContents.capturePage();
+    current();
+    const captured = await view.webContents.capturePage();
+    current();
     const size = captured.getSize();
+    if (captured.isEmpty() || !size.width || !size.height)
+      throw new Error('preview_capture_unavailable');
     const screenshot = size.width > 1280 ? captured.resize({ width: 1280 }) : captured;
-    if (this.binding.epoch !== binding.epoch || this.binding.revision !== binding.revision)
-      throw new Error('preview_changed');
     return {
       binding,
       text: String(text).slice(0, 40000),
@@ -303,6 +351,7 @@ export class Preview {
       height: size.height,
     };
   }
+
   perform(value: unknown) {
     const action = previewActionSchema.parse(value);
     const next = this.queue.then(() => this.execute(action));
@@ -331,6 +380,7 @@ export class Preview {
       const oldest = [...this.requests.values()].find((entry) => entry.result !== null);
       if (oldest) oldest.result = null;
     }
+    this.captureVersion++;
     const contents = this.view.webContents;
     if (action.action === 'scroll') {
       await contents.executeJavaScriptInIsolatedWorld(1001, [
@@ -358,6 +408,7 @@ export class Preview {
     return result;
   }
   dispose() {
+    this.captureVersion++;
     if (this.view) {
       this.window.contentView.removeChildView(this.view);
       if (!this.view.webContents.isDestroyed()) this.view.webContents.close();
@@ -365,6 +416,7 @@ export class Preview {
     this.view = undefined;
     this.binding = null;
     this.root = '';
+    this.snapshotFlight = undefined;
     this.runtimeOrigin = '';
     this.requests.clear();
   }

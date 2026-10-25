@@ -26,6 +26,8 @@ export class CodexClient {
     {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
+      method: string;
+      threadId?: string;
       timer?: ReturnType<typeof setTimeout>;
     }
   >();
@@ -92,7 +94,11 @@ export class CodexClient {
         resolve: typeof resolve;
         reject: typeof reject;
         timer?: ReturnType<typeof setTimeout>;
-      } = { resolve, reject };
+        method: string;
+        threadId?: string;
+      } = { resolve, reject, method };
+      const target = z.object({ threadId: z.string() }).safeParse(params);
+      if (target.success) entry.threadId = target.data.threadId;
       if (timeoutMs !== null)
         entry.timer = setTimeout(() => {
           this.pending.delete(id);
@@ -135,6 +141,41 @@ export class CodexClient {
   reject(id: string | number) {
     this.send({ id, error: { code: -32601, message: 'Unsupported operation' } });
   }
+  private rememberEffectiveSettings(
+    method: string,
+    requestedThread: string | undefined,
+    value: unknown,
+  ) {
+    if (!['thread/start', 'thread/resume', 'thread/fork'].includes(method)) return;
+    // CLI 0.163/0.164 returns effective settings here. A fresh client's first
+    // update can be a no-op, with no settings notification. Never seed this
+    // cache from request parameters, persisted UI preferences or an empty ack.
+    const parsed = z
+      .object({
+        thread: z.object({ id: z.string() }),
+        cwd: z.string(),
+        approvalPolicy: z.unknown(),
+        approvalsReviewer: z.string(),
+        sandbox: z.record(z.string(), z.unknown()),
+        model: z.string(),
+        reasoningEffort: z.string().nullable().optional(),
+        collaborationMode: z.object({
+          mode: z.string(),
+          settings: z.object({ model: z.string(), reasoning_effort: z.string().nullable() }),
+        }),
+      })
+      .safeParse(value);
+    if (!parsed.success) return;
+    const result = parsed.data;
+    if (
+      (method === 'thread/resume' && result.thread.id !== requestedThread) ||
+      result.model !== result.collaborationMode.settings.model ||
+      (result.reasoningEffort !== undefined &&
+        result.reasoningEffort !== result.collaborationMode.settings.reasoning_effort)
+    )
+      return;
+    this.threadSettings.set(result.thread.id, { ...result, sandboxPolicy: result.sandbox });
+  }
   private send(message: RpcMessage) {
     if (!this.stopped) this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
@@ -159,7 +200,10 @@ export class CodexClient {
             clearTimeout(entry.timer);
             this.pending.delete(message.id);
             if (message.error) entry.reject(new Error('codex_request_failed'));
-            else entry.resolve(message.result);
+            else {
+              this.rememberEffectiveSettings(entry.method, entry.threadId, message.result);
+              entry.resolve(message.result);
+            }
           }
         } else {
           if (message.method === 'thread/settings/updated') {

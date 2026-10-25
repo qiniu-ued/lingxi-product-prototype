@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -19,6 +20,11 @@ await writeFile(
   join(projectPath, 'preview/index.html'),
   `<!doctype html><html lang="zh"><meta charset="utf-8"><title>周末，一起去哪里？</title><style>body{font:24px system-ui;padding:40px;background:#f6eadb;color:#453d33}button,input{font:inherit;padding:15px;margin-top:20px}h1{font-size:40px}</style><h1>周末，一起去哪里？</h1><button id="vote"><span id="vote-label">金山城市沙滩</span></button><p>票数：<strong id="count"></strong></p><input aria-label="备注"><iframe id="same-frame" style="display:block;margin-top:240px;width:400px;height:140px" srcdoc="<button id=frame-action>Frame action</button>"></iframe><iframe id="opaque-frame" sandbox style="display:block;width:400px;height:140px" srcdoc="<button>Opaque action</button>"></iframe><script>const count=document.querySelector('#count');count.textContent=localStorage.votes||'0';document.querySelector('#vote').onclick=()=>{localStorage.votes=String(Number(localStorage.votes||0)+1);count.textContent=localStorage.votes}</script></html>`,
 );
+execFileSync('git', ['init', '--quiet', projectPath]);
+const diffProbe = join(projectPath, 'diff-probe.txt');
+await writeFile(diffProbe, 'staged-marker\n');
+execFileSync('git', ['-C', projectPath, 'add', '--', 'diff-probe.txt']);
+await writeFile(diffProbe, 'staged-marker\nunstaged-marker\n');
 const store = new WorkbenchStore(join(dataRoot, 'lingxi.db'));
 const state = store.read();
 state.project = { id: randomUUID(), name: '周末出游', path: projectPath };
@@ -113,10 +119,18 @@ async function closeDesktop(application, repeated = false) {
 async function expand(page, selector) {
   const details = page.locator(selector);
   if (!(await details.evaluate((element) => element.open))) {
-    await details.locator(':scope > summary').focus();
-    await details.locator(':scope > summary').press('Enter');
+    if (selector === '.keyboard-composer')
+      await page.getByRole('button', { name: '文字输入', exact: true }).click();
+    else {
+      await details.locator(':scope > summary').focus();
+      await details.locator(':scope > summary').press('Enter');
+    }
   }
   assert.equal(await details.evaluate((element) => element.open), true);
+}
+async function selectControl(page, name, label) {
+  await page.getByRole('combobox', { name, exact: true }).click();
+  await page.getByRole('option', { name: label, exact: true }).click();
 }
 async function assertAgentDensity(page) {
   const agent = await page.locator('.live-activity').evaluate((element) => ({
@@ -168,23 +182,40 @@ try {
     );
   const address = new URL(operator.url()).origin;
   await expand(operator, '.keyboard-composer');
-  await operator.getByLabel('模型', { exact: true }).selectOption('test-model');
-  await operator.getByLabel('Reasoning Effort', { exact: true }).selectOption('high');
+  await expand(operator, '.composer-options');
+  await selectControl(operator, '模型', 'Test Model');
+  await selectControl(operator, 'Reasoning Effort', 'high');
+  assert.equal(
+    await operator.getByRole('combobox', { name: '模型', exact: true }).textContent(),
+    'Test Model',
+  );
+  assert.equal(
+    await operator.getByRole('combobox', { name: 'Reasoning Effort', exact: true }).textContent(),
+    'high',
+  );
   const beforeTasks = await readFile(record, 'utf8');
   assert.ok(!beforeTasks.includes('thread/start'), 'Loading model choices must not start a thread');
-  await operator.getByLabel('工作模式', { exact: true }).selectOption('plan');
+  await selectControl(operator, '工作模式', '计划模式');
   await operator.waitForFunction(
-    () => document.querySelector('#collaboration-mode').value === 'plan',
+    async () => (await (await fetch('/api/workbench')).json()).settings.plan === true,
   );
-  await operator.getByLabel('工作模式', { exact: true }).selectOption('default');
+  assert.equal(
+    await operator.getByRole('combobox', { name: '工作模式', exact: true }).textContent(),
+    '计划模式',
+  );
+  await selectControl(operator, '工作模式', '执行模式');
   await operator.waitForFunction(
-    () => document.querySelector('#collaboration-mode').value === 'default',
+    async () => (await (await fetch('/api/workbench')).json()).settings.plan === false,
+  );
+  assert.equal(
+    await operator.getByRole('combobox', { name: '工作模式', exact: true }).textContent(),
+    '执行模式',
   );
   await operator.getByText('模式说明与兼容验证', { exact: true }).click();
   await operator.getByRole('button', { name: '验证执行设置', exact: true }).click();
   await operator.getByText(/已由 Codex 确认：计划模式、执行模式/).waitFor();
   await operator.getByText('模式说明与兼容验证', { exact: true }).click();
-  await operator.locator('.keyboard-composer > summary').press('Enter');
+  await operator.getByRole('button', { name: '文字输入', exact: true }).click();
 
   for (let attempt = 0; attempt < 100; attempt++) {
     const current = await (await fetch(`${address}/api/workbench`)).json();
@@ -215,6 +246,91 @@ try {
     return page.executeJavaScript(`({desktop:typeof window.lingxiDesktop,node:typeof process})`);
   });
   assert.deepEqual(isolation, { desktop: 'undefined', node: 'undefined' });
+  // Real Electron/IPC path with a controlled capturePage surface failure.
+  // This proves error handling and recovery, not the physical Mac GPU cause.
+  await operator.locator('.preview-pick img').waitFor();
+  await instance.evaluate(({ app, webContents }) => {
+    const page = webContents
+      .getAllWebContents()
+      .find((w) => w.getURL().startsWith('lingxi-preview:'));
+    app.__captureProbe = { page, original: page.capturePage, calls: 0 };
+    page.capturePage = async () => {
+      app.__captureProbe.calls++;
+      throw new Error('Current display surface not available for capture');
+    };
+  });
+  try {
+    await operator.getByText(/暂时无法同步大屏作品/).waitFor();
+    await operator.getByText(/当前保留上次成功截图/).waitFor();
+    assert.equal(
+      await operator.getByRole('button', { name: '批注修改', exact: true }).isDisabled(),
+      true,
+    );
+    await operator.locator('.preview-pick img').waitFor();
+    for (let i = 0; i < 70; i++) {
+      if (await instance.evaluate(({ app }) => app.__captureProbe.calls === 3)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(await instance.evaluate(({ app }) => app.__captureProbe.calls), 3);
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    assert.equal(
+      await instance.evaluate(({ app }) => app.__captureProbe.calls),
+      3,
+      'Surface errors must stop automatic capture retries',
+    );
+  } finally {
+    await instance.evaluate(({ app }) => {
+      app.__captureProbe.page.capturePage = app.__captureProbe.original;
+      delete app.__captureProbe;
+    });
+  }
+  await operator.getByRole('button', { name: '重试同步预览', exact: true }).click();
+  await operator
+    .getByRole('button', { name: '批注修改', exact: true })
+    .waitFor({ state: 'visible' });
+  await operator.waitForFunction(() => !document.querySelector('.preview-sync-error'));
+  assert.equal(
+    await operator.getByRole('button', { name: '批注修改', exact: true }).isDisabled(),
+    false,
+  );
+  // Concurrent trusted callers share a native capture of the same view/version.
+  await instance.evaluate(({ app, webContents }) => {
+    const page = webContents
+      .getAllWebContents()
+      .find((w) => w.getURL().startsWith('lingxi-preview:'));
+    const original = page.capturePage;
+    app.__captureProbe = { page, original, calls: 0 };
+    page.capturePage = async (...args) => {
+      app.__captureProbe.calls++;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return original.apply(page, args);
+    };
+  });
+  try {
+    const snapshots = await operator.evaluate(() =>
+      Promise.all([
+        window.lingxiDesktop.snapshot(),
+        window.lingxiDesktop.snapshot(),
+        window.lingxiDesktop.snapshot(),
+      ]),
+    );
+    assert.ok(
+      snapshots.every(
+        (snapshot) => snapshot.image && snapshot.binding.id === snapshots[0].binding.id,
+      ),
+    );
+    assert.equal(
+      await instance.evaluate(({ app }) => app.__captureProbe.calls),
+      1,
+      'Concurrent snapshots must not multiply native captures',
+    );
+  } finally {
+    await instance.evaluate(({ app }) => {
+      app.__captureProbe.page.capturePage = app.__captureProbe.original;
+      delete app.__captureProbe;
+    });
+  }
+
   await expand(operator, '.workbench-menu');
   for (const visible of [true, false]) {
     await instance.evaluate(({ app, BrowserWindow }, visible) => {
@@ -430,9 +546,12 @@ try {
     .find((message) => message.method === 'turn/start');
   assert.equal(started.params.collaborationMode.mode, 'default');
   assert.equal(started.params.approvalsReviewer, 'user');
-  const summary = operator.getByRole('region', { name: '本轮用量摘要', exact: true }).first();
+  const summary = operator.locator('.turn-usage').first();
+  assert.equal(await summary.isVisible(), false, 'Turn usage stays inside collapsed details');
+  await operator.locator('.turn-tools > summary').first().click();
   await summary.waitFor();
   assert.ok((await summary.textContent()).includes('150,000 Token used'));
+  await operator.locator('.turn-tools > summary').first().click();
   assert.equal(
     await operator
       .getByRole('meter', { name: '当前上下文占用', exact: true })
@@ -466,20 +585,48 @@ try {
   await reply.selectText();
   await reply.dispatchEvent('mouseup');
   await operator.getByRole('button', { name: '选段 Sidechat', exact: true }).click();
-  await operator.waitForFunction(
-    () => document.querySelector('#permission-mode').value === 'sidechat',
+  await operator.waitForFunction(async () => {
+    const snapshot = await (await fetch('/api/workbench')).json();
+    return snapshot.threads.some(
+      (t) => t.kind === 'sidechat' && t.id === snapshot.selectedThreadId,
+    );
+  });
+  await expand(operator, '.composer-options');
+  assert.equal(
+    await operator.getByRole('combobox', { name: '权限', exact: true }).textContent(),
+    'Sidechat · 只读',
+  );
+  assert.equal(
+    await operator.getByRole('combobox', { name: '权限', exact: true }).isDisabled(),
+    true,
   );
   assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '');
   assert.ok((await operator.locator('.context-attachments').textContent()).includes('本轮已完成'));
   const discussion = await (await fetch(`${address}/api/workbench`)).json();
   assert.equal(discussion.task, null, 'Selecting Sidechat must not submit a model task');
-  await expand(operator, '.workbench-menu');
-  await operator.getByLabel('切换对话').selectOption(after.task.conversationId);
-  await operator.locator('.workbench-menu > summary').press('Enter');
+  await operator.getByLabel('给 Codex 的本轮指令').fill('讨论草稿保留');
+  await operator.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await operator.waitForFunction(
+    () => document.querySelector('#task-prompt').value === '主对话草稿保留',
+  );
   assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '主对话草稿保留');
+  await selectControl(
+    operator,
+    '切换对话',
+    discussion.threads.find((t) => t.id === discussion.selectedThreadId).title,
+  );
+  await operator.waitForFunction(
+    () => document.querySelector('#task-prompt').value === '讨论草稿保留',
+  );
+  assert.equal(await operator.getByLabel('给 Codex 的本轮指令').inputValue(), '讨论草稿保留');
+  await operator.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await operator.waitForFunction(
+    () => document.querySelector('#task-prompt').value === '主对话草稿保留',
+  );
+  await expand(operator, '.keyboard-composer');
   await operator.getByLabel('给 Codex 的本轮指令').fill('');
   assert.equal(await operator.locator('.context-attachments').count(), 0);
-  await operator.locator('.keyboard-composer > summary').press('Enter');
+  await operator.getByRole('button', { name: '文字输入', exact: true }).click();
   await operator.getByRole('button', { name: '复制本轮回复', exact: true }).first().click();
   assert.ok(
     (await instance.evaluate(({ clipboard }) => clipboard.readText())).includes('本轮已完成'),
@@ -500,10 +647,23 @@ try {
     document.querySelector('.turn-usage')?.textContent.includes('35.7% Cache hit.'),
   );
   await expand(operator, '.keyboard-composer');
-  await operator.getByLabel('模型', { exact: true }).selectOption('fast-model');
-  await operator.waitForFunction(() => document.querySelector('#codex-effort').value === 'low');
-  assert.equal(await operator.locator('#codex-effort option[value="high"]').count(), 0);
-  await operator.locator('.keyboard-composer > summary').press('Enter');
+  await expand(operator, '.composer-options');
+  await selectControl(operator, '模型', 'Fast Model');
+  await operator.waitForFunction(
+    async () => (await (await fetch('/api/workbench')).json()).settings.effort === 'low',
+  );
+  assert.equal(
+    await operator.getByRole('combobox', { name: '模型', exact: true }).textContent(),
+    'Fast Model',
+  );
+  assert.equal(
+    await operator.getByRole('combobox', { name: 'Reasoning Effort', exact: true }).textContent(),
+    'low（模型默认）',
+  );
+  await operator.getByRole('combobox', { name: 'Reasoning Effort', exact: true }).click();
+  assert.equal(await operator.getByRole('option', { name: /^high/ }).count(), 0);
+  await operator.keyboard.press('Escape');
+  await operator.getByRole('button', { name: '文字输入', exact: true }).click();
 
   assert.ok(after.task.selection, 'Pointer selection must reach the same Codex task');
   assert.equal(
@@ -559,14 +719,32 @@ try {
   const persistent = records.filter((r) => r.pid && r.cwd === canonicalProject);
   const probes = records.filter((r) => r.pid && r.cwd !== canonicalProject);
   assert.equal(persistent.length, 1, 'One persistent task connection must remain owned by the app');
-  assert.equal(
-    probes.length,
-    3,
+  assert.ok(
+    probes.length >= 3,
     'Startup, settings diagnostics and explicit verification must use temporary connections',
   );
   for (const item of persistent) assert.doesNotThrow(() => process.kill(item.pid, 0));
   for (const item of probes)
     assert.throws(() => process.kill(item.pid, 0), 'Verification peer must already be stopped');
+  const forkParent = (await (await fetch(`${address}/api/workbench`)).json()).selectedThreadId;
+  await operator.getByRole('button', { name: 'Fork 对话', exact: true }).last().click();
+  await operator.getByRole('button', { name: '返回原对话', exact: true }).waitFor();
+  const persistedFork = (await (await fetch(`${address}/api/workbench`)).json()).selectedThreadId;
+  assert.notEqual(persistedFork, forkParent);
+  await operator.reload();
+  await operator.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await operator.getByText('本机服务已连接').waitFor();
+  assert.equal(
+    (await (await fetch(`${address}/api/workbench`)).json()).selectedThreadId,
+    persistedFork,
+  );
+  assert.ok(
+    (await operator.getByRole('combobox', { name: '切换对话' }).textContent()).includes('Fork'),
+  );
+  const persistedForkTitle = (await (await fetch(`${address}/api/workbench`)).json()).threads.find(
+    (t) => t.id === persistedFork,
+  ).title;
+  await operator.screenshot({ path: join(root, '.local/conversation-navigation.png') });
   await closeDesktop(instance);
   instance = undefined;
   for (const item of records.filter((r) => r.pid)) assert.throws(() => process.kill(item.pid, 0));
@@ -578,6 +756,16 @@ try {
   const reopened = await instance.firstWindow();
   await reopened.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
   await reopened.getByText('本机服务已连接').waitFor();
+  assert.ok(
+    (await reopened.getByRole('combobox', { name: '切换对话' }).textContent()).includes(
+      persistedForkTitle,
+    ),
+  );
+  await reopened.getByRole('button', { name: '返回原对话', exact: true }).click();
+  await reopened.waitForFunction(
+    async (id) => (await (await fetch('/api/workbench')).json()).selectedThreadId === id,
+    forkParent,
+  );
   await instance.evaluate(({ BrowserWindow }) => {
     for (const window of BrowserWindow.getAllWindows()) window.setContentSize(1440, 940);
   });
@@ -590,6 +778,108 @@ try {
   assert.equal((await inspect()).count, '1');
   // Exercise the new workspace in the actual renderer, not only API fixtures.
   const reopenedAddress = new URL(reopened.url()).origin;
+  const conversationBaseline = await (await fetch(`${reopenedAddress}/api/workbench`)).json();
+  const originalConversation = conversationBaseline.threads.find(
+    (thread) => thread.id === conversationBaseline.selectedThreadId,
+  );
+  assert.ok(originalConversation);
+  const originalLabel = `${originalConversation.kind === 'sidechat' ? 'Sidechat · ' : originalConversation.kind === 'fork' ? 'Fork · ' : ''}${originalConversation.title}`;
+  await reopened.getByRole('button', { name: '新对话', exact: true }).click();
+  await reopened.waitForFunction(async (previous) => {
+    const value = await (await fetch('/api/workbench')).json();
+    return (
+      value.selectedThreadId !== previous &&
+      value.threads.some(
+        (thread) => thread.id === value.selectedThreadId && thread.title === '新对话',
+      )
+    );
+  }, originalConversation.id);
+  const createdConversation = await (await fetch(`${reopenedAddress}/api/workbench`)).json();
+  const createdId = createdConversation.selectedThreadId;
+  assert.equal(createdConversation.task, null, 'Creating a conversation must not submit a task');
+  await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-conversations');
+  await expand(reopened, '.conversation-management');
+  const renamedTitle = '原生走查 · 对话管理';
+  await reopened.getByLabel('对话名称', { exact: true }).fill(renamedTitle);
+  await reopened.getByRole('button', { name: '重命名', exact: true }).click();
+  await reopened.waitForFunction(
+    async ({ id, title }) =>
+      (await (await fetch('/api/workbench')).json()).threads.some(
+        (thread) => thread.id === id && thread.title === title,
+      ),
+    { id: createdId, title: renamedTitle },
+  );
+  await reopened.locator('.workbench-menu > summary').press('Enter');
+  await reopened.getByLabel('搜索对话', { exact: true }).fill(renamedTitle);
+  await reopened.getByRole('combobox', { name: '切换对话', exact: true }).click();
+  assert.equal(await reopened.getByRole('option', { name: renamedTitle, exact: true }).count(), 1);
+  assert.equal(await reopened.getByRole('option', { name: originalLabel, exact: true }).count(), 0);
+  assert.equal(
+    await reopened.getByRole('option').count(),
+    2,
+    'Search must show only its match and the disabled placeholder',
+  );
+  await reopened.keyboard.press('Escape');
+  await reopened.getByLabel('搜索对话', { exact: true }).fill('');
+  await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-conversations');
+  await expand(reopened, '.conversation-management');
+  await reopened.getByRole('button', { name: '归档', exact: true }).click();
+  await reopened.waitForFunction(
+    async (id) =>
+      (await (await fetch('/api/workbench')).json()).threads.some(
+        (thread) => thread.id === id && thread.archived,
+      ),
+    createdId,
+  );
+  if (await reopened.locator('.workbench-menu').evaluate((element) => element.open))
+    await reopened.locator('.workbench-menu > summary').press('Enter');
+  await selectControl(reopened, '切换对话', originalLabel);
+  await reopened.waitForFunction(
+    async (id) => (await (await fetch('/api/workbench')).json()).selectedThreadId === id,
+    originalConversation.id,
+  );
+  await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-conversations');
+  await expand(reopened, '.archived-conversations');
+  await reopened
+    .locator('.archived-conversations')
+    .getByRole('button', { name: renamedTitle, exact: true })
+    .click();
+  await reopened.waitForFunction(async (id) => {
+    const value = await (await fetch('/api/workbench')).json();
+    return (
+      value.selectedThreadId === id &&
+      value.threads.some((thread) => thread.id === id && thread.archived)
+    );
+  }, createdId);
+  await expand(reopened, '.workbench-menu');
+  await expand(reopened, '.workspace-conversations');
+  await expand(reopened, '.conversation-management');
+  assert.equal(
+    await reopened.getByRole('button', { name: '恢复对话', exact: true }).isVisible(),
+    true,
+  );
+  if (await reopened.locator('.workbench-menu').evaluate((element) => element.open))
+    await reopened.locator('.workbench-menu > summary').press('Enter');
+  await selectControl(reopened, '切换对话', originalLabel);
+  await reopened.waitForFunction(
+    async (id) => (await (await fetch('/api/workbench')).json()).selectedThreadId === id,
+    originalConversation.id,
+  );
+  const restoredConversation = await (await fetch(`${reopenedAddress}/api/workbench`)).json();
+  assert.equal(
+    restoredConversation.task.id,
+    conversationBaseline.task.id,
+    'Conversation management must preserve the original task',
+  );
+  assert.deepEqual(
+    restoredConversation.preview,
+    conversationBaseline.preview,
+    'Conversation management must preserve the preview binding',
+  );
+  await reopened.locator('.workbench-menu > summary').press('Enter');
   await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: '终端', exact: true }).click();
   await reopened.getByRole('button', { name: '打开终端', exact: true }).click();
@@ -600,6 +890,26 @@ try {
   await reopened.getByText('项目终端 · exited', { exact: false }).waitFor();
   await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: 'Diff', exact: true }).click();
+  await selectControl(reopened, /^变更来源/, 'Git 未暂存');
+  await reopened.locator('.diff-lines button').filter({ hasText: '+unstaged-marker' }).waitFor();
+  assert.equal(
+    await reopened.locator('.diff-lines button').filter({ hasText: '+staged-marker' }).count(),
+    0,
+  );
+  const refreshedGit = reopened.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/workbench/git') && response.request().method() === 'GET',
+  );
+  await reopened.getByRole('button', { name: '刷新 Git', exact: true }).click();
+  assert.equal((await refreshedGit).status(), 200);
+  await reopened.locator('.diff-lines button').filter({ hasText: '+unstaged-marker' }).waitFor();
+  await selectControl(reopened, /^变更来源/, 'Git 已暂存');
+  await reopened.locator('.diff-lines button').filter({ hasText: '+staged-marker' }).waitFor();
+  assert.equal(
+    await reopened.locator('.diff-lines button').filter({ hasText: '+unstaged-marker' }).count(),
+    0,
+  );
+  await selectControl(reopened, /^变更来源/, 'Codex 本轮 patch');
   await reopened.locator('.diff-lines button').filter({ hasText: '+new' }).click();
   await reopened.getByLabel('Diff 评论').fill('请调整这一行');
   await reopened
@@ -608,7 +918,7 @@ try {
     .click();
   await reopened.locator('.context-attachments').getByText('Codex 本轮变更').waitFor();
   await reopened.locator('.context-attachments').getByRole('button', { name: '移除' }).click();
-  await reopened.locator('.keyboard-composer > summary').press('Enter');
+  await reopened.getByRole('button', { name: '文字输入', exact: true }).click();
   await expand(reopened, '.workbench-menu');
   await reopened.getByRole('button', { name: '预览', exact: true }).click();
   const audioFrame = await reopened.evaluate(async () => {
@@ -955,6 +1265,58 @@ try {
     .first()
     .click();
   await reopened.getByRole('button', { name: '获取本机绑定码', exact: true }).waitFor();
+  await reopened.getByRole('button', { name: '语音诊断', exact: true }).click();
+  await reopened.getByRole('dialog', { name: '语音交接诊断' }).waitFor();
+  await reopened.getByRole('button', { name: '复制诊断日志', exact: true }).click();
+  const diagnosticCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(diagnosticCopy.startsWith('丽塔同学语音诊断 v1'));
+  assert.ok(!diagnosticCopy.includes('Authorization') && !diagnosticCopy.includes('token='));
+  await reopened.screenshot({ path: join(root, '.local/voice-diagnostics.png') });
+  const detailed = reopened.getByRole('region', { name: '详细语音调试' });
+  assert.equal(await detailed.getByRole('checkbox').count(), 0);
+  await detailed.getByText('详细调试持续记录', { exact: false }).waitFor();
+  await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+  await detailed.getByRole('status').waitFor();
+  const detailedCopy = await instance.evaluate(({ clipboard }) => clipboard.readText());
+  assert.ok(detailedCopy.startsWith('丽塔同学详细调试 v1'));
+  assert.ok(detailedCopy.includes('分享前请检查') && detailedCopy.includes('Enabled: true'));
+  const maximumLog = `详细日志容量测试\n${'x'.repeat(256 * 8192 + 128 * 1024)}`;
+  await reopened.evaluate((value) => window.lingxiDesktop.copy(value), maximumLog);
+  assert.equal(
+    await instance.evaluate(async ({ clipboard }) => (await clipboard.readText()).length),
+    maximumLog.length,
+    'A bounded full debug export must fit the native clipboard bridge',
+  );
+  await instance.evaluate(({ clipboard }) => {
+    const original = clipboard.writeText;
+    Reflect.set(globalThis, 'lingxiTestRestoreClipboard', () => {
+      clipboard.writeText = original;
+    });
+    clipboard.writeText = async () => {
+      throw new Error('clipboard_test_failure');
+    };
+  });
+  try {
+    await detailed.getByRole('button', { name: '复制详细日志（含对话内容）' }).click();
+    await detailed.getByLabel('详细日志文本（可手动复制）').waitFor();
+    assert.match(await detailed.getByRole('alert').innerText(), /无法自动复制/);
+    assert.equal(
+      await detailed.getByRole('status').count(),
+      0,
+      'A failed native write must not report copied',
+    );
+  } finally {
+    await instance.evaluate(() => {
+      Reflect.get(globalThis, 'lingxiTestRestoreClipboard')();
+      Reflect.deleteProperty(globalThis, 'lingxiTestRestoreClipboard');
+    });
+  }
+  await detailed.getByText('预览详细日志（含对话内容）', { exact: true }).click();
+  await reopened.screenshot({ path: join(root, '.local/voice-debug.png') });
+  await detailed.getByRole('button', { name: '清空详细调试' }).click();
+  await detailed.getByText('详细调试持续记录 · 保留 0 条', { exact: false }).waitFor();
+  await reopened.getByRole('button', { name: '关闭诊断', exact: true }).click();
+
   assert.equal(
     await reopened
       .getByRole('link', { name: '打开七牛语音控制台 ↗', exact: true })
@@ -967,8 +1329,8 @@ try {
   assert.ok(role.includes('workbench_submit') && role.includes('把这个页面变成粉色'));
   assert.equal(
     (await (await fetch(`${reopenedAddress}/api/voice`)).json()).allowVoiceSubmit,
-    false,
-    'Viewing binding instructions and copying the role must not enable voice execution',
+    true,
+    'The default setting is enabled, but viewing setup must not create credentials or capture audio',
   );
   await reopened.screenshot({ path: join(root, '.local/voice-setup-smoke.png') });
   await reopened
@@ -1033,12 +1395,73 @@ try {
     assert.equal(await question.inputValue(), '', 'A new task must not inherit an old answer');
   await questions.nth(0).getByRole('button', { name: '停止任务' }).click();
   await waitForTask(recovery, 'ask-repeated fresh-task', 'interrupted');
-  const previousPreview = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).preview;
-  assert.ok(previousPreview);
   const recoveryDisplay = (await instance.windows()).find(
     (page) => new URL(page.url()).pathname === '/display',
   );
   assert.ok(recoveryDisplay);
+  await submitTask(recovery, 'public-progress');
+  for (const page of [recovery, recoveryDisplay])
+    await page.getByText('先检查页面。', { exact: true }).waitFor();
+  await recovery.waitForFunction(async () => {
+    const state = await (await fetch('/api/workbench')).json();
+    return (
+      state.task.status === 'running' &&
+      state.task.items?.some((item) => item.text.includes('step one'))
+    );
+  });
+  assert.equal(await recovery.getByLabel('切换对话').isDisabled(), true);
+  await expand(recovery, '.conversation-turn:last-child .turn-tools');
+  await recovery
+    .locator('.conversation-turn')
+    .last()
+    .locator('.turn-tools summary')
+    .filter({ hasText: /^执行记录 ·/ })
+    .click();
+  await recovery
+    .locator('.conversation-turn')
+    .last()
+    .locator('.turn-tools summary')
+    .filter({ hasText: /^commandExecution ·/ })
+    .click();
+  await recovery.getByText('printf progress\nstep one', { exact: false }).waitFor();
+  for (const page of [recovery, recoveryDisplay])
+    await page.getByText('检查完成，正在验证。', { exact: true }).waitFor();
+  await waitForTask(recovery, 'public-progress', 'completed');
+  const progressTask = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).task;
+  const publicTexts = ['先检查页面。', '检查完成，正在验证。', '已完成两步验证。'];
+  for (const page of [recovery, recoveryDisplay]) {
+    await page.waitForFunction(
+      (id) =>
+        document.querySelectorAll(`[data-history-task="${id}"][data-history-role="assistant"]`)
+          .length === 3,
+      progressTask.id,
+    );
+    const bubbles = page.locator(
+      `[data-history-task="${progressTask.id}"][data-history-role="assistant"]`,
+    );
+    await bubbles.last().scrollIntoViewIfNeeded();
+    assert.equal(await bubbles.last().isVisible(), true);
+    assert.deepEqual(
+      await page
+        .locator(`[data-history-task="${progressTask.id}"][data-history-role="assistant"]`)
+        .allTextContents(),
+      publicTexts,
+    );
+  }
+  assert.ok(progressTask.items[0].text.includes('step one\nstep two'));
+  assert.doesNotMatch(JSON.stringify(progressTask), /PRIVATE_REASONING|FOREIGN_PROGRESS/);
+  await recovery.screenshot({ path: join(root, '.local/public-progress.png') });
+  await recovery.reload();
+  await recovery.getByRole('button', { name: '暂时用文字进入工作台', exact: true }).first().click();
+  await recovery.getByText('本机服务已连接').waitFor();
+  assert.deepEqual(
+    await recovery
+      .locator(`[data-history-task="${progressTask.id}"][data-history-role="assistant"]`)
+      .allTextContents(),
+    publicTexts,
+  );
+  const previousPreview = (await (await fetch(`${recoveryAddress}/api/workbench`)).json()).preview;
+  assert.ok(previousPreview);
   let presentationCaptureId = randomUUID();
   let presentationStatus = 'ready';
   let presentationConversation = false;
@@ -1062,6 +1485,8 @@ try {
         error: null,
         allowVoiceSubmit: true,
         wake: presentationWake,
+        wakePreference: { version: 1, enabled: false, source: 'user' },
+        connectionPreference: { version: 1, enabled: false, source: 'user' },
       },
     }),
   );
@@ -1161,6 +1586,13 @@ try {
   const freshAddress = new URL(empty.url()).origin;
   const freshVoice = await (await fetch(`${freshAddress}/api/voice`)).json();
   assert.deepEqual(freshVoice.wakePreference, { version: 1, enabled: true, source: 'default' });
+  assert.deepEqual(freshVoice.connectionPreference, {
+    version: 1,
+    enabled: true,
+    source: 'default',
+  });
+  assert.equal(freshVoice.allowVoiceSubmit, true);
+  assert.equal((await (await fetch(`${freshAddress}/api/voice/debug`)).json()).enabled, true);
   assert.equal(freshVoice.wake.keyword, '丽塔同学');
   assert.equal(freshVoice.wake.status, 'off', 'A missing model must prevent automatic capture');
   assert.ok(
@@ -1196,8 +1628,12 @@ try {
   await empty.locator('.project-menu > summary').press('Enter');
   const wake = empty.getByRole('button', { name: '开始收音', exact: true });
   await wake.waitFor();
-  assert.equal(await wake.isDisabled(), true, 'A missing project must block microphone capture');
-  assert.equal(await wake.getAttribute('title'), '请先新建或打开项目，再开始收音。');
+  assert.equal(
+    await wake.isEnabled(),
+    true,
+    'Voice chat remains available without a project; task submission still requires one',
+  );
+  assert.equal(await wake.getAttribute('title'), null);
   assert.equal(await empty.getByText(/麦克风权限和系统声音设置/).count(), 0);
   await empty.screenshot({ path: join(root, '.local/desktop-first-use.png') });
   assert.ok(
@@ -1229,7 +1665,28 @@ try {
     `Desktop verified: canonical static/live preview, MCP retry, terminal, diff context, PCM worklet, device wizard, isolated question drafts, visible recovery, first-use guidance, shutdown and restart. Screenshot: ${screenshot}`,
   );
 } catch (error) {
-  if (instance) console.error('Desktop diagnostics:', desktopRuns.get(instance)?.stderr);
+  if (instance) {
+    const pages = await Promise.resolve(instance.windows()).catch(() => []);
+    for (const page of pages) {
+      const label = new URL(page.url()).pathname === '/display' ? 'display' : 'operator';
+      await page
+        .screenshot({ path: join(root, `.local/desktop-failure-${label}.png`) })
+        .catch(() => {});
+      await writeFile(
+        join(root, `.local/desktop-failure-${label}.json`),
+        JSON.stringify(
+          await page
+            .evaluate(async () => ({
+              text: document.body.innerText,
+              state: await (await fetch('/api/workbench')).json(),
+            }))
+            .catch(() => ({})),
+          null,
+          2,
+        ),
+      );
+    }
+  }
   throw error;
 } finally {
   if (instance) await closeDesktop(instance, true);

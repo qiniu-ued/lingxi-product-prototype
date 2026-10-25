@@ -3,12 +3,20 @@ import {
   LINGXI_WORKBENCH_ROLE,
   type VoiceCommand,
   type VoiceConfig,
+  type VoiceDebugEvent,
+  type VoiceDiagnosticEvent,
   type VoiceState,
   voiceConfigSchema,
+  voiceDiagnosticCodeSchema,
+  voiceDiagnosticToolSchema,
 } from '@lingxi/protocol';
 import WebSocket from 'ws';
 import { z } from 'zod';
+import { readBuildInfo } from './build-info.js';
 import type { DesktopBridge } from './desktop-bridge.js';
+import { VoiceConversation } from './voice-conversation.js';
+import { VoiceDebug } from './voice-debug.js';
+import { VoiceDiagnostics } from './voice-diagnostics.js';
 import type { WakeModel } from './wake-model.js';
 import type { WakePreferences } from './wake-preferences.js';
 import type { Workbench } from './workbench.js';
@@ -22,6 +30,10 @@ const rpc = z.object({
 });
 const textInput = z.strictObject({ text: z.string().trim().min(1).max(4000) });
 const modeInput = z.strictObject({ mode: z.enum(['plan', 'default']) });
+type ConnectionDetail = Pick<
+  VoiceDiagnosticEvent,
+  'source' | 'reason' | 'closeCode' | 'explicitClose' | 'retryAttempt'
+>;
 const toolErrors: Record<string, string> = {
   voice_submit_disabled:
     '本机尚未开启语音执行。请在设置 → 丽塔同学与语音执行勾选允许语音提交，保存后重新连接丽塔同学；本轮未交给 Codex。',
@@ -37,6 +49,122 @@ const toolErrors: Record<string, string> = {
 // Lingxi is the MCP client; this Mac is its device MCP server, encapsulated in
 // the outbound WSS. It is separate from Codex's authenticated preview MCP.
 export class VoiceService {
+  private journal = new VoiceDiagnostics();
+  private debugJournal = new VoiceDebug(() => [
+    this.config?.token ?? '',
+    this.config?.deviceId ?? '',
+    this.config?.clientId ?? '',
+  ]);
+  private conversation = new VoiceConversation();
+  private traceSession: string | null = null;
+  private voiceTasks = new Map<string, { sessionId: string | null; captureId: string }>();
+  private scope() {
+    const state = this.options.workbench.read();
+    return {
+      projectId: state.project?.id ?? null,
+      conversationId: state.selectedThreadId ?? null,
+      sessionId: this.traceSession,
+    };
+  }
+  private diagnostic(
+    kind: VoiceDiagnosticEvent['kind'],
+    extra: Partial<VoiceDiagnosticEvent> = {},
+  ) {
+    if (this.closed) return;
+    this.journal.record({
+      ...this.scope(),
+      captureId: this.state.captureId,
+      taskId: null,
+      kind,
+      ...extra,
+    });
+    this.debug('local', 'state', { kind, ...extra }, extra);
+  }
+  private debug(
+    direction: VoiceDebugEvent['direction'],
+    event: VoiceDebugEvent['event'],
+    payload: unknown,
+    extra: Partial<Pick<VoiceDebugEvent, 'captureId' | 'taskId' | 'sessionId' | 'priority'>> = {},
+  ) {
+    if (this.closed) return;
+    const envelope = payload as {
+      type?: string;
+      kind?: string;
+      payload?: { method?: string };
+    } | null;
+    const important =
+      ['close', 'error', 'http-response'].includes(event) ||
+      envelope?.type === 'goodbye' ||
+      envelope?.payload?.method === 'tools/call' ||
+      [
+        'tool-called',
+        'tool-rejected',
+        'tool-returned',
+        'task-submitted',
+        'task-status',
+        'service-ending',
+        'service-failed',
+        'service-disconnected',
+        'service-stop-requested',
+        'service-retry-scheduled',
+        'service-retry-paused',
+        'protocol-rejected',
+      ].includes(envelope?.kind ?? '');
+    this.debugJournal.record({
+      ...this.scope(),
+      sessionId: extra.sessionId === undefined ? this.traceSession : extra.sessionId,
+      captureId: extra.captureId === undefined ? this.state.captureId : extra.captureId,
+      taskId: extra.taskId ?? null,
+      direction,
+      event,
+      payload,
+      priority: extra.priority ?? (important ? 'important' : 'regular'),
+    });
+  }
+  readDebug() {
+    return { ...this.debugJournal.read(), build: readBuildInfo() };
+  }
+  debugAction(_input: { action: 'clear' }) {
+    if (this.closed) throw new Error('voice_closed');
+    this.debugJournal.clear();
+    return this.readDebug();
+  }
+  diagnostics() {
+    return {
+      ...this.journal.read(),
+      build: readBuildInfo(),
+      snapshot: {
+        connection: this.state.status,
+        projectSelected: !!this.options.workbench.read().project,
+        conversationSelected: !!this.options.workbench.read().selectedThreadId,
+        voiceSubmitEnabled: this.state.allowVoiceSubmit,
+        toolsListed: this.state.deviceToolsReady,
+        captureActive:
+          !!this.state.captureId && Date.now() <= this.armedUntil && this.target === this.context(),
+        conversationActive: this.state.conversationActive,
+        wakeStatus: this.state.wake.status,
+        autoReconnectEnabled: this.state.connectionPreference.enabled,
+        retryAttempt: this.state.connection.attempt,
+        retryExhausted: this.state.connection.exhausted,
+        remoteSessionEnding: this.state.remoteSessionEnding,
+      },
+    };
+  }
+  diagnosticsAction(_input: { action: 'clear' }) {
+    if (this.closed) throw new Error('voice_closed');
+    this.journal.clear();
+    return this.diagnostics();
+  }
+  readConversation() {
+    this.read();
+    return this.conversation.read();
+  }
+  clearConversation() {
+    this.conversation.clear();
+    if (this.state.captureId && Date.now() <= this.armedUntil && this.target === this.context())
+      this.conversation.begin(this.scope(), this.state.captureId);
+    return this.conversation.read();
+  }
   private socket: WebSocket | undefined;
   private connectionLoop = false;
   private closed = false;
@@ -59,6 +187,7 @@ export class VoiceService {
   private previousTask: { id: string; status: string } | null = null;
   private pendingSpeech = '';
   private awaitingSpeech = false;
+  private announcing = false;
   private speechDeadline: ReturnType<typeof setTimeout> | undefined;
   private capturedContext: ReturnType<Workbench['voiceContext']> = {
     selection: null,
@@ -84,18 +213,19 @@ export class VoiceService {
     configured: false,
     status: 'disconnected',
     conversationActive: false,
+    remoteSessionEnding: false,
     speechId: null,
     draft: '',
     captureId: null,
     subtitle: '',
     error: null,
-    allowVoiceSubmit: false,
+    allowVoiceSubmit: true,
     deviceToolsReady: false,
     handoff: null,
     contextDetailsOpen: false,
-    wakePreference: { version: 1, enabled: false, source: 'legacy-review' },
+    wakePreference: { version: 1, enabled: true, source: 'default' },
     wakeAutoSuspended: false,
-    connectionPreference: { version: 1, enabled: false, source: 'legacy-review' },
+    connectionPreference: { version: 1, enabled: true, source: 'default' },
     connection: { attempt: 0, nextRetryAt: null, exhausted: false },
     wake: { status: 'off', keyword: '丽塔同学', installed: false, detectionId: null, error: null },
   };
@@ -123,6 +253,30 @@ export class VoiceService {
     const task = this.options.workbench.read().task;
     const previous = this.previousTask;
     this.previousTask = task ? { id: task.id, status: task.status } : null;
+    if (
+      task &&
+      this.voiceTasks.has(task.id) &&
+      (previous?.id !== task.id || previous.status !== task.status)
+    ) {
+      this.conversation.task(task);
+      this.diagnostic('task-status', {
+        ...this.voiceTasks.get(task.id),
+        taskId: task.id,
+        status: task.status,
+      });
+      if (task.status === 'failed')
+        this.debug(
+          'local',
+          'state',
+          {
+            kind: 'task-failure',
+            error: task.error,
+            activity: task.activity,
+            turnStarted: !!task.turnId,
+          },
+          { ...this.voiceTasks.get(task.id), taskId: task.id, priority: 'important' },
+        );
+    }
     if (!this.socket || (!this.state.conversationActive && !this.wakeEnabled)) return;
     if (
       task &&
@@ -151,38 +305,49 @@ export class VoiceService {
     this.flushSpeech();
   }
   private flushSpeech() {
-    if (!this.pendingSpeech || this.state.status !== 'ready' || this.awaitingSpeech) return;
+    if (
+      !this.pendingSpeech ||
+      this.state.status !== 'ready' ||
+      this.awaitingSpeech ||
+      this.state.remoteSessionEnding
+    )
+      return;
     const text = this.pendingSpeech;
     this.pendingSpeech = '';
     this.awaitingSpeech = true;
+    this.announcing = true;
     this.send({ type: 'listen', state: 'detect', text: '工作台状态播报', text_response: text });
     this.speechDeadline = setTimeout(() => {
       this.awaitingSpeech = false;
       this.flushSpeech();
     }, 15000);
   }
+  private present(state: VoiceState) {
+    if (state.handoff) this.conversation.handoff(state.handoff);
+    return state;
+  }
   read() {
-    if (this.state.handoff?.status === 'awaiting-tool' && this.state.draft) {
+    if (this.state.handoff?.status === 'awaiting-tool') {
       if (this.target !== this.context())
-        return {
+        return this.present({
           ...this.state,
           handoff: {
             ...this.state.handoff,
             status: 'blocked' as const,
             message: toolErrors.voice_context_changed as string,
           },
-        };
+        });
       if (Date.now() > this.armedUntil)
-        return {
+        return this.present({
           ...this.state,
           handoff: {
             ...this.state.handoff,
             status: 'unhandled' as const,
-            message: '本轮语音没有交给 Codex，收音操作窗口已结束。可使用转写草稿提交，或重新收音。',
+            message: '上一轮没有交给 Codex，操作窗口已结束。请继续说话开始下一轮，或通过文字提交。',
           },
-        };
+        });
     }
-    return this.state;
+    return this.present(this.state);
   }
   private handoff(
     status: NonNullable<VoiceState['handoff']>['status'],
@@ -198,6 +363,7 @@ export class VoiceService {
     )
       return;
     this.update({ handoff: { captureId, status, message, taskId } });
+    this.conversation.handoff({ captureId, status, message, taskId });
   }
   private update(value: Partial<VoiceState>) {
     if (
@@ -216,20 +382,24 @@ export class VoiceService {
     this.lastFrame = Date.now();
     this.wakeLease = setInterval(() => {
       if (Date.now() - this.lastFrame <= 4000) return;
+      this.diagnostic('voice-paused', { source: 'microphone', reason: 'audio_frames_lost' });
       this.stopConversation('麦克风音频已中断，请手动重新开启语音。');
       this.stopWake('麦克风音频已中断，请重新开启唤醒。');
     }, 1000);
   }
-  private stopConversation(error: string | null = null) {
+  private stopConversation(error: string | null = null, notifyRemote = true) {
+    if (this.state.conversationActive) this.diagnostic('capture-ended');
+    this.conversation.interrupt();
     this.captureEpoch++;
     this.speechBlocked = true;
     this.pendingSpeech = '';
     this.awaitingSpeech = false;
+    this.announcing = false;
     clearTimeout(this.speechDeadline);
     clearTimeout(this.captureDeadline);
-    if (this.state.status === 'listening')
+    if (notifyRemote && this.state.status === 'listening')
       this.send({ type: 'listen', state: 'stop', mode: 'manual' });
-    if (['processing', 'speaking'].includes(this.state.status))
+    if (notifyRemote && ['processing', 'speaking'].includes(this.state.status))
       this.send({ type: 'abort', reason: 'user_requested' });
     this.speechFrames = 0;
     this.speechBuffer = [];
@@ -272,12 +442,20 @@ export class VoiceService {
     const config = voiceConfigSchema.parse(input);
     await this.options.desktop.call('voice-config-save', config);
     const suspended = this.state.wakeAutoSuspended;
-    this.disconnect();
+    this.disconnect({
+      source: 'configuration',
+      reason: 'configuration_saved',
+      explicitClose: false,
+    });
     this.update({ wakeAutoSuspended: suspended });
     this.config = config;
     this.update({ configured: true, allowVoiceSubmit: config.allowVoiceSubmit });
     if (this.connectionLoop && this.state.connectionPreference.enabled)
       void this.startAutoConnection();
+  }
+  async saveBinding(config: VoiceConfig) {
+    if (!this.config) await this.inspect();
+    await this.save({ ...config, allowVoiceSubmit: this.config?.allowVoiceSubmit ?? true });
   }
   private context() {
     const state = this.options.workbench.read();
@@ -294,7 +472,7 @@ export class VoiceService {
     this.config = config ? voiceConfigSchema.parse(config) : undefined;
     this.update({
       configured: !!this.config,
-      allowVoiceSubmit: this.config?.allowVoiceSubmit ?? false,
+      allowVoiceSubmit: this.config?.allowVoiceSubmit ?? true,
       wake: { ...this.state.wake, installed: (await this.options.wake?.installed()) ?? false },
     });
     return this.state;
@@ -321,6 +499,11 @@ export class VoiceService {
     if (this.closed) throw new Error('voice_closed');
     if (!this.options.desktop) throw new Error('desktop_required');
     if (command.action === 'stop-session') {
+      this.diagnostic('service-stop-requested', {
+        source: 'operator',
+        reason: 'voice_close',
+        explicitClose: true,
+      });
       this.stopWake();
       this.stopConversation();
       this.update({ wakeAutoSuspended: true });
@@ -330,13 +513,18 @@ export class VoiceService {
         try {
           this.setConnectionPreference(false);
         } finally {
-          this.disconnect();
+          this.disconnect({ source: 'operator', reason: 'voice_close', explicitClose: true });
           await this.options.desktop.call('voice-audio', { reset: true });
         }
       }
       return;
     }
     if (command.action === 'pause-voice') {
+      this.diagnostic('voice-paused', {
+        source: 'operator',
+        reason: 'voice_paused',
+        explicitClose: false,
+      });
       const suspended = this.state.wakeAutoSuspended;
       this.stopWake();
       this.stopConversation();
@@ -347,7 +535,12 @@ export class VoiceService {
     if (command.action === 'connection-auto') {
       this.setConnectionPreference(command.enabled);
       if (command.enabled) await this.startAutoConnection();
-      else this.disconnectTransport();
+      else
+        this.disconnectTransport({
+          source: 'operator',
+          reason: 'connection_disabled',
+          explicitClose: true,
+        });
       return;
     }
     if (command.action === 'retry-connection') {
@@ -416,8 +609,17 @@ export class VoiceService {
       return;
     }
     if (command.action === 'disconnect') {
+      this.diagnostic('service-stop-requested', {
+        source: 'operator',
+        reason: 'manual_disconnect',
+        explicitClose: true,
+      });
       this.setConnectionPreference(false);
-      this.disconnectTransport();
+      this.disconnectTransport({
+        source: 'operator',
+        reason: 'manual_disconnect',
+        explicitClose: true,
+      });
       return;
     }
     if (command.action === 'arm-wake') {
@@ -475,6 +677,11 @@ export class VoiceService {
       !['ready', 'listening', 'processing', 'speaking'].includes(this.state.status)
     )
       throw new Error('voice_not_ready');
+    if (
+      this.state.remoteSessionEnding &&
+      ['listen', 'start-session', 'speak'].includes(command.action)
+    )
+      throw new Error('voice_session_ending');
     if (command.action === 'start-session') {
       this.captureEpoch++;
       if (this.state.status !== 'ready') throw new Error('voice_not_ready');
@@ -488,10 +695,13 @@ export class VoiceService {
     if (command.action === 'listen') {
       const epoch = ++this.captureEpoch;
       this.speechBlocked = false;
-      const context = this.options.workbench.voiceContext(),
+      const context = this.options.workbench.read().project
+          ? this.options.workbench.voiceContext()
+          : { selection: null, attachments: [] },
         target = this.context();
       this.pendingSpeech = '';
       this.awaitingSpeech = false;
+      this.announcing = false;
       clearTimeout(this.speechDeadline);
       this.send({ type: 'abort', reason: 'wake_word_detected' });
       await this.options.desktop.call('voice-audio', { reset: true });
@@ -507,6 +717,8 @@ export class VoiceService {
         error: null,
       });
       this.target = target;
+      this.conversation.begin(this.scope(), this.state.captureId as string);
+      this.diagnostic('capture-started');
       this.handoff(
         this.config?.allowVoiceSubmit ? 'awaiting-tool' : 'draft-only',
         this.config?.allowVoiceSubmit
@@ -538,6 +750,8 @@ export class VoiceService {
       this.update({ status: 'ready' });
       this.flushSpeech();
     } else if (command.action === 'stop-speaking') {
+      this.conversation.stopSpeech(true);
+      this.announcing = false;
       this.speechBlocked = true;
       this.pendingSpeech = '';
       this.awaitingSpeech = false;
@@ -547,6 +761,7 @@ export class VoiceService {
       this.update({ status: 'ready', subtitle: '' });
     } else {
       this.speechBlocked = false;
+      this.announcing = true;
       this.send({
         type: 'listen',
         state: 'detect',
@@ -607,12 +822,21 @@ export class VoiceService {
     const delays = [1000, 2000, 4000, 8000, 16000, 30000];
     const delay = delays[this.retryAttempt];
     if (delay === undefined) {
+      this.diagnostic('service-retry-paused', {
+        retryAttempt: this.retryAttempt,
+        explicitClose: false,
+      });
       this.update({
         connection: { attempt: this.retryAttempt, nextRetryAt: null, exhausted: true },
       });
       return;
     }
     this.retryAttempt++;
+    this.diagnostic('service-retry-scheduled', {
+      retryAttempt: this.retryAttempt,
+      retryDelayMs: delay,
+      explicitClose: false,
+    });
     this.update({
       connection: {
         attempt: this.retryAttempt,
@@ -632,6 +856,8 @@ export class VoiceService {
     if (epoch !== this.connectionEpoch) return;
     if (!this.config) throw new Error('voice_config_required');
     const config = this.config;
+    this.traceSession = randomUUID();
+    this.diagnostic('service-connecting', { retryAttempt: this.retryAttempt });
     this.update({ status: 'connecting', error: null });
     const socket = new WebSocket(this.options.testEndpoint ?? config.endpoint, {
       headers: {
@@ -646,7 +872,11 @@ export class VoiceService {
     });
     this.socket = socket;
     this.deadline = setTimeout(
-      () => this.fail('语音握手超时，请检查设备绑定与网络。', true),
+      () =>
+        this.fail('语音握手超时，请检查设备绑定与网络。', true, 'handshake_timeout', {
+          source: 'handshake',
+          reason: 'handshake_timeout',
+        }),
       10000,
     );
     socket.on('open', () =>
@@ -674,33 +904,80 @@ export class VoiceService {
         if (this.state.status === 'speaking' && data instanceof Buffer && data.length % 2 === 0) {
           void this.options.desktop
             ?.call('voice-audio', { pcm: data.toString('base64'), sampleRate: 16000 })
-            .catch(() => this.fail('无法播放语音，请重新连接。'));
+            .catch(() =>
+              this.fail('无法播放语音，请重新连接。', false, 'audio_unavailable', {
+                source: 'app',
+                reason: 'audio_playback_failed',
+              }),
+            );
         }
         return;
       }
       try {
-        this.receive(JSON.parse(data.toString()));
+        const message: unknown = JSON.parse(data.toString());
+        this.debug('inbound', 'message', message);
+        this.receive(message);
       } catch {
-        this.fail('丽塔同学返回了不兼容的消息，请检查服务配置。');
+        this.debug('inbound', 'error', { invalidMessage: data.toString() });
+        this.fail('丽塔同学返回了不兼容的消息，请检查服务配置。', false, 'protocol_incompatible', {
+          source: 'websocket',
+          reason: 'protocol_incompatible',
+        });
       }
     });
     socket.on('unexpected-response', (_request, response) => {
       if (this.socket !== socket) return;
+      this.debug('inbound', 'http-response', {
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+        headers: response.headers,
+      });
       const denied = response.statusCode === 401 || response.statusCode === 403;
       response.destroy();
       this.fail(
         denied ? '语音设备认证未通过，请在设置检查绑定；已暂停自动重连。' : '语音网关暂不可用。',
         !denied,
+        denied ? 'authentication_failed' : 'network_failure',
+        { source: 'handshake', reason: denied ? 'authentication_failed' : 'transport_error' },
       );
     });
     socket.on('pong', () => {
       if (this.socket === socket) this.lastPong = Date.now();
     });
-    socket.on('error', () => {
-      if (this.socket === socket) this.fail('无法连接丽塔同学，请核对设备绑定与网络。', true);
+    socket.on('error', (error) => {
+      if (this.socket !== socket) return;
+      this.debug('inbound', 'error', {
+        name: error.name,
+        code: (error as NodeJS.ErrnoException).code,
+        message: error.message,
+      });
+      this.fail(
+        this.state.remoteSessionEnding
+          ? '远端语音会话已结束，Codex 任务不受影响。'
+          : '无法连接丽塔同学，请核对设备绑定与网络。',
+        true,
+        this.state.remoteSessionEnding ? 'remote_session_end' : 'network_failure',
+        {
+          source: 'websocket',
+          reason: 'transport_error',
+        },
+      );
     });
-    socket.on('close', () => {
-      if (this.socket === socket) this.fail('丽塔同学连接已断开。', true);
+    socket.on('close', (closeCode, reason) => {
+      if (this.socket !== socket) return;
+      this.debug('inbound', 'close', { closeCode, reason: reason.toString('utf8') });
+      this.fail(
+        this.state.remoteSessionEnding
+          ? '远端语音会话已结束，Codex 任务不受影响。'
+          : '丽塔同学连接已断开。',
+        true,
+        this.state.remoteSessionEnding ? 'remote_session_end' : 'network_failure',
+        {
+          source: 'websocket',
+          reason: 'transport_close',
+          closeCode,
+        },
+      );
     });
   }
   frame(base64: string) {
@@ -708,6 +985,7 @@ export class VoiceService {
     const pcm = Buffer.from(base64, 'base64');
     if (pcm.length !== 640) return;
     if (this.wakeEnabled || this.state.conversationActive) this.lastFrame = Date.now();
+    if (this.state.remoteSessionEnding) return;
     if (this.state.status !== 'listening') {
       if (this.state.conversationActive && this.state.status === 'ready') {
         let energy = 0;
@@ -746,12 +1024,14 @@ export class VoiceService {
         this.finishUtterance();
     }
   }
-  private send(value: Record<string, unknown>, sent?: () => void) {
-    if (this.socket?.readyState === WebSocket.OPEN)
+  private send(value: Record<string, unknown>, sent?: () => void, important = false) {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.debug('outbound', 'message', value, important ? { priority: 'important' } : {});
       this.socket.send(
         JSON.stringify({ ...(this.sessionId ? { session_id: this.sessionId } : {}), ...value }),
         sent,
       );
+    }
   }
   private receive(input: unknown) {
     const message = envelope.parse(input);
@@ -764,6 +1044,9 @@ export class VoiceService {
       if (!audio.success) {
         this.fail(
           '服务未协商 PCM 16kHz 单声道，请在丽塔同学配置 PCM；本版不把 Opus 音频当 PCM 播放。',
+          false,
+          'protocol_incompatible',
+          { source: 'handshake', reason: 'protocol_incompatible' },
         );
         return;
       }
@@ -776,23 +1059,70 @@ export class VoiceService {
         error: null,
         connection: { attempt: this.retryAttempt, nextRetryAt: null, exhausted: false },
       });
+      this.diagnostic('service-ready', { retryAttempt: this.retryAttempt });
       this.heartbeat = setInterval(() => {
         if (this.socket?.readyState !== WebSocket.OPEN) return;
         if (Date.now() - this.lastPong > 45000) {
-          this.fail('语音服务保活响应超时。', true);
+          this.fail('语音服务保活响应超时。', true, 'network_failure', {
+            source: 'heartbeat',
+            reason: 'keepalive_timeout',
+          });
           return;
         }
         if (Date.now() - this.connectedAt >= 30000) this.retryAttempt = 0;
         this.socket.ping();
       }, 20000);
+    } else if (message.type === 'goodbye') {
+      if (!this.state.remoteSessionEnding) {
+        // A fresh user capture or a reply still playing might be an intentional
+        // goodbye. The protocol does not tell us why the service ended it.
+        const userReplyPending =
+          !this.announcing &&
+          ((this.state.captureId &&
+            Date.now() <= this.armedUntil &&
+            this.target === this.context()) ||
+            this.conversation.speaking());
+        this.update({ remoteSessionEnding: true });
+        this.diagnostic('service-ending', {
+          source: 'websocket',
+          reason: 'remote_goodbye',
+          code: 'remote_session_end',
+          remoteGoodbye: true,
+          explicitClose: false,
+        });
+        if (
+          this.state.captureId &&
+          this.state.handoff?.captureId === this.state.captureId &&
+          this.state.handoff.status === 'awaiting-tool'
+        )
+          this.handoff('unhandled', '远端已通知结束会话，本轮未取得 Codex 任务回执。');
+        if (!userReplyPending) {
+          // Retire an idle remote session instead of playing its farewell or
+          // waiting for transport close. This is not a user abort/network fault.
+          this.debug('local', 'close', { initiator: 'app', trigger: 'remote_goodbye' });
+          this.fail('远端语音会话已结束，Codex 任务不受影响。', true, 'remote_session_end', {
+            source: 'app',
+            reason: 'remote_goodbye',
+          });
+        }
+      }
     } else if (message.type === 'stt') {
-      if (!this.state.captureId || Date.now() > this.armedUntil) return;
+      if (!this.state.captureId || Date.now() > this.armedUntil) {
+        this.diagnostic('asr-discarded', { code: 'capture_expired' });
+        return;
+      }
       if (this.target !== this.context()) {
+        this.diagnostic('asr-discarded', { code: 'voice_context_changed' });
         this.handoff('blocked', toolErrors.voice_context_changed as string);
         return;
       }
       const text = z.string().max(4000).parse(message.text);
-      this.update({ draft: text }); // STT alone never executes a task.
+      const final =
+        message.is_final !== false && message.final !== false && message.state !== 'partial';
+      if (this.conversation.transcript(this.state.captureId, text, final)) {
+        this.diagnostic('asr-received', { characters: text.length });
+        this.update({ draft: text }); // STT alone never executes a task.
+      }
     } else if (message.type === 'tts') {
       if (this.speechBlocked) return;
       const event = z
@@ -810,19 +1140,46 @@ export class VoiceService {
         clearTimeout(this.speechDeadline);
         this.awaitingSpeech = false;
         this.update({ status: 'speaking' });
+        if (
+          this.conversation.startSpeech(
+            this.scope(),
+            this.announcing || this.state.remoteSessionEnding ? null : this.state.captureId,
+          )
+        )
+          this.diagnostic('assistant-start');
       }
-      if (event.state === 'sentence_start') this.update({ subtitle: event.text ?? '' });
+      if (event.state === 'sentence_start') {
+        if (!this.conversation.speaking()) {
+          this.diagnostic('protocol-rejected', { code: 'tts_out_of_order' });
+          return;
+        }
+        if (this.conversation.sentence(event.text ?? ''))
+          this.diagnostic('assistant-sentence', { characters: event.text?.length ?? 0 });
+        this.update({ subtitle: event.text ?? '' });
+      }
       if (event.state === 'stop') {
-        if (this.state.draft && this.state.handoff?.status === 'awaiting-tool')
+        if (this.conversation.stopSpeech(!!event.is_aborted)) this.diagnostic('assistant-stop');
+        if (
+          !this.announcing &&
+          !this.state.remoteSessionEnding &&
+          this.state.captureId &&
+          Date.now() <= this.armedUntil &&
+          this.target === this.context() &&
+          this.state.handoff?.captureId === this.state.captureId &&
+          this.state.handoff.status === 'awaiting-tool'
+        ) {
+          this.diagnostic('handoff-missing', { code: 'no_tool_call' });
           this.handoff(
             'unhandled',
             this.state.deviceToolsReady
-              ? '丽塔同学本轮没有提交给 Codex。请检查云端智能体的工具调用配置，或使用转写草稿提交。'
+              ? '丽塔同学本轮没有提交给 Codex。请在语音诊断检查转写与工具调用，或通过文字提交。'
               : '丽塔同学尚未读取工作台工具列表，本轮没有提交给 Codex。请检查云端意图识别配置并重新连接。',
           );
+        }
         if (event.is_aborted)
           void this.options.desktop?.call('voice-audio', { reset: true }).catch(() => {});
         if (this.state.status === 'speaking') {
+          this.announcing = false;
           this.update({ status: 'ready' });
           this.speechFrames = 0;
           this.speechBuffer = [];
@@ -832,6 +1189,7 @@ export class VoiceService {
     } else if (message.type === 'mcp') {
       const request = rpc.safeParse(message.payload);
       if (request.success) void this.mcp(request.data);
+      else this.diagnostic('protocol-rejected', { code: 'invalid_rpc' });
     }
   }
   private async mcp(request: z.infer<typeof rpc>) {
@@ -839,7 +1197,15 @@ export class VoiceService {
       serialized = JSON.stringify(request);
     const prior = this.responses.get(key);
     if (prior) {
-      if (prior.input === serialized) this.send({ type: 'mcp', payload: prior.value });
+      this.diagnostic('rpc-replayed', {
+        code: prior.input === serialized ? 'duplicate_request' : 'request_conflict',
+      });
+      if (prior.input === serialized)
+        this.send(
+          { type: 'mcp', payload: prior.value },
+          undefined,
+          request.method === 'tools/call',
+        );
       return;
     }
     let result: unknown;
@@ -853,6 +1219,7 @@ export class VoiceService {
       };
     else if (request.method === 'tools/list') {
       this.update({ deviceToolsReady: true });
+      this.diagnostic('tools-discovered');
       result = {
         tools: [
           {
@@ -869,7 +1236,7 @@ export class VoiceService {
           {
             name: 'workbench_submit',
             description:
-              '把用户的页面或代码修改要求交给本机 Codex 执行，例如“把这个页面变成粉色”“修改布局”“把标题改成周末出发”。无需用户额外说提交任务，也不要以语音助手不能编辑文件为由拒绝转交。受本机语音授权、当前项目和收音窗口限制，一次收音最多一个任务；返回 taskId 仅表示任务已接收。',
+              '把用户的页面/代码修改或当前作品操作交给本机 Codex 执行，例如“把这个页面变成粉色”“修改布局”“参与者2投给广西北海”。用户说谁给哪里投票时主动调用，text 保留完整身份/编号/目的地，让 Codex 检查当前页面、提交并核对票数；不要自行记票或声称已投票。无需用户额外说提交任务，也不要以语音助手不能编辑文件为由拒绝转交。受本机语音授权、当前项目和收音窗口限制，一次收音最多一个任务；返回 taskId 仅表示已接收，投票成功须核对实际结果。',
             inputSchema: z.toJSONSchema(textInput),
           },
           {
@@ -899,6 +1266,11 @@ export class VoiceService {
       };
     } else if (request.method === 'tools/call') {
       const captureId = this.state.captureId;
+      const named = voiceDiagnosticToolSchema.safeParse(
+        (request.params as { name?: unknown } | undefined)?.name,
+      );
+      const tool = named.success ? named.data : 'unknown';
+      this.diagnostic('tool-called', { tool });
       try {
         const call = z
           .object({
@@ -916,6 +1288,7 @@ export class VoiceService {
         if (call.name === 'workbench_status') {
           z.strictObject({}).parse(call.arguments);
           const state = this.options.workbench.read();
+          if (captureId) this.handoff('handled', '已查询工作台状态；没有创建开发任务。');
           result = {
             content: [
               {
@@ -946,6 +1319,11 @@ export class VoiceService {
             this.target !== this.context()
           )
             throw new Error('capture_required');
+          this.diagnostic('service-stop-requested', {
+            source: 'device-tool',
+            reason: 'voice_close',
+            explicitClose: true,
+          });
           this.stopWake();
           this.stopConversation();
           this.update({ wakeAutoSuspended: true });
@@ -1031,6 +1409,14 @@ export class VoiceService {
               this.capturedContext.selection,
               this.capturedContext.attachments,
             );
+            this.voiceTasks.set(task.id, {
+              sessionId: this.traceSession,
+              captureId: this.state.captureId,
+            });
+            if (this.voiceTasks.size > 64)
+              this.voiceTasks.delete(this.voiceTasks.keys().next().value as string);
+            this.conversation.submitted(this.state.captureId, task);
+            this.diagnostic('task-submitted', { taskId: task.id, status: task.status });
             this.submittedCapture = text;
             this.target = this.context();
             this.handoff('submitted', '已交给 Codex，进度与回复在右侧对话中显示。', task.id);
@@ -1055,7 +1441,22 @@ export class VoiceService {
             };
           }
         }
+        this.diagnostic('tool-returned', { tool });
       } catch (error) {
+        const code = voiceDiagnosticCodeSchema.safeParse(
+          error instanceof Error ? error.message : 'operation_rejected',
+        );
+        this.diagnostic('tool-rejected', {
+          tool,
+          code:
+            tool === 'unknown'
+              ? 'unsupported_tool'
+              : error instanceof z.ZodError
+                ? 'invalid_arguments'
+                : code.success
+                  ? code.data
+                  : 'operation_rejected',
+        });
         const message = error instanceof Error ? toolErrors[error.message] : undefined;
         const detail =
           message ??
@@ -1072,6 +1473,7 @@ export class VoiceService {
         };
       }
     } else {
+      this.diagnostic('protocol-rejected', { code: 'unsupported_method' });
       this.send({
         type: 'mcp',
         payload: {
@@ -1091,14 +1493,32 @@ export class VoiceService {
       { type: 'mcp', payload: value },
       closeAfterReply
         ? () => {
-            if (this.socket === closing) this.disconnectTransport();
+            if (this.socket === closing)
+              this.disconnectTransport({
+                source: 'device-tool',
+                reason: 'voice_close',
+                explicitClose: true,
+              });
           }
         : undefined,
+      request.method === 'tools/call',
     );
   }
-  private fail(error: string, recoverable = false) {
+  private fail(
+    error: string,
+    recoverable = false,
+    code: VoiceDiagnosticEvent['code'] = 'network_failure',
+    detail: ConnectionDetail = { source: 'app', reason: 'transport_error' },
+  ) {
+    this.diagnostic('service-failed', {
+      code,
+      explicitClose: false,
+      retryAttempt: this.retryAttempt,
+      ...detail,
+      remoteGoodbye: this.state.remoteSessionEnding ?? false,
+    });
     if (this.connectedAt && Date.now() - this.connectedAt >= 30000) this.retryAttempt = 0;
-    this.disconnectTransport();
+    this.disconnectTransport({ explicitClose: false, ...detail });
     this.update({ status: 'failed', error });
     if (recoverable) this.retryConnection();
   }
@@ -1107,7 +1527,11 @@ export class VoiceService {
     this.closed = true;
     this.connectionLoop = false;
     this.unsubscribe();
-    this.disconnect();
+    this.disconnect({ source: 'app', reason: 'shutdown', explicitClose: false });
+    this.conversation.clear();
+    this.journal.close();
+    this.debugJournal.close();
+    this.voiceTasks.clear();
     this.closing = Promise.resolve(this.options.wake?.close());
     return this.closing;
   }
@@ -1131,26 +1555,40 @@ export class VoiceService {
       wake: { ...this.state.wake, status: error ? 'failed' : 'off', detectionId: null, error },
     });
   }
-  disconnect() {
+  disconnect(
+    detail: ConnectionDetail = {
+      source: 'operator',
+      reason: 'manual_disconnect',
+      explicitClose: true,
+    },
+  ) {
     this.update({ wakeAutoSuspended: true });
     this.stopConversation();
     this.stopWake();
-    this.disconnectTransport();
+    this.disconnectTransport(detail);
   }
-  private disconnectTransport() {
+  private disconnectTransport(detail: ConnectionDetail = { source: 'app' }) {
+    if (this.socket)
+      this.diagnostic('service-disconnected', {
+        explicitClose: false,
+        retryAttempt: this.retryAttempt,
+        ...detail,
+        remoteGoodbye: this.state.remoteSessionEnding ?? false,
+      });
     this.connectionEpoch++;
     clearTimeout(this.retryTimer);
     this.retryTimer = undefined;
     clearInterval(this.heartbeat);
     this.heartbeat = undefined;
     this.connectedAt = 0;
-    this.stopConversation();
+    this.stopConversation(null, detail.reason !== 'remote_goodbye');
     if (this.wakeEnabled) {
       this.options.wake?.reset();
       this.update({ wake: { ...this.state.wake, status: 'armed', detectionId: null } });
     }
     clearTimeout(this.speechDeadline);
     this.awaitingSpeech = false;
+    this.announcing = false;
     this.pendingSpeech = '';
     this.lastAnnouncement = '';
     clearTimeout(this.deadline);
@@ -1166,6 +1604,10 @@ export class VoiceService {
     this.responses.clear();
     this.update({
       status: 'disconnected',
+      remoteSessionEnding: false,
+      captureId: null,
+      draft: '',
+      subtitle: '',
       deviceToolsReady: false,
       connection: { ...this.state.connection, nextRetryAt: null },
     });

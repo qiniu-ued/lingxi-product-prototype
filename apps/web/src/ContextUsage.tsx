@@ -1,4 +1,5 @@
 import type { ThreadRuntime } from '@lingxi/protocol';
+import { ConfigurationButton } from './ConfigurationControls';
 
 const format = (value: number | null) =>
   value === null ? '未报告' : value.toLocaleString('zh-CN');
@@ -14,11 +15,13 @@ export function ContextUsage({
   runtime,
   turnId,
   expanded = false,
+  compact = false,
   onExpand,
 }: {
   runtime: ThreadRuntime | null;
   turnId: string | null | undefined;
   expanded?: boolean;
+  compact?: boolean;
   onExpand: (open: boolean) => void;
 }) {
   const usage = runtime?.usage,
@@ -30,15 +33,20 @@ export function ContextUsage({
     ? `Context Window: ${format(used ?? null)}/${format(capacity ?? null)} used.`
     : 'Context Window: not reported.';
   return (
-    <section className="context-usage" aria-label="上下文用量">
+    <section
+      className={`context-usage${compact ? ' context-usage-compact' : ''}`}
+      aria-label="上下文用量"
+    >
       <div className="context-control">
-        <button
+        <ConfigurationButton
           type="button"
-          className="context-toggle"
+          className={`context-toggle${compact ? ' context-toggle-compact' : ''}`}
+          variant="ghost"
           aria-label="上下文使用详情"
           aria-expanded={expanded}
           onClick={() => onExpand(!expanded)}
         >
+          {compact && <span>上下文</span>}
           {known ? (
             <meter
               aria-label="当前上下文占用"
@@ -53,7 +61,12 @@ export function ContextUsage({
           ) : (
             <progress aria-label="上下文用量尚未报告" />
           )}
-        </button>
+          {compact && (
+            <span className="context-percent">
+              {percent === null ? '未报告' : `${percent.toFixed(1)}%`}
+            </span>
+          )}
+        </ConfigurationButton>
         <span className="context-tooltip" role="tooltip">
           {tooltip}
         </span>

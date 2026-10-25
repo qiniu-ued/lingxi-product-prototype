@@ -111,6 +111,15 @@ it('authenticates MCP independently and exposes only fixed preview actions', asy
     await rpc('tools/call', { name: 'preview', arguments: { action: 'snapshot' } })
   ).json();
   expect(snapshot.result.content[1].type).toBe('image');
+  expect(
+    (
+      await rpc('tools/call', {
+        name: 'preview',
+        arguments: { action: 'snapshot' },
+        _meta: { progressToken: 'actual-client-progress' },
+      })
+    ).json().result.content[1].type,
+  ).toBe('image');
   expect((await app.inject('/api/workbench')).json().preview).toEqual(binding);
   expect(
     (await rpc('tools/call', { name: 'shell', arguments: { action: 'snapshot' } })).json().result

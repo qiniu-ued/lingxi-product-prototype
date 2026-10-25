@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   contextAttachmentSchema,
   desktopActionSchema,
@@ -24,7 +24,12 @@ const previewToolSchema = z.strictObject({
   binding: previewBindingSchema
     .optional()
     .describe('Required for click, type and scroll; copy the binding from the latest snapshot.'),
-  requestId: z.uuid().optional().describe('Required for actions; reuse on transport retries.'),
+  requestId: z
+    .uuid()
+    .optional()
+    .describe(
+      'Required for actions: copy nextRequestId from the last successful preview result (a valid UUID). Reuse the same ID only on transport retries.',
+    ),
   ref: z
     .string()
     .min(1)
@@ -276,7 +281,11 @@ export function workbenchRoutes(
     else if (method === 'tools/call') {
       try {
         const input = z
-          .strictObject({ name: z.literal('preview'), arguments: previewActionSchema })
+          .strictObject({
+            name: z.literal('preview'),
+            arguments: previewActionSchema,
+            _meta: z.record(z.string(), z.unknown()).optional(),
+          })
           .parse(params);
         const snapshot = previewSnapshotSchema.parse(
           await desktop.call('preview', input.arguments),
@@ -288,6 +297,7 @@ export function workbenchRoutes(
               type: 'text',
               text: JSON.stringify({
                 binding: snapshot.binding,
+                nextRequestId: randomUUID(),
                 text: snapshot.text,
                 width: snapshot.width,
                 height: snapshot.height,

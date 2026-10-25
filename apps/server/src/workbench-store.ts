@@ -1,4 +1,6 @@
 import {
+  type MessageTime,
+  messageTimeSchema,
   type PermissionMode,
   permissionModeSchema,
   type ThreadRuntime,
@@ -15,6 +17,7 @@ function legacySnapshot(state: WorkbenchState) {
     runtime: _runtime,
     turnUsage: _turnUsage,
     permission: _permission,
+    messageTimes: _messageTimes,
     ...snapshot
   } = workbenchSchema.parse(state);
   return { ...snapshot, terminal: null };
@@ -30,6 +33,7 @@ export class WorkbenchStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS workspace_message_times_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_thread_runtime_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_turn_usage_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workspace_permissions_v1 (id TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -102,6 +106,7 @@ export class WorkbenchStore {
       ...state,
       runtime: runtime && runtime.codexId === selected?.codexId ? runtime : null,
       turnUsage: this.turnUsage(state.history),
+      messageTimes: this.messageTimes(state.history),
       permission: this.permission('preferences'),
     };
   }
@@ -118,6 +123,24 @@ export class WorkbenchStore {
           )
           .run(task.id, JSON.stringify(taskSchema.parse(task)));
     })();
+  }
+  messageTimes(tasks: Array<{ id: string }>): MessageTime[] {
+    return tasks.flatMap((task) => {
+      const row = this.db
+        .prepare('SELECT value FROM workspace_message_times_v1 WHERE id=?')
+        .get(task.id) as { value: string } | undefined;
+      return row ? messageTimeSchema.array().parse(JSON.parse(row.value)) : [];
+    });
+  }
+  observeMessage(taskId: string, kind: MessageTime['kind'], messageId: string, at: string) {
+    const entries = this.messageTimes([{ id: taskId }]);
+    if (entries.some((entry) => entry.kind === kind && entry.messageId === messageId)) return;
+    entries.push(messageTimeSchema.parse({ taskId, kind, messageId, at, ordinal: entries.length }));
+    this.db
+      .prepare(
+        'INSERT INTO workspace_message_times_v1(id,value) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value',
+      )
+      .run(taskId, JSON.stringify(entries));
   }
   runtime(conversationId: string): ThreadRuntime | null {
     const row = this.db

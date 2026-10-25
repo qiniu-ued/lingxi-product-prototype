@@ -8,6 +8,7 @@ import {
   modelDescriptorSchema,
   type PreviewSelection,
   type Project,
+  previewActionSchema,
   previewBindingSchema,
   projectSchema,
   type Task,
@@ -53,6 +54,17 @@ const questionsSchema = z.array(
       .optional(),
   }),
 );
+// Only the app-owned preview tool's empty confirmation form is supported.
+// Other servers, credential forms, URLs and arbitrary elicitation remain denied.
+const previewToolApprovalSchema = z.object({
+  serverName: z.literal('lingxi_preview'),
+  mode: z.literal('form'),
+  requestedSchema: z.strictObject({ type: z.literal('object'), properties: z.strictObject({}) }),
+  _meta: z.object({
+    codex_approval_kind: z.literal('mcp_tool_call'),
+    tool_params: previewActionSchema,
+  }),
+});
 
 export class Workbench {
   private store: WorkbenchStore;
@@ -130,12 +142,28 @@ export class Workbench {
   private update(change: Partial<WorkbenchState> = {}) {
     this.state = { ...this.state, ...change, revision: this.state.revision + 1 };
     this.state.turnUsage = this.store.turnUsage(this.state.history);
+    this.state.messageTimes = this.store.messageTimes(this.state.history);
     this.store.write(this.state);
     for (const listener of this.listeners) listener(this.state);
   }
   private taskUpdate(patch: Partial<Task>) {
     if (!this.state.task) return;
     const task = { ...this.state.task, ...patch, updatedAt: new Date().toISOString() };
+    for (const message of patch.messages ?? [])
+      this.store.observeMessage(task.id, 'assistant', message.id, task.updatedAt);
+    for (const addition of patch.additions ?? [])
+      this.store.observeMessage(task.id, 'addition', addition.id, task.updatedAt);
+    if (patch.messages) {
+      const order = new Map(
+        this.store
+          .messageTimes([task])
+          .filter((entry) => entry.kind === 'assistant')
+          .map((entry) => [entry.messageId, entry.ordinal]),
+      );
+      task.messages = [...task.messages].sort(
+        (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+      );
+    }
     this.update({ task, history: this.state.history.map((t) => (t.id === task.id ? task : t)) });
   }
   private ensureIdle() {
@@ -316,6 +344,7 @@ export class Workbench {
       updatedAt: new Date().toISOString(),
     };
     this.store.writePermission(id, this.state.permission);
+    this.store.observeMessage(task.id, 'prompt', 'prompt', task.createdAt);
     this.update({ history: [...this.state.history, task], ...(queued ? {} : { task }) });
     if (!queued) this.launch(project, task);
     return task;
@@ -439,6 +468,12 @@ export class Workbench {
       'For a simple static project use preview/index.html. For an existing framework project preserve its architecture. The user can launch its development server in the integrated terminal and bind a loopback URL in the UI.',
       'When the user supplies a reference prototype, match its typography, spacing, colors, imagery and flat surfaces. Do not invent gradients, image shadows, explanatory copy or extra navigation that are absent from the reference.',
       'Preserve browser localStorage. Report only tests and operations actually performed. Publishing a static preview is attempted after the turn.',
+      'Preview actions require a UUID requestId: copy nextRequestId from the last successful preview response for each new action. Reuse it only for retrying that same action; do not invent descriptive IDs.',
+      ...(readonly
+        ? []
+        : [
+            'For a voting or other product-operation request, snapshot the current lingxi_preview page first, match the requested participant and destination, operate its existing controls and verify the resulting count/status with a fresh snapshot. Do not edit source code or write localStorage to simulate votes. Never reset a poll or cast another vote for an already-voted participant. If a person cannot be matched to the visible participant labels, ask for their participant number instead of guessing. A submitted task is not proof that a vote was cast.',
+          ]),
     ].join('\n');
   }
   private async run(project: Project, task: Task) {
@@ -655,7 +690,12 @@ export class Workbench {
       this.state.task?.id !== input.taskId
     )
       throw new Error('approval_stale');
-    if (request.questions.length) {
+    if (request.method === 'mcpServer/elicitation/request') {
+      this.client.respond(request.id, {
+        action: input.decision,
+        content: input.decision === 'accept' ? {} : null,
+      });
+    } else if (request.questions.length) {
       if (input.decision === 'decline') {
         this.interrupt();
         return;
@@ -919,6 +959,39 @@ export class Workbench {
           approvals,
           approval: approvals[0] ?? null,
         });
+      } else if (message.method === 'mcpServer/elicitation/request') {
+        const approvedTool = previewToolApprovalSchema.safeParse(p);
+        if (!approvedTool.success || p.threadId !== task.threadId || p.turnId !== task.turnId) {
+          this.client?.reject(message.id);
+          return;
+        }
+        const action = approvedTool.data._meta.tool_params;
+        if (
+          action.action !== 'snapshot' &&
+          JSON.stringify(action.binding) !== JSON.stringify(this.state.preview)
+        ) {
+          this.client?.reject(message.id);
+          return;
+        }
+        this.requests.set(key, {
+          id: message.id,
+          taskId: task.id,
+          method: message.method,
+          questions: [],
+        });
+        const approval = {
+          id: key,
+          kind: 'command' as const,
+          title: action.action === 'snapshot' ? 'Codex 请求查看当前作品' : 'Codex 请求操作当前作品',
+          detail: `工作台共享预览工具 lingxi_preview / preview\n${JSON.stringify(action, null, 2).slice(0, 8000)}\n仅本次调用；不会自动批准后续操作。`,
+        };
+        const approvals = [...(task.approvals ?? []), approval];
+        this.taskUpdate({
+          status: 'waiting',
+          activity: '等待你批准预览工具调用',
+          approvals,
+          approval: approvals[0] ?? null,
+        });
       } else if (
         message.method === 'item/tool/requestUserInput' ||
         message.method === 'tool/requestUserInput'
@@ -969,30 +1042,53 @@ export class Workbench {
       else messages.push({ id, text: delta });
       this.taskUpdate({ messages });
     }
+    if (message.method === 'item/commandExecution/outputDelta') {
+      const { itemId, delta } = z.object({ itemId: z.string(), delta: z.string() }).parse(p);
+      this.taskUpdate({
+        items: (task.items ?? []).map((item) =>
+          item.id === itemId && item.type === 'commandExecution' && item.status !== 'completed'
+            ? { ...item, text: `${item.text}${delta}`.slice(0, 64000) }
+            : item,
+        ),
+      });
+    }
     if (message.method === 'item/started' || message.method === 'item/completed') {
       const item = z.object({ type: z.string(), id: z.string() }).passthrough().parse(p.item);
-      if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text)
-        this.taskUpdate({
-          messages: [
-            ...task.messages.filter((m) => m.id !== item.id),
-            { id: item.id, text: item.text },
-          ],
-        });
+      // Internal reasoning items are not public assistant progress messages.
+      if (item.type === 'reasoning') return;
+      if (item.type === 'agentMessage')
+        this.store.observeMessage(task.id, 'assistant', item.id, new Date().toISOString());
+      if (item.type === 'agentMessage' && typeof item.text === 'string' && item.text) {
+        const messages = task.messages.map((message) => ({ ...message }));
+        const position = messages.findIndex((message) => message.id === item.id);
+        const value = { id: item.id, text: item.text };
+        if (position < 0) messages.push(value);
+        else messages[position] = value;
+        this.taskUpdate({ messages });
+      }
       // ThreadItem is a union. Fields such as aggregatedOutput are explicitly
       // nullable on a started command; unrelated item variants can omit them.
       const text =
         (typeof item.text === 'string'
           ? item.text
-          : [item.command, item.aggregatedOutput]
+          : [item.command, item.aggregatedOutput ?? '']
               .filter((value) => typeof value === 'string')
               .join('\n')) || JSON.stringify(item);
-      const items = (this.state.task?.items ?? []).filter((i) => i.id !== item.id);
-      items.push({
+      const items = [...(this.state.task?.items ?? [])];
+      const position = items.findIndex((value) => value.id === item.id);
+      const value = {
         id: item.id,
         type: item.type,
         text: text.slice(0, 64000),
-        ...(typeof item.status === 'string' ? { status: item.status } : {}),
-      });
+        status:
+          typeof item.status === 'string'
+            ? item.status
+            : message.method === 'item/completed'
+              ? 'completed'
+              : 'inProgress',
+      };
+      if (position < 0) items.push(value);
+      else items[position] = value;
       this.taskUpdate({
         items,
         activity: message.method === 'item/started' ? `正在执行 · ${item.type}` : 'Codex 正在继续…',

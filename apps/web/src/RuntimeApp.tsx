@@ -51,6 +51,7 @@ export function RuntimeApp() {
   }, [phase]);
   const openSettings = (section?: SettingsSection) => {
     history.pushState(null, '', `/setup${section ? `#${section}` : ''}`);
+    setInspection(null);
     setSelectMissing(!section);
     setPhase('settings');
   };

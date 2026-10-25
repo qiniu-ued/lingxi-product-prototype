@@ -95,6 +95,23 @@ test('desktop startup checks configuration before mounting the workspace; passiv
   expect(f.actions).toEqual([]);
   expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
 });
+test('opening the connection guide checks current configuration instead of reusing startup results', async ({
+  page,
+}) => {
+  const report = ready();
+  const f = await fixture(page, report);
+  await page.goto('/');
+  await expect(page.getByText('本机服务已连接', { exact: true })).toBeVisible();
+  const initialChecks = f.checks();
+  report.codex = { ...report.codex, status: 'signed-out', authentication: null };
+  await page.locator('.workbench-menu > summary').click();
+  await page.getByRole('button', { name: '连接向导', exact: true }).click();
+  await expect(page.locator('.setup-content')).toContainText('Codex 尚未登录');
+  expect(f.checks()).toBeGreaterThan(initialChecks);
+  expect(f.actions).toEqual([]);
+  expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
+});
+
 test('startup sends all configuration problems to the connection guide without installing, logging in or asking for microphone access', async ({
   page,
 }) => {

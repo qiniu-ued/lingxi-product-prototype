@@ -181,3 +181,30 @@ test('settings can always be opened directly and remain open after every configu
   await page.getByRole('button', { name: '返回工作台', exact: true }).click();
   await expect(page.getByRole('button', { name: '设置', exact: true })).toBeVisible();
 });
+
+test('settings navigation and actions stay separate at desktop and compact widths', async ({
+  page,
+}) => {
+  await fixture(page);
+  await page.goto('/settings#lingxi');
+  await expect(page.getByRole('button', { name: '获取本机绑定码', exact: true })).not.toBeVisible();
+  await page.getByText('设备已绑定 · 重新绑定', { exact: true }).click();
+  await expect(page.getByRole('button', { name: '获取本机绑定码', exact: true })).toBeVisible();
+  for (const width of [1440, 998, 759]) {
+    await page.setViewportSize({ width, height: 767 });
+    const back = await page.getByRole('button', { name: '返回工作台', exact: true }).boundingBox();
+    const guide = await page.getByRole('button', { name: '连接向导', exact: true }).boundingBox();
+    const title = await page.getByRole('heading', { name: '配置概览', exact: true }).boundingBox();
+    const check = await page
+      .getByRole('button', { name: '重新检查全部配置', exact: true })
+      .boundingBox();
+    if (!back || !guide || !title || !check) throw new Error('Settings navigation is missing');
+    expect(back.x + back.width).toBeLessThan(guide.x);
+    expect(back.y + back.height).toBeLessThan(check.y);
+    expect(title.x + title.width).toBeLessThan(check.x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  }
+  expect(await page.evaluate(() => Reflect.get(window, 'microphoneRequests'))).toBeUndefined();
+});

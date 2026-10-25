@@ -11,9 +11,11 @@ import {
   setupIssues,
   type VoiceState,
 } from '@lingxi/protocol';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, RefreshCw, Route } from 'lucide-react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { ConfigurationButton } from './ConfigurationControls';
 import { SparklesIcon } from './DesktopWorkbench';
-import { SettingsLink, SetupLink } from './Navigation';
+import { Navigation, SettingsLink } from './Navigation';
 import { VoiceControls } from './VoiceControls';
 
 const steps = ['配置 Codex', '配置丽塔同学', '配置唤醒模型'];
@@ -71,9 +73,9 @@ function Command({ children }: { children: string }) {
     <div className="setup-command">
       <div className="command-toolbar">
         <span>在 Mac 终端执行</span>
-        <button type="button" onClick={copy}>
+        <ConfigurationButton type="button" onClick={copy}>
           复制命令
-        </button>
+        </ConfigurationButton>
       </div>
       <pre>
         <code>{children}</code>
@@ -113,6 +115,7 @@ export function SetupPage({
   onContinue: () => void;
   mode?: 'wizard' | 'settings';
 }) {
+  const navigation = useContext(Navigation);
   const seeded = useRef(initialInspection);
   const [wake, setWake] = useState<SetupInspection['wake']>(null);
   const [microphone, setMicrophone] = useState<SetupInspection['microphone']>('unknown');
@@ -342,28 +345,53 @@ export function SetupPage({
 
   return (
     <div className="workbench setup">
-      <header className="topbar">
-        <a
-          className="brand"
-          href="/"
-          onClick={(event) => {
-            event.preventDefault();
-            onContinue();
-          }}
-        >
-          <span className="brand-mark">
-            <SparklesIcon />
-          </span>
-          <span>
-            丽塔同学{' '}
-            <span className="brand-detail">/ {mode === 'settings' ? '设置' : '连接向导'}</span>
-          </span>
-        </a>
-        <button className="button secondary" type="button" onClick={onContinue}>
-          {mode === 'settings' ? '返回工作台' : allReady ? '进入工作台' : '暂时用文字进入工作台'}
-        </button>
-        {mode === 'settings' ? <SetupLink /> : <SettingsLink />}
-      </header>
+      {mode === 'settings' ? (
+        <header className="settings-topbar">
+          <nav className="settings-navigation" aria-label="设置页导航">
+            <div className="settings-navigation-start">
+              <ConfigurationButton type="button" onClick={onContinue}>
+                <ArrowLeft size={16} aria-hidden="true" />
+                返回工作台
+              </ConfigurationButton>
+              <span className="settings-navigation-divider" aria-hidden="true" />
+              <div className="brand">
+                <span className="brand-mark">
+                  <SparklesIcon />
+                </span>
+                <span>
+                  丽塔同学 <span className="brand-detail">/ 设置</span>
+                </span>
+              </div>
+            </div>
+            <ConfigurationButton type="button" onClick={() => navigation.setup()}>
+              <Route size={16} aria-hidden="true" />
+              连接向导
+            </ConfigurationButton>
+          </nav>
+        </header>
+      ) : (
+        <header className="topbar">
+          <a
+            className="brand"
+            href="/"
+            onClick={(event) => {
+              event.preventDefault();
+              onContinue();
+            }}
+          >
+            <span className="brand-mark">
+              <SparklesIcon />
+            </span>
+            <span>
+              丽塔同学 <span className="brand-detail">/ 连接向导</span>
+            </span>
+          </a>
+          <ConfigurationButton className="button secondary" type="button" onClick={onContinue}>
+            {allReady ? '进入工作台' : '暂时用文字进入工作台'}
+          </ConfigurationButton>
+          <SettingsLink />
+        </header>
+      )}
       <section className="intro">
         <p className="eyebrow">{mode === 'settings' ? '应用设置' : '连接你的工具'}</p>
         <h1>{mode === 'settings' ? '配置与连接' : '先检查，再配置。'}</h1>
@@ -379,16 +407,29 @@ export function SetupPage({
       ) : !runtime || (!check && (!action || finished(action))) ? (
         <div className="panel setup-result">
           <p role="alert">{error}</p>
-          <button
+          <ConfigurationButton
             type="button"
             className="button secondary"
             onClick={() => void inspectEnvironment()}
           >
             重新检查环境
-          </button>
+          </ConfigurationButton>
         </div>
       ) : (
         <>
+          {mode === 'settings' && (
+            <div className="settings-overview-heading">
+              <h2>配置概览</h2>
+              <ConfigurationButton
+                type="button"
+                disabled={busy || loading}
+                onClick={() => void inspectEnvironment(undefined, false)}
+              >
+                <RefreshCw size={16} aria-hidden="true" />
+                {loading ? '正在检查全部配置…' : '重新检查全部配置'}
+              </ConfigurationButton>
+            </div>
+          )}
           <div className="setup-scope">
             <strong>环境检查已完成</strong> ·{' '}
             {runtime.host.platform === 'darwin' ? 'macOS' : runtime.host.platform} ·{' '}
@@ -444,18 +485,20 @@ export function SetupPage({
               <p>约 33 MB，下载一次后在本机检测“丽塔同学”；检查本身不下载模型、不打开麦克风。</p>
             </div>
           </section>
-          <button
-            className="button secondary"
-            type="button"
-            disabled={busy}
-            onClick={() => void inspectEnvironment(undefined, false)}
-          >
-            重新检查全部配置
-          </button>
+          {mode === 'wizard' && (
+            <ConfigurationButton
+              className="button secondary"
+              type="button"
+              disabled={busy}
+              onClick={() => void inspectEnvironment(undefined, false)}
+            >
+              重新检查全部配置
+            </ConfigurationButton>
+          )}
           <main className="setup-layout">
             <nav className="setup-steps" aria-label={mode === 'settings' ? '设置分类' : '连接步骤'}>
               {titles.map((title, index) => (
-                <button
+                <ConfigurationButton
                   type="button"
                   key={title}
                   aria-current={step === index ? 'step' : undefined}
@@ -471,7 +514,7 @@ export function SetupPage({
                 >
                   <span className="step-number">0{index + 1}</span>
                   <span>{title}</span>
-                </button>
+                </ConfigurationButton>
               ))}
             </nav>
             <section className="panel setup-content" aria-labelledby="setup-step-title">
@@ -512,27 +555,27 @@ export function SetupPage({
                       <p>
                         下载稳定通道的最新版，安装到工作台自己的工具目录。无需管理员权限，保留已有全局安装。
                       </p>
-                      <button
+                      <ConfigurationButton
                         type="button"
                         className="button secondary"
                         disabled={busy || checking}
                         onClick={() => void start('install')}
                       >
                         一键安装最新版 Codex
-                      </button>
+                      </ConfigurationButton>
                     </>
                   )}
                   {check?.status === 'signed-out' && (
                     <>
                       <p>打开官方授权页完成登录。工作台不接收你的密码或密钥。</p>
-                      <button
+                      <ConfigurationButton
                         type="button"
                         className="button secondary"
                         disabled={busy || checking}
                         onClick={() => void start('login')}
                       >
                         在浏览器登录 Codex
-                      </button>
+                      </ConfigurationButton>
                     </>
                   )}
                   {action && (
@@ -552,14 +595,14 @@ export function SetupPage({
                         <ExternalLink href={action.authUrl}>打开官方授权页</ExternalLink>
                       )}
                       {!finished(action) && (
-                        <button
+                        <ConfigurationButton
                           className="button secondary"
                           type="button"
                           disabled={submitting || action.state === 'cancelling'}
                           onClick={() => void cancel()}
                         >
                           {action.kind === 'login' ? '停止等待登录' : '停止安装'}
-                        </button>
+                        </ConfigurationButton>
                       )}
                       {action.state === 'cancelled' && (
                         <p>停止操作不撤销已经完成的安装或账号授权。</p>
@@ -567,14 +610,14 @@ export function SetupPage({
                     </div>
                   )}
                   <p>
-                    <button
+                    <ConfigurationButton
                       className="button secondary"
                       type="button"
                       disabled={busy || checking}
                       onClick={() => void inspectCodex()}
                     >
                       {checking ? '正在检测 Codex…' : '重新检测 Codex'}
-                    </button>
+                    </ConfigurationButton>
                   </p>
                   {error && (
                     <p className="error" role="alert">
@@ -615,9 +658,7 @@ export function SetupPage({
                 </>
               ) : (
                 <>
-                  <p>
-                    先下载本地模型，再确认麦克风权限。不会自动开启待唤醒；完成后回工作台主动开启。
-                  </p>
+                  <p>先准备本地模型与麦克风权限，再选择是否自动监听唤醒词。</p>
                   {wake?.reason === 'native-unavailable' && (
                     <p role="alert">
                       模型文件存在，但本机检测库未能加载。请重新安装对应架构的桌面包；从源码运行时重新执行
@@ -628,7 +669,7 @@ export function SetupPage({
                   <h3>麦克风权限</h3>
                   <p role="status">
                     {microphone === 'granted'
-                      ? '麦克风权限已允许，当前不会自动收音。'
+                      ? '麦克风权限已允许；是否自动待唤醒由上方开关决定。'
                       : microphone === 'not-determined'
                         ? '尚未请求麦克风权限；可现在授权，也可首次收音时授权。'
                         : ['denied', 'restricted'].includes(microphone)
@@ -636,13 +677,13 @@ export function SetupPage({
                           : '尚未确认麦克风权限，请在桌面版检查。'}
                   </p>
                   {window.lingxiDesktop && microphone !== 'granted' && (
-                    <button
+                    <ConfigurationButton
                       className="button secondary"
                       type="button"
                       onClick={() => void requestMicrophone()}
                     >
                       授权麦克风
-                    </button>
+                    </ConfigurationButton>
                   )}
                   {error && <p role="alert">{error}</p>}
                 </>
@@ -650,27 +691,31 @@ export function SetupPage({
               {mode === 'wizard' && (
                 <div className="setup-pagination">
                   {step > 0 && (
-                    <button
+                    <ConfigurationButton
                       className="button secondary"
                       type="button"
                       onClick={() => setStep(step - 1)}
                     >
                       上一步
-                    </button>
+                    </ConfigurationButton>
                   )}
                   {step < steps.length - 1 && (
-                    <button
+                    <ConfigurationButton
                       className="button secondary"
                       type="button"
                       onClick={() => setStep(step + 1)}
                     >
                       下一步：{steps[step + 1]}
-                    </button>
+                    </ConfigurationButton>
                   )}
                   {step === steps.length - 1 && (
-                    <button className="button secondary" type="button" onClick={onContinue}>
+                    <ConfigurationButton
+                      className="button secondary"
+                      type="button"
+                      onClick={onContinue}
+                    >
                       {allReady ? '进入工作台' : '暂时用文字进入工作台'}
-                    </button>
+                    </ConfigurationButton>
                   )}
                 </div>
               )}

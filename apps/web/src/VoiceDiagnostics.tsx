@@ -4,6 +4,7 @@ import {
   voiceDiagnosticsSchema,
 } from '@lingxi/protocol';
 import { useEffect, useRef, useState } from 'react';
+import { ConfigurationButton, ConfigurationTextArea } from './ConfigurationControls';
 import { VoiceDebug } from './VoiceDebug';
 
 const labels: Record<VoiceDiagnosticEvent['kind'], string> = {
@@ -172,7 +173,7 @@ export function VoiceDiagnostics() {
   }
   return (
     <>
-      <button
+      <ConfigurationButton
         type="button"
         onClick={() => {
           dialog.current?.showModal();
@@ -180,7 +181,7 @@ export function VoiceDiagnostics() {
         }}
       >
         语音诊断
-      </button>
+      </ConfigurationButton>
       <dialog
         ref={dialog}
         className="voice-diagnostics-dialog"
@@ -189,9 +190,9 @@ export function VoiceDiagnostics() {
       >
         <header>
           <h2>语音交接诊断</h2>
-          <button type="button" onClick={() => dialog.current?.close()}>
+          <ConfigurationButton type="button" onClick={() => dialog.current?.close()}>
             关闭诊断
-          </button>
+          </ConfigurationButton>
         </header>
         <p>
           仅在内存保留最近 128 条、30
@@ -232,14 +233,14 @@ export function VoiceDiagnostics() {
               </div>
             </dl>
             <div className="live-actions">
-              <button
+              <ConfigurationButton
                 type="button"
                 disabled={saving}
                 onClick={() => void command({ action: 'clear' })}
               >
                 清空诊断
-              </button>
-              <button
+              </ConfigurationButton>
+              <ConfigurationButton
                 type="button"
                 onClick={async () => {
                   setNotice('');
@@ -269,7 +270,7 @@ export function VoiceDiagnostics() {
                 }}
               >
                 复制诊断日志
-              </button>
+              </ConfigurationButton>
             </div>
             {open && <VoiceDebug />}
             {!!state.dropped && (
@@ -314,9 +315,10 @@ export function VoiceDiagnostics() {
           </>
         )}
         {manualCopy && (
-          <label>
+          <label htmlFor="voice-diagnostics-manual-copy">
             诊断日志文本（可手动复制）
-            <textarea
+            <ConfigurationTextArea
+              id="voice-diagnostics-manual-copy"
               readOnly
               rows={8}
               value={manualCopy}

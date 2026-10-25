@@ -1,5 +1,6 @@
 import { type VoiceDebugState, voiceDebugSchema } from '@lingxi/protocol';
 import { useEffect, useRef, useState } from 'react';
+import { ConfigurationButton, ConfigurationTextArea } from './ConfigurationControls';
 
 export function VoiceDebug() {
   const epoch = useRef(0),
@@ -95,7 +96,7 @@ export function VoiceDebug() {
           )}
           <details>
             <summary>预览详细日志（含对话内容）</summary>
-            <textarea
+            <ConfigurationTextArea
               readOnly
               rows={8}
               aria-label="详细调试日志预览（含对话内容）"
@@ -103,10 +104,10 @@ export function VoiceDebug() {
             />
           </details>
           <div className="live-actions">
-            <button type="button" disabled={saving} onClick={() => void clear()}>
+            <ConfigurationButton type="button" disabled={saving} onClick={() => void clear()}>
               清空详细调试
-            </button>
-            <button
+            </ConfigurationButton>
+            <ConfigurationButton
               type="button"
               onClick={async () => {
                 setNotice('');
@@ -123,14 +124,20 @@ export function VoiceDebug() {
               }}
             >
               复制详细日志（含对话内容）
-            </button>
+            </ConfigurationButton>
           </div>
         </>
       )}
       {manual && (
-        <label>
+        <label htmlFor="voice-debug-manual-copy">
           详细日志文本（可手动复制）
-          <textarea readOnly rows={8} value={manual} onFocus={(event) => event.target.select()} />
+          <ConfigurationTextArea
+            id="voice-debug-manual-copy"
+            readOnly
+            rows={8}
+            value={manual}
+            onFocus={(event) => event.target.select()}
+          />
         </label>
       )}
       {notice && <p role="status">{notice}</p>}

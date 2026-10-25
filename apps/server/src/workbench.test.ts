@@ -227,6 +227,43 @@ it.each(['approval', 'file', 'question'])(
     await until(wb, (s) => s.task?.status === 'completed');
   },
 );
+it.each(['accept', 'decline'] as const)(
+  'surfaces app-owned preview approval and sends an explicit %s without changing permissions',
+  async (decision) => {
+    const { wb, record } = await create('preview-approval');
+    wb.start(randomUUID(), '参与者2投给广西北海');
+    await until(wb, (s) => s.task?.status === 'waiting');
+    const task = wb.read().task;
+    if (!task?.approval) throw new Error('missing preview approval');
+    expect(task.approval.title).toBe('Codex 请求查看当前作品');
+    expect(task.approval.detail).toContain('snapshot');
+    wb.decide({ taskId: task.id, approvalId: task.approval.id, decision });
+    await until(wb, (s) => s.task?.status === 'completed');
+    const messages = (await readFile(record, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((s) => JSON.parse(s));
+    expect(messages.find((m) => m.id === 92 && m.result)?.result).toEqual({
+      action: decision,
+      content: decision === 'accept' ? {} : null,
+    });
+    expect(wb.read().permission).toBe('manual');
+  },
+);
+it.each(['preview-approval-foreign', 'preview-approval-fields'])(
+  'rejects unsupported MCP elicitation %s instead of granting access',
+  async (mode) => {
+    const { wb, record } = await create(mode);
+    wb.start(randomUUID(), 'test');
+    await until(wb, (s) => s.task?.status === 'completed');
+    expect(wb.read().task?.approvals).toEqual([]);
+    const messages = (await readFile(record, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((s) => JSON.parse(s));
+    expect(messages.find((m) => m.id === 92 && m.error)?.error.code).toBe(-32601);
+  },
+);
 it.each(['wait', 'question'])('interrupts %s and preserves honest state', async (mode) => {
   const { wb } = await create(mode);
   wb.start(randomUUID(), 'wait');

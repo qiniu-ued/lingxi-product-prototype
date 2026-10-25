@@ -3,23 +3,28 @@ import {
   type PreviewSelection,
   type PreviewSnapshot,
   previewHighlightSchema,
+  previewSnapshotSchema,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function PreviewPicker({
   shot,
   active,
+  disabled = false,
   selection,
   onPick,
   onCancel,
   onError,
+  onInteract,
 }: {
   shot: PreviewSnapshot;
   active: boolean;
+  disabled?: boolean;
   selection: PreviewSelection | null;
   onPick: (value: PreviewSelection) => void;
   onCancel: () => void;
   onError: (message: string) => void;
+  onInteract: (value: PreviewSnapshot) => void;
 }) {
   const host = useRef<HTMLButtonElement>(null),
     image = useRef<HTMLImageElement>(null);
@@ -29,10 +34,8 @@ export function PreviewPicker({
     generation = useRef(0),
     inspecting = useRef(false),
     locking = useRef(false);
-  const wheel = useRef(0),
-    scrolling = useRef(false);
-  const callbacks = useRef({ onPick, onCancel, onError });
-  callbacks.current = { onPick, onCancel, onError };
+  const callbacks = useRef({ onPick, onCancel, onError, onInteract });
+  callbacks.current = { onPick, onCancel, onError, onInteract };
   const binding = useRef(shot.binding).current;
   const key = JSON.stringify(binding);
   const measure = useCallback(() => {
@@ -55,12 +58,15 @@ export function PreviewPicker({
     );
     return { left: parent.x + value.x, top: parent.y + value.y, width, height };
   }, []);
-  const at = (x: number, y: number) => {
-    const rect = measure();
-    if (!rect?.width || !rect.height) return null;
-    const value = { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
-    return value.x >= 0 && value.y >= 0 && value.x <= 1 && value.y <= 1 ? value : null;
-  };
+  const at = useCallback(
+    (x: number, y: number) => {
+      const rect = measure();
+      if (!rect?.width || !rect.height) return null;
+      const value = { x: (x - rect.left) / rect.width, y: (y - rect.top) / rect.height };
+      return value.x >= 0 && value.y >= 0 && value.x <= 1 && value.y <= 1 ? value : null;
+    },
+    [measure],
+  );
   useEffect(() => {
     const observer = new ResizeObserver(() => measure());
     if (host.current) observer.observe(host.current);
@@ -70,7 +76,6 @@ export function PreviewPicker({
   useEffect(() => {
     const epoch = ++generation.current;
     point.current = null;
-    wheel.current = 0;
     if (!active && (!selection || JSON.stringify(selection.binding) !== key)) {
       setHighlight(null);
       return;
@@ -104,19 +109,6 @@ export function PreviewPicker({
       }
     };
     const tick = () => {
-      if (active && wheel.current && !scrolling.current) {
-        const deltaY = Math.max(-800, Math.min(800, wheel.current));
-        wheel.current -= deltaY;
-        scrolling.current = true;
-        void window.lingxiDesktop
-          ?.scrollPreview({ binding, deltaY })
-          .catch(() => {
-            if (live) callbacks.current.onError('预览滚动失败，请检查页面后重试。');
-          })
-          .finally(() => {
-            scrolling.current = false;
-          });
-      }
       void refresh();
     };
     void refresh();
@@ -130,30 +122,46 @@ export function PreviewPicker({
         callbacks.current.onCancel();
       }
     };
-    const scroll = (event: WheelEvent) => {
-      if (!active) return;
-      event.preventDefault();
-      event.stopPropagation();
-      wheel.current = Math.max(-1600, Math.min(1600, wheel.current + event.deltaY));
-    };
     document.addEventListener('keydown', cancelKey, true);
-    const element = host.current;
-    element?.addEventListener('wheel', scroll, { passive: false });
     return () => {
       live = false;
       generation.current++;
       clearInterval(timer);
       document.removeEventListener('keydown', cancelKey, true);
-      element?.removeEventListener('wheel', scroll);
     };
   }, [active, key, selection, binding]);
+  useEffect(() => {
+    const element = host.current;
+    const scroll = (event: WheelEvent) => {
+      if (event.ctrlKey || disabled) return;
+      const position = at(event.clientX, event.clientY);
+      const api = window.lingxiDesktop;
+      if (!position || !api?.scroll) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? surface.height : 1;
+      const bounded = (value: number) => Math.max(-2000, Math.min(2000, value * unit));
+      void api
+        .scroll({
+          binding,
+          ...position,
+          deltaX: bounded(event.deltaX),
+          deltaY: bounded(event.deltaY),
+        })
+        .catch(() => {
+          /* Never replay a wheel gesture against a newer preview. */
+        });
+    };
+    element?.addEventListener('wheel', scroll, { passive: false });
+    return () => element?.removeEventListener('wheel', scroll);
+  }, [binding, at, surface.height, disabled]);
   return (
     <button
       ref={host}
       type="button"
       className={`preview-pick ${active ? 'picking' : ''}`}
-      aria-label="选择预览元素"
-      disabled={!active}
+      aria-label={active ? '选择预览元素' : '操作作品预览'}
+      disabled={disabled}
       onPointerMove={(event) => {
         if (!active) return;
         point.current = at(event.clientX, event.clientY);
@@ -170,10 +178,22 @@ export function PreviewPicker({
         event.preventDefault();
         event.stopPropagation();
         const position = at(event.clientX, event.clientY);
-        if (!active || !position || locking.current) return;
+        if (disabled || !position || locking.current) return;
         const epoch = ++generation.current;
         locking.current = true;
         try {
+          if (!active) {
+            const api = window.lingxiDesktop;
+            if (!api?.clickPreview) throw new Error('preview_click_unavailable');
+            const result = await api.clickPreview({
+              binding,
+              ...position,
+              requestId: crypto.randomUUID(),
+            });
+            if (epoch === generation.current && result)
+              callbacks.current.onInteract(previewSnapshotSchema.parse(result));
+            return;
+          }
           const result = await window.lingxiDesktop?.inspect({
             binding,
             target: 'point',
@@ -190,8 +210,10 @@ export function PreviewPicker({
           });
         } catch {
           if (epoch === generation.current) {
-            callbacks.current.onError('预览已变化，请重新选择批注目标。');
-            callbacks.current.onCancel();
+            callbacks.current.onError(
+              active ? '预览已变化，请重新选择批注目标。' : '页面操作未完成，请等画面同步后重试。',
+            );
+            if (active) callbacks.current.onCancel();
           }
         } finally {
           locking.current = false;

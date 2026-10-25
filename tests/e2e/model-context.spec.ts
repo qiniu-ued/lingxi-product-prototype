@@ -96,8 +96,14 @@ async function open(
             return Reflect.get(window, 'testPreviewSnapshot') ?? null;
           },
           inspect: async (input: unknown) => Reflect.get(window, 'testPreviewInspect')(input),
-          scrollPreview: async (input: unknown) => {
+          scroll: async (input: unknown) => {
             Reflect.set(window, 'previewScroll', input);
+          },
+          clickPreview: async (input: unknown) => {
+            const calls = Reflect.get(window, 'previewClicks') ?? [];
+            calls.push(input);
+            Reflect.set(window, 'previewClicks', calls);
+            return Reflect.get(window, 'testPreviewSnapshot') ?? null;
           },
           info: async () => ({ platform: 'darwin', arch: 'arm64', systemVersion: 'fixture' }),
           microphone: async () => {
@@ -1815,7 +1821,28 @@ async function previewFixture(page: Page) {
   );
   return open(page, runtime(), false, { preview: binding });
 }
-test('annotation hover switches targets, locks into the draft, scrolls only while picking and clears on cancel', async ({
+test('normal preview clicks operate the page while annotation clicks only select context', async ({
+  page,
+}) => {
+  await previewFixture(page);
+  const image = await page.locator('.preview-pick img').boundingBox();
+  if (!image) throw new Error('missing preview');
+  await page.mouse.click(image.x + image.width / 2, image.y + image.height / 2);
+  await expect
+    .poll(() => page.evaluate(() => Reflect.get(window, 'previewClicks')?.length))
+    .toBe(1);
+  const click = await page.evaluate(() => Reflect.get(window, 'previewClicks')[0]);
+  expect(click.x).toBeCloseTo(0.5, 2);
+  expect(click.y).toBeCloseTo(0.5, 2);
+  await page.getByRole('button', { name: '批注修改', exact: true }).click();
+  const changed = await page.locator('.preview-pick img').boundingBox();
+  if (!changed) throw new Error('missing annotation preview');
+  await page.mouse.click(changed.x + changed.width / 2, changed.y + changed.height / 2);
+  await expect(page.getByLabel('给选中元素的批注', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => Reflect.get(window, 'previewClicks').length)).toBe(1);
+});
+
+test('annotation hover switches targets, locks into the draft, supports preview scrolling and clears on cancel', async ({
   page,
 }) => {
   await previewFixture(page);
@@ -3012,6 +3039,7 @@ test('the last successful screenshot stays visibly stale and unpickable until a 
   await expect(page.locator('.preview-pick img')).toBeVisible();
   await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', 'reject'));
   await expect(page.getByText(/当前保留上次成功截图/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '操作作品预览', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '批注修改', exact: true })).toBeDisabled();
   await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', 'pending'));
   await page.getByRole('button', { name: '重试同步预览' }).click();

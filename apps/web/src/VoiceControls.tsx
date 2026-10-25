@@ -1002,7 +1002,8 @@ export function VoiceControls({
                 <summary>配置语音工作台角色</summary>
                 <p>
                   工作台通过设备端 MCP
-                  提供操作能力。可将下面的说明复制到云端智能体角色介绍，让页面修改要求交给 Codex。
+                  提供操作能力。可将下面的说明复制到云端智能体角色介绍，让页面修改和投票等操作主动交给
+                  Codex。
                 </p>
                 <ConfigurationTextArea
                   aria-label="语音工作台角色说明"

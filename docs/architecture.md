@@ -40,6 +40,12 @@ Codex 使用常驻 App Server 连接的线程/任务接口，默认 Manual（`wo
 
 所有写动作严格 Zod 校验。桌面任务/配置动作要求允许的本地 Origin；所有路由校验 Host/Origin，不开放 CORS。MCP 不向页面提供令牌，不能代用任意工具名或脚本。私有 IPC 只响应固定方法；preload 限于可信主框架，生成页面无 IPC 入口。
 
+操作台滚轮通过固定 `desktop.scroll` 私有 IPC 传到唯一作品页面，校验完整绑定、归一化坐标和有界滚动量。与预览操作串行，不重试、不导航或发布；被动大屏不能调用。见 [ADR 0018](adr/0018-operator-preview-scrolling.md)。
+
+普通预览的固定 `desktop.preview-click` 将经过绑定与 requestId 校验的归一化坐标转为唯一页面的原生左键点击，派发前去重；批注模式不调用该入口。生成页面仍无 preload 或服务权限。见 [ADR 0019](adr/0019-operator-preview-clicks.md)。
+
+语音投票复用 `workbench_submit` 和 Codex 共享预览操作。仅自有预览工具的空确认表单进入现有批准面板，按当前线程/轮次和动作校验后响应 `mcpServer/elicitation/request`；不自动批准或扩大权限。见 [ADR 0020](adr/0020-voice-voting-and-preview-approval.md)。
+
 ## 状态、兼容和基础模式
 
 SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_v2` / `workspace_turns_v2`，首次导入 v1 数据但不修改旧表。HTTP schemaVersion=1 保留，新字段有默认值，详见 ADR 0004。SSE 初始/重连发完整快照，15 秒心跳；客户端忽略旧快照。关闭服务终止流和它拥有的进程，不删除数据。

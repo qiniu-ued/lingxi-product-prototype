@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('lingxiDesktop', {
   action: (input: unknown) => ipcRenderer.invoke('desktop.action', input),
   snapshot: () => ipcRenderer.invoke('desktop.snapshot'),
+  scroll: (input: unknown) => ipcRenderer.invoke('desktop.scroll', input),
+  clickPreview: (input: unknown) => ipcRenderer.invoke('desktop.preview-click', input),
   pick: (input: unknown) => ipcRenderer.invoke('desktop.pick', input),
   inspect: (input: unknown) => ipcRenderer.invoke('desktop.inspect', input),
   scrollPreview: (input: unknown) => ipcRenderer.invoke('desktop.preview-scroll', input),

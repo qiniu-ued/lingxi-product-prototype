@@ -4,6 +4,8 @@ import { extname, resolve } from 'node:path';
 import {
   type PreviewAction,
   type PreviewBinding,
+  type PreviewPointer,
+  type PreviewWheel,
   type Project,
   previewActionSchema,
   previewHighlightSchema,
@@ -205,6 +207,65 @@ export class Preview {
     const selected = await this.inspect({ ...input, target: 'point' });
     if (!selected) throw new Error('no_element');
     return { binding: selected.binding, ref: selected.ref, description: selected.description };
+  }
+  scroll(input: PreviewWheel) {
+    const next = this.queue.then(() => {
+      if (
+        !this.view ||
+        !this.binding ||
+        JSON.stringify(input.binding) !== JSON.stringify(this.binding)
+      )
+        throw new Error('stale_preview');
+      const { width, height } = this.view.getBounds();
+      this.captureVersion++;
+      const point = {
+        x: Math.min(width - 1, Math.floor(input.x * width)),
+        y: Math.min(height - 1, Math.floor(input.y * height)),
+      };
+      // Native wheel input preserves nested overflow areas and browser scroll chaining.
+      this.view.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+      this.view.webContents.sendInputEvent({
+        type: 'mouseWheel',
+        ...point,
+        deltaX: -input.deltaX,
+        deltaY: -input.deltaY,
+      });
+    });
+    this.queue = next.catch(() => {});
+    return next;
+  }
+  click(input: PreviewPointer) {
+    const next = this.queue.then(async () => {
+      if (
+        !this.view ||
+        !this.binding ||
+        JSON.stringify(input.binding) !== JSON.stringify(this.binding)
+      )
+        throw new Error('stale_preview');
+      const serialized = JSON.stringify({ action: 'pointer-click', ...input });
+      const prior = this.requests.get(input.requestId);
+      if (prior) {
+        if (prior.input !== serialized) throw new Error('request_conflict');
+        return prior.result;
+      }
+      if (this.requests.size >= 1000) throw new Error('preview_action_limit');
+      // Reserve before native dispatch; an IPC retry must never cast another vote.
+      this.requests.set(input.requestId, { input: serialized, result: null });
+      this.captureVersion++;
+      const { width, height } = this.view.getBounds();
+      const point = {
+        x: Math.min(width - 1, Math.floor(input.x * width)),
+        y: Math.min(height - 1, Math.floor(input.y * height)),
+      };
+      const contents = this.view.webContents;
+      contents.sendInputEvent({ type: 'mouseMove', ...point });
+      contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+      contents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+      const result = await this.snapshot();
+      return result;
+    });
+    this.queue = next.catch(() => {});
+    return next;
   }
   private runtimeAllowed(url: URL) {
     if (!this.runtimeOrigin) return false;

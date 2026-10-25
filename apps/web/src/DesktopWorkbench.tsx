@@ -121,6 +121,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
   const bindingKey = state?.preview ? JSON.stringify(state.preview) : '';
   const {
     shot,
+    accept: acceptPreview,
     error: previewError,
     retrying: retryingPreview,
     retry: retryPreview,
@@ -795,9 +796,11 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   key={JSON.stringify(shot.binding)}
                   shot={shot}
                   active={picking && !previewError}
+                  disabled={!!previewError}
                   selection={selection}
                   onCancel={() => setPicking(false)}
                   onError={setError}
+                  onInteract={acceptPreview}
                   onPick={(value) => {
                     setSelection(value);
                     openComposer();

@@ -589,6 +589,28 @@ it('only reports submission after a real receipt and resets the next capture', a
   expect(f.voice.read().handoff).toMatchObject({ status: 'awaiting-tool', taskId: null });
   expect(f.voice.read().handoff?.captureId).not.toBe(id);
 });
+it('hands a spoken vote to Codex with its exact participant and destination only after the device tool call', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 880, method: 'initialize' } });
+  f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id: 881, method: 'tools/list' } });
+  await vi.waitFor(() => expect(f.voice.read().deviceToolsReady).toBe(true));
+  expect(JSON.stringify(f.frames)).toContain('参与者2投给广西北海');
+  await f.voice.command({ action: 'listen' });
+  const captureId = f.voice.read().captureId;
+  const text = '参与者2投给广西北海';
+  f.send({ type: 'stt', text });
+  await vi.waitFor(() => expect(f.voice.read().draft).toBe(text));
+  expect(f.start).not.toHaveBeenCalled();
+  const result = await f.call(882, 'workbench_submit', { text });
+  expect(result.isError).toBeUndefined();
+  expect(f.start.mock.calls[0]?.slice(0, 2)).toEqual([captureId, text]);
+  expect(f.voice.read().handoff).toMatchObject({ status: 'submitted', taskId: captureId });
+  expect(JSON.stringify(result)).toContain('不能提前声称已完成');
+  expect((await f.call(883, 'workbench_submit', { text: '参与者3投给三亚' })).isError).toBe(true);
+  expect(f.start).toHaveBeenCalledTimes(1);
+});
 it('rejects stale transcripts and projects missing on submission with specific public reasons', async () => {
   const f = await create();
   await f.voice.command({ action: 'connect' });

@@ -447,6 +447,23 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           reason: 'test approval',
         },
       });
+    else if (mode.startsWith('preview-approval'))
+      emit({
+        id: 92,
+        method: 'mcpServer/elicitation/request',
+        params: {
+          threadId: currentThread,
+          turnId: currentTurn,
+          serverName: mode === 'preview-approval-foreign' ? 'other_server' : 'lingxi_preview',
+          mode: 'form',
+          message: 'Allow the preview tool?',
+          requestedSchema: {
+            type: 'object',
+            properties: mode === 'preview-approval-fields' ? { secret: { type: 'string' } } : {},
+          },
+          _meta: { codex_approval_kind: 'mcp_tool_call', tool_params: { action: 'snapshot' } },
+        },
+      });
     else if (mode === 'question')
       emit({
         id: 70,
@@ -509,7 +526,13 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
         ? { data: [{ name: 'second_page_tools', pluginId: 'fixture-plugin' }], nextCursor: null }
         : { data: [], nextCursor: 'page2' },
     });
-  else if ((message.id === 71 || message.id === 72) && message.result) {
+  else if (message.id === 92 && (message.result || message.error)) {
+    emit({
+      method: 'serverRequest/resolved',
+      params: { threadId: currentThread, requestId: message.id },
+    });
+    complete();
+  } else if ((message.id === 71 || message.id === 72) && message.result) {
     emit({
       method: 'serverRequest/resolved',
       params: { threadId: currentThread, requestId: message.id },

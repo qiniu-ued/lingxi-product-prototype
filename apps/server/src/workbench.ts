@@ -8,6 +8,7 @@ import {
   modelDescriptorSchema,
   type PreviewSelection,
   type Project,
+  previewActionSchema,
   previewBindingSchema,
   projectSchema,
   type Task,
@@ -53,6 +54,17 @@ const questionsSchema = z.array(
       .optional(),
   }),
 );
+// Only the app-owned preview tool's empty confirmation form is supported.
+// Other servers, credential forms, URLs and arbitrary elicitation remain denied.
+const previewToolApprovalSchema = z.object({
+  serverName: z.literal('lingxi_preview'),
+  mode: z.literal('form'),
+  requestedSchema: z.strictObject({ type: z.literal('object'), properties: z.strictObject({}) }),
+  _meta: z.object({
+    codex_approval_kind: z.literal('mcp_tool_call'),
+    tool_params: previewActionSchema,
+  }),
+});
 
 export class Workbench {
   private store: WorkbenchStore;
@@ -456,6 +468,12 @@ export class Workbench {
       'For a simple static project use preview/index.html. For an existing framework project preserve its architecture. The user can launch its development server in the integrated terminal and bind a loopback URL in the UI.',
       'When the user supplies a reference prototype, match its typography, spacing, colors, imagery and flat surfaces. Do not invent gradients, image shadows, explanatory copy or extra navigation that are absent from the reference.',
       'Preserve browser localStorage. Report only tests and operations actually performed. Publishing a static preview is attempted after the turn.',
+      'Preview actions require a UUID requestId: copy nextRequestId from the last successful preview response for each new action. Reuse it only for retrying that same action; do not invent descriptive IDs.',
+      ...(readonly
+        ? []
+        : [
+            'For a voting or other product-operation request, snapshot the current lingxi_preview page first, match the requested participant and destination, operate its existing controls and verify the resulting count/status with a fresh snapshot. Do not edit source code or write localStorage to simulate votes. Never reset a poll or cast another vote for an already-voted participant. If a person cannot be matched to the visible participant labels, ask for their participant number instead of guessing. A submitted task is not proof that a vote was cast.',
+          ]),
     ].join('\n');
   }
   private async run(project: Project, task: Task) {
@@ -672,7 +690,12 @@ export class Workbench {
       this.state.task?.id !== input.taskId
     )
       throw new Error('approval_stale');
-    if (request.questions.length) {
+    if (request.method === 'mcpServer/elicitation/request') {
+      this.client.respond(request.id, {
+        action: input.decision,
+        content: input.decision === 'accept' ? {} : null,
+      });
+    } else if (request.questions.length) {
       if (input.decision === 'decline') {
         this.interrupt();
         return;
@@ -933,6 +956,39 @@ export class Workbench {
         this.taskUpdate({
           status: 'waiting',
           activity: '等待你批准操作',
+          approvals,
+          approval: approvals[0] ?? null,
+        });
+      } else if (message.method === 'mcpServer/elicitation/request') {
+        const approvedTool = previewToolApprovalSchema.safeParse(p);
+        if (!approvedTool.success || p.threadId !== task.threadId || p.turnId !== task.turnId) {
+          this.client?.reject(message.id);
+          return;
+        }
+        const action = approvedTool.data._meta.tool_params;
+        if (
+          action.action !== 'snapshot' &&
+          JSON.stringify(action.binding) !== JSON.stringify(this.state.preview)
+        ) {
+          this.client?.reject(message.id);
+          return;
+        }
+        this.requests.set(key, {
+          id: message.id,
+          taskId: task.id,
+          method: message.method,
+          questions: [],
+        });
+        const approval = {
+          id: key,
+          kind: 'command' as const,
+          title: action.action === 'snapshot' ? 'Codex 请求查看当前作品' : 'Codex 请求操作当前作品',
+          detail: `工作台共享预览工具 lingxi_preview / preview\n${JSON.stringify(action, null, 2).slice(0, 8000)}\n仅本次调用；不会自动批准后续操作。`,
+        };
+        const approvals = [...(task.approvals ?? []), approval];
+        this.taskUpdate({
+          status: 'waiting',
+          activity: '等待你批准预览工具调用',
           approvals,
           approval: approvals[0] ?? null,
         });

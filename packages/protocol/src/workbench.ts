@@ -11,6 +11,21 @@ export const previewBindingSchema = z.strictObject({
   url: z.string(),
   title: z.string(),
 });
+export const previewWheelSchema = z.strictObject({
+  binding: previewBindingSchema,
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  deltaX: z.number().min(-2000).max(2000),
+  deltaY: z.number().min(-2000).max(2000),
+});
+export type PreviewWheel = z.infer<typeof previewWheelSchema>;
+export const previewPointerSchema = z.strictObject({
+  binding: previewBindingSchema,
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  requestId: z.uuid(),
+});
+export type PreviewPointer = z.infer<typeof previewPointerSchema>;
 export const previewActionSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('snapshot') }),
   z.strictObject({
@@ -271,6 +286,8 @@ export type DesktopAction = z.infer<typeof desktopActionSchema>;
 export interface DesktopApi {
   action(input: DesktopAction): Promise<void>;
   snapshot(): Promise<PreviewSnapshot | null>;
+  scroll(input: PreviewWheel): Promise<void>;
+  clickPreview(input: PreviewPointer): Promise<PreviewSnapshot | null>;
   pick(input: { binding: PreviewBinding; x: number; y: number }): Promise<PreviewSelection>;
   inspect(input: PreviewInspect): Promise<PreviewHighlight | null>;
   scrollPreview(input: { binding: PreviewBinding; deltaY: number }): Promise<void>;

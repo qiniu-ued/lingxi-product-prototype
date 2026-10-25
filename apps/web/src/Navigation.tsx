@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, type ReactNode, useContext } from 'react';
 import { ConfigurationButton } from './ConfigurationControls';
 
 export type SettingsSection = 'codex' | 'lingxi' | 'wake';
@@ -11,10 +11,12 @@ export function SettingsLink({
   section,
   label = '设置',
   variant = 'ghost',
+  icon,
 }: {
   section?: SettingsSection;
   label?: string;
   variant?: 'ghost' | 'surface';
+  icon?: ReactNode;
 }) {
   const navigation = useContext(Navigation);
   return (
@@ -24,6 +26,7 @@ export function SettingsLink({
       variant={variant}
       onClick={() => navigation.settings(section)}
     >
+      {icon}
       {label}
     </ConfigurationButton>
   );

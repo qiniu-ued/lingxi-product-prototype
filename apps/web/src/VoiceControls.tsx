@@ -4,6 +4,15 @@ import {
   voiceStateSchema,
   type WorkbenchState,
 } from '@lingxi/protocol';
+import {
+  AudioLines,
+  BellOff,
+  BellRing,
+  ChevronDown,
+  PencilLine,
+  Settings,
+  Unplug,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
@@ -706,10 +715,14 @@ export function VoiceControls({
           <p>下载一次后离线检测，无需额外账号。在这里设置本次唤醒词，完成后回工作台开启检测。</p>
         )}
         {!configuration && (
-          <p>
-            唤醒词：{state?.wake.keyword ?? keyword}{' '}
-            <SettingsLink section="wake" label="修改唤醒词" />
-          </p>
+          <div className="voice-keyword-row">
+            <span>唤醒词：{state?.wake.keyword ?? keyword}</span>
+            <SettingsLink
+              section="wake"
+              label="修改唤醒词"
+              icon={<PencilLine aria-hidden="true" />}
+            />
+          </div>
         )}
         {!state?.wake.installed &&
           (configuration ? (
@@ -724,7 +737,11 @@ export function VoiceControls({
                 : '下载本地唤醒模型（约 33 MB）'}
             </ConfigurationButton>
           ) : (
-            <SettingsLink section="wake" label="配置语音唤醒" />
+            <SettingsLink
+              section="wake"
+              label="配置语音唤醒"
+              icon={<BellRing aria-hidden="true" />}
+            />
           ))}
         {configuration && (
           <>
@@ -766,17 +783,33 @@ export function VoiceControls({
           <p role="status">模型文件已下载。已有麦克风授权时，回到工作台自动监听唤醒词。</p>
         )}
         {!configuration && state && (!state.wakePreference.enabled || state.wakeAutoSuspended) && (
-          <ConfigurationButton type="button" onClick={() => void setAutoWake(true)}>
+          <ConfigurationButton
+            type="button"
+            variant="ghost"
+            className="voice-menu-action"
+            onClick={() => void setAutoWake(true)}
+          >
+            <BellRing aria-hidden="true" />
             {state.wakePreference.enabled ? '恢复自动唤醒' : '启用自动唤醒'}
           </ConfigurationButton>
         )}
         {state && ['armed', 'detected', 'loading'].includes(state.wake.status) && (
-          <ConfigurationButton type="button" onClick={() => void setAutoWake(false)}>
+          <ConfigurationButton
+            type="button"
+            variant={configuration ? 'surface' : 'ghost'}
+            className={configuration ? undefined : 'voice-menu-action'}
+            onClick={() => void setAutoWake(false)}
+          >
+            {!configuration && <BellOff aria-hidden="true" />}
             关闭语音唤醒
           </ConfigurationButton>
         )}
         <details>
-          <summary>音频来源与回声</summary>
+          <summary>
+            {!configuration && <AudioLines aria-hidden="true" />}
+            <span>音频来源与回声</span>
+            {!configuration && <ChevronDown aria-hidden="true" className="voice-menu-chevron" />}
+          </summary>
           <p>
             只请求系统默认音频输入，不采集屏幕或系统输出；如果默认输入是虚拟回环设备，也可能收到电脑播放的声音。
           </p>
@@ -1077,12 +1110,26 @@ export function VoiceControls({
                 </summary>
                 <div className="voice-menu-content">
                   {!['disconnected', 'failed'].includes(state.status) && (
-                    <ConfigurationButton type="button" onClick={() => void operate('disconnect')}>
-                      断开语音服务
-                    </ConfigurationButton>
+                    <section className="voice-menu-group" aria-label="语音连接">
+                      <h3>语音连接</h3>
+                      <ConfigurationButton
+                        type="button"
+                        variant="ghost"
+                        className="voice-menu-action"
+                        onClick={() => void operate('disconnect')}
+                      >
+                        <Unplug aria-hidden="true" /> 断开语音服务
+                      </ConfigurationButton>
+                    </section>
                   )}
                   {wakeSettings}
-                  <SettingsLink section="lingxi" label="语音设置" />
+                  <section className="voice-menu-group" aria-label="语音设置">
+                    <SettingsLink
+                      section="lingxi"
+                      label="语音设置"
+                      icon={<Settings aria-hidden="true" />}
+                    />
+                  </section>
                 </div>
               </details>
             )}

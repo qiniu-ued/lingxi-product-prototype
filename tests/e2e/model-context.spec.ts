@@ -494,7 +494,7 @@ async function selectExcerpt(page: Page, taskId: string, text: string, role = 'a
 }
 test('selecting an excerpt quotes only that text and preserves a written reply without starting a task', async ({
   page,
-}) => {
+}, testInfo) => {
   const source = turn('原始要求');
   source.messages = [
     { id: 'answer', text: '第一段介绍。\n这一段需要重新设计。\n最后一段保持不变。' },
@@ -505,8 +505,55 @@ test('selecting an excerpt quotes only that text and preserves a written reply w
     history: [source],
     task: source,
   });
+  await expect(page.getByText('选中文字引用', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await page.getByLabel('给 Codex 的本轮指令').fill('请解释这里的设计考虑');
+  await selectExcerpt(page, source.id, '这一段需要重新设计。');
+  const toolbar = page.getByRole('toolbar', { name: '所选对话文字操作' });
+  const bounds = await toolbar.boundingBox();
+  const conversation = await page.locator('.live-transcript').boundingBox();
+  const selection = await page.evaluate(() => {
+    const range = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+    return range ? { top: range.top, bottom: range.bottom } : null;
+  });
+  if (!bounds || !selection || !conversation) throw new Error('Selected text toolbar is missing');
+  expect(bounds.x).toBeGreaterThanOrEqual(conversation.x);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(conversation.x + conversation.width);
+  const sizing = await toolbar.evaluate((element) =>
+    [element, ...element.querySelectorAll('button')].map((node) => {
+      const style = getComputedStyle(node);
+      return {
+        name: node.getAttribute('aria-label') || node.textContent,
+        height: style.height,
+        minHeight: style.minHeight,
+        boxSizing: style.boxSizing,
+        padding: style.padding,
+        margin: style.margin,
+        bounds: node.getBoundingClientRect().height,
+      };
+    }),
+  );
+  expect(bounds.height, JSON.stringify(sizing)).toBeLessThanOrEqual(44);
+  for (const control of sizing.slice(1)) {
+    expect(control.boxSizing).toBe('border-box');
+    expect(control.bounds).toBe(30);
+  }
+  await testInfo.attach('history-toolbar-layout', {
+    body: JSON.stringify(sizing, null, 2),
+    contentType: 'application/json',
+  });
+  if (selection.top >= bounds.height + 16)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(selection.top - 4);
+  else expect(bounds.y).toBeGreaterThanOrEqual(selection.bottom + 4);
+  for (const action of ['引用到对话', '选段 Sidechat', '关闭选段操作'])
+    await expect(
+      toolbar.getByRole('button', { name: action, exact: true }).locator('svg'),
+    ).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('history-selection-compact.png') });
+  await page.getByRole('button', { name: '关闭选段操作', exact: true }).click();
+  await expect(toolbar).not.toBeVisible();
+  await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('请解释这里的设计考虑');
+  expect(fixture.commands).toHaveLength(0);
   await selectExcerpt(page, source.id, '这一段需要重新设计。');
   await page.getByRole('button', { name: '引用到对话', exact: true }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('请解释这里的设计考虑');
@@ -554,8 +601,15 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
     messages: [{ id: 'response', text: '讨论结论：保留这个按钮。' }],
   };
   await fixture.publish({ history: [answer], task: answer });
+  await page.setViewportSize({ width: 759, height: 767 });
   await page.getByRole('button', { name: '文字输入', exact: true }).click();
   await selectExcerpt(page, answer.id, '讨论结论：保留这个按钮。');
+  const toolbar = await page.getByRole('toolbar', { name: '所选对话文字操作' }).boundingBox();
+  const conversation = await page.locator('.live-transcript').boundingBox();
+  if (!toolbar || !conversation) throw new Error('Sidechat selection toolbar is missing');
+  expect(toolbar.height).toBeLessThanOrEqual(80);
+  expect(toolbar.x).toBeGreaterThanOrEqual(conversation.x);
+  expect(toolbar.x + toolbar.width).toBeLessThanOrEqual(conversation.x + conversation.width);
   await page.getByRole('button', { name: '引用到原对话' }).click();
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('主对话未发送的草稿');
   await expect(page.locator('.context-attachments')).toContainText('讨论结论：保留这个按钮。');
@@ -569,7 +623,7 @@ test('excerpt Sidechat stages a quote and keeps both conversation drafts when re
   await expect(page.getByLabel('给 Codex 的本轮指令')).toHaveValue('Sidechat 的问题草稿');
   await expect(page.locator('.context-attachments')).toContainText('请讨论这个按钮。');
 });
-test('usage summaries remain visible with auxiliary menus closed, including on the passive display', async ({
+test('turn usage stays in operator details and remains absent from the passive display', async ({
   page,
 }) => {
   const source = turn('查看统计');
@@ -582,12 +636,21 @@ test('usage summaries remain visible with auxiliary menus closed, including on t
   });
   for (const path of ['/', '/display']) {
     if (path !== '/') await page.goto(path);
-    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '32,000 Token used',
-    );
-    await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
-      '40.0% Cache hit.',
-    );
+    await expect(page.getByRole('region', { name: '本轮用量摘要' })).not.toBeVisible();
+    if (path === '/') {
+      await page.locator('.turn-tools > summary').click();
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+        '32,000 Token used',
+      );
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).toContainText(
+        '40.0% Cache hit.',
+      );
+      await page.locator('.turn-tools > summary').click();
+      await expect(page.getByRole('region', { name: '本轮用量摘要' })).not.toBeVisible();
+    } else {
+      await expect(page.locator('.turn-usage')).toHaveCount(0);
+      await expect(page.locator('.turn-tools')).toHaveCount(0);
+    }
     await expect(page.getByRole('table')).toHaveCount(0);
     await page.getByRole('button', { name: '上下文使用详情', exact: true }).hover();
     await expect(page.getByRole('tooltip')).toHaveText('Context Window: 32,000/128,000 used.');
@@ -662,6 +725,7 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
   const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
   const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
   const runningTurn = page.locator('article.conversation-turn').filter({ hasText: '运行中' });
+  await firstTurn.locator('.turn-tools > summary').click();
   await expect(firstTurn.getByRole('region', { name: '本轮用量摘要' })).toContainText(
     '32,000 Token used',
   );
@@ -686,6 +750,8 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
       },
     ],
   });
+  await secondTurn.locator('.turn-tools > summary').click();
+  await expect(secondTurn.getByRole('region', { name: '本轮用量摘要' })).toBeVisible();
   await expect(secondTurn).toContainText('48,000 Token used');
   await expect(secondTurn).toContainText('25.0% Cache hit.');
   await expect(firstTurn).toContainText('40.0% Cache hit.');
@@ -727,6 +793,8 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
   });
   const article = (text: string) =>
     page.locator('article.conversation-turn').filter({ hasText: text });
+  for (const prompt of ['缺少基线', '缺少缓存', '无输入', '已中断'])
+    await article(prompt).locator('.turn-tools > summary').click();
   await expect(article('缺少基线').locator('.turn-usage')).toHaveCount(0);
   await expect(article('缺少缓存').locator('.turn-usage')).toContainText('32,000 Token used');
   await expect(article('缺少缓存').locator('.turn-usage')).not.toContainText('Cache hit');
@@ -1907,9 +1975,11 @@ test('long conversation content and turn controls never create horizontal scroll
       await transcript.hover();
       await page.mouse.wheel(900, 0);
       await expect.poll(() => transcript.evaluate((element) => element.scrollLeft)).toBe(0);
-      await expect(transcript.locator('.voice-chat-controls')).toContainText(
-        '语音文字仅保留本次应用运行',
-      );
+      await expect(transcript).not.toContainText('语音文字仅保留本次应用运行');
+      const clear = page.getByRole('button', { name: '清除本次语音记录', exact: true });
+      await expect(clear).toHaveCount(screen === '/' ? 1 : 0);
+      if (screen === '/')
+        await expect(clear).toHaveAttribute('title', /语音记录仅保留.*本次应用运行/);
       const copy = page.getByRole('button', { name: '复制本轮回复', exact: true });
       const fork = page.getByRole('button', { name: 'Fork 对话', exact: true });
       await expect(copy).toHaveCount(screen === '/' ? 1 : 0);
@@ -2391,7 +2461,7 @@ test('auxiliary forms stay within their column, close predictably and preserve d
 
 test('footer groups actions beside text input and keeps healthy diagnostics compact', async ({
   page,
-}) => {
+}, testInfo) => {
   const f = await open(page, runtime());
   f.publishVoice({ configured: true, status: 'ready', subtitle: '上一轮已经结束的字幕' });
   const footer = page.locator('.live-footer');
@@ -2419,6 +2489,15 @@ test('footer groups actions beside text input and keeps healthy diagnostics comp
     const footerBefore = await footer.boundingBox();
     await openVoiceMenu(page);
     await expect(footer.getByRole('heading', { name: '语音唤醒', exact: true })).toBeVisible();
+    const menu = page.locator('.voice-menu-content');
+    await expect(menu.getByRole('region', { name: '语音连接', exact: true })).toBeVisible();
+    await expect(menu.getByRole('region', { name: '语音设置', exact: true })).toBeVisible();
+    for (const action of await menu.getByRole('button').all()) {
+      await expect(action).toHaveClass(/rt-variant-ghost/);
+      await expect(action.locator('svg')).toHaveCount(1);
+      await expect(action).toHaveCSS('border-width', '0px');
+    }
+    await page.screenshot({ path: testInfo.outputPath(`voice-more-menu-${width}.png`) });
     expect(await page.locator('.live-grid').boundingBox()).toEqual(panelBefore);
     expect(await footer.boundingBox()).toEqual(footerBefore);
     await page.getByText('音频来源与回声', { exact: true }).click();

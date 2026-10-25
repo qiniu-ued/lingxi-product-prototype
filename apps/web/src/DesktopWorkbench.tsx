@@ -8,7 +8,7 @@ import {
   type WorkbenchState,
   workbenchSchema,
 } from '@lingxi/protocol';
-import { ChevronDown, MessageSquare, Monitor, Plus, SlidersHorizontal } from 'lucide-react';
+import { ChevronDown, MessageSquare, Monitor, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { type FormEvent, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ConfigurationButton,
@@ -859,9 +859,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
               </svg>
               与丽塔同学对话
             </h2>
-            <span title="选中单条消息中的文字，可引用或开启只读 Sidechat">
-              {display ? '发言人' : '选中文字引用'}
-            </span>
+            {display && <span>发言人</span>}
           </div>
           <div
             className="live-transcript"
@@ -933,16 +931,16 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                       </div>
                     </div>
                   ))}
-                  <TurnUsage
-                    usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
-                    status={turn.status}
-                  />
                   <div className="turn-footer">
                     {!display && (
                       <details className="turn-tools">
                         <summary aria-label="本轮详情" title="本轮详情">
                           ⋯
                         </summary>
+                        <TurnUsage
+                          usage={state.turnUsage.find((usage) => usage.taskId === turn.id)}
+                          status={turn.status}
+                        />
                         {turn.attachments?.length ? (
                           <details>
                             <summary>本轮上下文 · {turn.attachments.length}</summary>
@@ -1093,14 +1091,16 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                 <VoiceTurns turns={projectlessVoice} />
               </details>
             )}
-            {!!voiceChat.turns.length && (
+            {!!voiceChat.turns.length && !display && (
               <div className="voice-chat-controls">
-                <small>语音文字仅保留本次应用运行，重连/刷新可继续查看，退出后清除。</small>
-                {!display && (
-                  <ConfigurationButton type="button" onClick={() => void voiceChat.clear()}>
-                    清除本次语音记录
-                  </ConfigurationButton>
-                )}
+                <ConfigurationButton
+                  type="button"
+                  variant="ghost"
+                  title="语音记录仅保留在本次应用运行中，重连或刷新可继续查看，退出后清除。"
+                  onClick={() => void voiceChat.clear()}
+                >
+                  <Trash2 aria-hidden="true" /> 清除本次语音记录
+                </ConfigurationButton>
               </div>
             )}
             {voiceChat.error && <small role="status">{voiceChat.error}</small>}

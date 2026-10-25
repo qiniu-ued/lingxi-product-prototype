@@ -457,9 +457,12 @@ try {
     .find((message) => message.method === 'turn/start');
   assert.equal(started.params.collaborationMode.mode, 'default');
   assert.equal(started.params.approvalsReviewer, 'user');
-  const summary = operator.getByRole('region', { name: '本轮用量摘要', exact: true }).first();
+  const summary = operator.locator('.turn-usage').first();
+  assert.equal(await summary.isVisible(), false, 'Turn usage stays inside collapsed details');
+  await operator.locator('.turn-tools > summary').first().click();
   await summary.waitFor();
   assert.ok((await summary.textContent()).includes('150,000 Token used'));
+  await operator.locator('.turn-tools > summary').first().click();
   assert.equal(
     await operator
       .getByRole('meter', { name: '当前上下文占用', exact: true })

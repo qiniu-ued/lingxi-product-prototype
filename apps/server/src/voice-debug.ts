@@ -4,8 +4,9 @@ const hidden = '[REDACTED]';
 const limited = '[TRUNCATED]';
 const sensitiveKey =
   /authorization|cookie|password|passwd|passphrase|secret|credential|token|key|pwd|deviceid|clientid|sessionid|macaddress|signature/;
-type Input = Omit<VoiceDebugEvent, 'sequence' | 'at' | 'payload' | 'truncated'> & {
+type Input = Omit<VoiceDebugEvent, 'sequence' | 'at' | 'payload' | 'truncated' | 'priority'> & {
   payload: unknown;
+  priority?: VoiceDebugEvent['priority'];
 };
 
 // Never a packet dump: credentials are removed before any length truncation.
@@ -110,13 +111,16 @@ export class VoiceDebug {
   private closed = false;
   private events: VoiceDebugEvent[] = [];
   private dropped = 0;
+  private droppedImportant = 0;
+  private truncated = 0;
   private sequence = 0;
   constructor(private secrets: () => readonly string[]) {}
   private prune() {
-    const before = this.events.length,
-      cutoff = Date.now() - 10 * 60_000;
+    const cutoff = Date.now() - 30 * 60_000;
+    const expired = this.events.filter((event) => Date.parse(event.at) < cutoff);
     this.events = this.events.filter((event) => Date.parse(event.at) >= cutoff);
-    this.dropped += before - this.events.length;
+    this.dropped += expired.length;
+    this.droppedImportant += expired.filter((event) => event.priority === 'important').length;
   }
   record(input: Input) {
     if (this.closed) return;
@@ -128,27 +132,41 @@ export class VoiceDebug {
     });
     if (!result.success) return;
     this.sequence++;
+    if (result.data.truncated) this.truncated++;
     this.prune();
     this.events.push(result.data);
-    if (this.events.length > 64) {
-      this.events.shift();
+    const priority = result.data.priority;
+    if (
+      this.events.filter((event) => event.priority === priority).length >
+      (priority === 'important' ? 96 : 160)
+    ) {
+      this.events.splice(
+        this.events.findIndex((event) => event.priority === priority),
+        1,
+      );
       this.dropped++;
+      if (priority === 'important') this.droppedImportant++;
     }
   }
   read() {
     this.prune();
     return {
       enabled: true as const,
-      capacity: 64 as const,
-      retentionMinutes: 10 as const,
+      capacity: 256 as const,
+      importantCapacity: 96 as const,
+      retentionMinutes: 30 as const,
       maxPayloadCharacters: 8192 as const,
       dropped: this.dropped,
+      droppedImportant: this.droppedImportant,
+      truncated: this.truncated,
       events: this.events.map((event) => ({ ...event })),
     };
   }
   clear() {
     this.events = [];
     this.dropped = 0;
+    this.droppedImportant = 0;
+    this.truncated = 0;
   }
   close() {
     this.closed = true;

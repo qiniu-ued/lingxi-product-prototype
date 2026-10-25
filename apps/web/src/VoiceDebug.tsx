@@ -65,9 +65,10 @@ export function VoiceDebug() {
         `导出时间: ${new Date().toISOString()} (UTC); 本地时区: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`,
         `保留: 应用运行时持续记录，${state.capacity} 条 / ${state.retentionMinutes} 分钟，每条最多 ${state.maxPayloadCharacters} 字符；退出清空。`,
         `Enabled: ${state.enabled}; dropped: ${state.dropped}; events: ${state.events.length}`,
+        `重要事件保留区: ${state.importantCapacity} 条；重要事件已丢弃: ${state.droppedImportant}；累计截断: ${state.truncated} 条（含已轮转记录）。`,
         ...state.events.map(
           (event) =>
-            `#${event.sequence} ${event.at} ${event.direction}/${event.event} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} truncated=${event.truncated}\n${event.payload}`,
+            `#${event.sequence} ${event.at} ${event.direction}/${event.event} priority=${event.priority} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} truncated=${event.truncated}\n${event.payload}`,
         ),
       ].join('\n')
     : '';
@@ -78,13 +79,16 @@ export function VoiceDebug() {
         应用运行时自动记录转写原文、助手文字、工具参数与返回结构，包含对话和项目内容；凭据始终遮盖，不录音、不落盘、不上传。分享前请预览检查。
       </p>
       <p>
-        仅本次运行有效：最多 64 条 / 10 分钟，每条 8192
-        字符；超限注明截断。退出清空；清空或关闭面板不会停止记录，不能补回旧版本省略的原文。
+        仅本次运行有效：最多 256 条 / 30 分钟，其中重要事件保留 96 条，普通事件 160 条，每条 8192
+        字符；超限注明截断和轮转，重要区超限也会丢弃旧记录。退出清空；清空或关闭面板不会停止记录，不能补回已丢失内容。
       </p>
       {state && (
         <>
           <p>
             详细调试持续记录 · 保留 {state.events.length} 条 · 已轮转或过期 {state.dropped} 条
+          </p>
+          <p>
+            重要事件已丢弃 {state.droppedImportant} 条 · 本次累计截断 {state.truncated} 条
           </p>
           {state.events.some((event) => event.truncated) && (
             <p>部分 payload 已截断，标记 truncated=true。</p>

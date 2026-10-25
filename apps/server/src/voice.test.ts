@@ -1093,7 +1093,8 @@ it('associates a submit receipt and runner outcome, and retains session text thr
   const task = {
     id,
     projectId,
-    threadId: randomUUID(),
+    conversationId: randomUUID(),
+    threadId: 'codex-thread-external',
     status: 'starting',
     prompt: '只读检查',
   } as Task;
@@ -1107,6 +1108,7 @@ it('associates a submit receipt and runner outcome, and retains session text thr
     expect.objectContaining({ kind: 'task-status', taskId: id, status: 'completed' }),
   );
   expect(f.voice.readConversation().turns[0]).toMatchObject({
+    conversationId: task.conversationId,
     taskStatus: 'completed',
     handoff: { taskId: id },
   });
@@ -1261,4 +1263,161 @@ it('defaults a new binding on, preserves a stored false during rebinding, and en
     true,
   );
   expect(off.start).not.toHaveBeenCalled();
+});
+
+it('records goodbye before an abnormal close as remote session ending, keeps farewell playback, and retries without replay', async () => {
+  const f = await create(
+    'pcm',
+    true,
+    undefined,
+    undefined,
+    undefined,
+    'granted',
+    new WakePreferences(null),
+  );
+  await f.voice.startAutoConnection();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  f.send({ type: 'goodbye' });
+  await vi.waitFor(() => expect(f.voice.read().remoteSessionEnding).toBe(true));
+  await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_session_ending');
+  f.voice.frame(Buffer.alloc(640, 10).toString('base64'));
+  expect(f.audio).toHaveLength(0);
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '后会有期' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() =>
+    expect(
+      f.voice
+        .readConversation()
+        .turns.some((turn) => turn.messages.some((message) => message.text === '后会有期')),
+    ).toBe(true),
+  );
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-ending',
+      reason: 'remote_goodbye',
+      code: 'remote_session_end',
+    }),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+    false,
+  );
+  expect(f.connections()).toBe(1);
+  vi.useFakeTimers();
+  f.drop();
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.diagnostics().events).toContainEqual(
+    expect.objectContaining({
+      kind: 'service-failed',
+      closeCode: 1006,
+      reason: 'transport_close',
+      code: 'remote_session_end',
+      remoteGoodbye: true,
+      explicitClose: false,
+    }),
+  );
+  await vi.advanceTimersByTimeAsync(1000);
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  expect(f.voice.read()).toMatchObject({
+    remoteSessionEnding: false,
+    captureId: null,
+    conversationActive: false,
+  });
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('does not accuse a local status broadcast of missing a development tool after capture was closed', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  await f.voice.command({ action: 'disconnect' });
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'speak', text: '已连接' });
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '已连接' });
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() =>
+    expect(
+      f.voice
+        .readConversation()
+        .turns.some(
+          (turn) =>
+            turn.captureId === null && turn.messages.some((message) => message.text === '已连接'),
+        ),
+    ).toBe(true),
+  );
+  expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+    false,
+  );
+  expect(f.start).not.toHaveBeenCalled();
+});
+
+it('preserves actual tool request and result payloads through noisy tool-list handshakes', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.call(1900, 'workbench_status');
+  for (let id = 2000; id < 2120; id++)
+    f.send({ type: 'mcp', payload: { jsonrpc: '2.0', id, method: 'tools/list' } });
+  await vi.waitFor(() =>
+    expect(
+      f.frames.some((value) => (value as { payload?: { id?: number } }).payload?.id === 2119),
+    ).toBe(true),
+  );
+  const log = f.voice.readDebug();
+  expect(log.dropped).toBeGreaterThan(0);
+  expect(log.droppedImportant).toBe(0);
+  expect(log.events).toContainEqual(
+    expect.objectContaining({
+      direction: 'inbound',
+      priority: 'important',
+      payload: expect.stringContaining('workbench_status'),
+    }),
+  );
+  expect(log.events).toContainEqual(
+    expect.objectContaining({
+      direction: 'outbound',
+      priority: 'important',
+      payload: expect.stringContaining('voiceSubmitEnabled'),
+    }),
+  );
+  expect(log.events.length).toBeLessThanOrEqual(256);
+});
+
+it('retains a linked task failure reason after voice disconnect without inventing model execution', async () => {
+  const f = await create();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'listen' });
+  const task = {
+    id: f.voice.read().captureId,
+    projectId: f.voice.diagnostics().events.find((event) => event.kind === 'capture-started')
+      ?.projectId,
+    conversationId: randomUUID(),
+    threadId: 'codex-thread',
+    turnId: null,
+    status: 'starting',
+    error: null,
+  } as Task;
+  f.start.mockReturnValueOnce(task);
+  await f.call(2190, 'workbench_submit', { text: '检查入口' });
+  await f.voice.command({ action: 'disconnect' });
+  f.state({
+    task: {
+      ...task,
+      status: 'failed',
+      error: 'Codex 未确认所选执行设置，未提交模型任务。',
+      activity: '准备失败',
+    },
+  });
+  const failure = f.voice
+    .readDebug()
+    .events.find((event) => event.taskId === task.id && event.payload.includes('task-failure'));
+  expect(failure?.priority).toBe('important');
+  expect(failure?.payload).toContain('未提交模型任务');
+  expect(failure?.payload).toContain('"turnStarted": false');
+  expect(JSON.stringify(f.voice.diagnostics())).not.toContain('未提交模型任务');
 });

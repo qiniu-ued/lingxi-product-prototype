@@ -410,7 +410,7 @@ it('exposes always-on bounded voice metadata and session chat with guarded clear
   expect(result.headers['cache-control']).toBe('no-store');
   const headers = { origin: 'http://localhost:80' };
   for (const [url, capacity] of [
-    ['/api/voice/debug', 64],
+    ['/api/voice/debug', 256],
     ['/api/voice/diagnostics', 128],
   ] as const) {
     expect((await app.inject(url)).json()).toMatchObject({ enabled: true, capacity, events: [] });

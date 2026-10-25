@@ -292,9 +292,12 @@ async function open(
       json: {
         build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
         enabled: true,
-        capacity: 64,
-        retentionMinutes: 10,
+        capacity: 256,
+        retentionMinutes: 30,
         maxPayloadCharacters: 8192,
+        importantCapacity: 96,
+        droppedImportant: 0,
+        truncated: 0,
         dropped: 0,
         events: [],
       },
@@ -1745,13 +1748,17 @@ test('detailed voice logs always record, copy separately with a warning, and con
       result: { status: 'accepted' },
     }),
     truncated: true,
+    priority: 'important' as const,
   };
   let debug: VoiceDebugState = {
     build: { version: 'fixture', commit: null, dirty: false, builtAt: null },
     enabled: true,
-    capacity: 64,
-    retentionMinutes: 10,
+    capacity: 256,
+    retentionMinutes: 30,
     maxPayloadCharacters: 8192,
+    importantCapacity: 96,
+    droppedImportant: 0,
+    truncated: 1,
     dropped: 0,
     events: [entry],
   };
@@ -1760,7 +1767,7 @@ test('detailed voice logs always record, copy separately with a warning, and con
     if (route.request().method() === 'POST') {
       const action = route.request().postDataJSON();
       actions.push(action);
-      debug = { ...debug, events: [] };
+      debug = { ...debug, events: [], dropped: 0, droppedImportant: 0, truncated: 0 };
     }
     return route.fulfill({ json: debug });
   });
@@ -1770,6 +1777,8 @@ test('detailed voice logs always record, copy separately with a warning, and con
   await expect(panel.getByRole('checkbox')).toHaveCount(0);
   await expect(panel).toContainText('应用运行时自动记录');
   await expect(panel).toContainText('部分 payload 已截断');
+  await expect(panel).toContainText('本次累计截断 1 条');
+  await expect(panel).toContainText('重要事件保留 96 条');
   expect(actions).toHaveLength(0);
   await panel.getByText('预览详细日志（含对话内容）', { exact: true }).click();
   await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).toHaveValue(
@@ -1793,6 +1802,7 @@ test('detailed voice logs always record, copy separately with a warning, and con
   await expect(panel.getByRole('status')).toHaveCount(0);
   await expect(panel).toContainText('无法自动复制详细日志');
   await panel.getByRole('button', { name: '清空详细调试' }).click();
+  await expect(panel).toContainText('本次累计截断 0 条');
   await expect(panel.getByLabel('详细调试日志预览（含对话内容）')).not.toHaveValue(
     /PRIVATE_DIALOG_CONTENT/,
   );
@@ -1853,6 +1863,34 @@ test('settings show all three defaults on while preserving saved off choices wit
   await expect(execution).not.toBeChecked();
   expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
   expect(f.commands).toHaveLength(0);
+});
+
+test('goodbye is shown as a remote session ending before reconnect, without opening another capture', async ({
+  page,
+}) => {
+  const f = await open(page, runtime());
+  f.publishVoice({ configured: true, status: 'ready', remoteSessionEnding: true });
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText(
+    '远端语音会话正在结束',
+  );
+  await expect(page.getByRole('button', { name: '开始收音', exact: true })).toBeDisabled();
+  await page.goto('/display');
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText(
+    '远端语音会话正在结束',
+  );
+  await expect(page.locator('.live-mic-state strong')).toHaveText(
+    '远端会话正在结束 · 等待服务重连',
+  );
+  f.publishVoice({
+    configured: true,
+    status: 'ready',
+    remoteSessionEnding: false,
+    captureId: null,
+    conversationActive: false,
+  });
+  await expect(page.getByRole('status', { name: '语音服务连接状态' })).toHaveText('服务已连接');
+  expect(f.commands).toHaveLength(0);
+  expect(await page.evaluate(() => Reflect.get(window, 'permissionRequests') ?? 0)).toBe(0);
 });
 
 test('projectless voice messages stream, settle once and survive a page refresh without becoming tasks', async ({

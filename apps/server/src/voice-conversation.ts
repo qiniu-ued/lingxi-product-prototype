@@ -113,7 +113,7 @@ export class VoiceConversation {
   submitted(captureId: string, task: Task) {
     const turn = this.turns.find((turn) => turn.captureId === captureId);
     if (!turn || turn.projectId !== task.projectId) return;
-    turn.conversationId = task.threadId ?? turn.conversationId;
+    turn.conversationId = task.conversationId ?? turn.conversationId;
     turn.taskStatus = task.status;
     this.change();
   }

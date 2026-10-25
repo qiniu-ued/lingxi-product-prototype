@@ -84,17 +84,34 @@ it('records from startup, rotates without timers, continues after clear and stop
   expect(journal.read().enabled).toBe(true);
   expect(JSON.stringify(journal.read())).toContain('before enabled');
   journal.clear();
-  for (let index = 0; index < 70; index++)
+  journal.record({
+    ...base,
+    priority: 'important',
+    payload: { tool: 'workbench_submit', result: 'accepted' },
+  });
+  for (let index = 0; index < 500; index++)
     journal.record({ ...base, payload: { text: `turn ${index}`, token: 'PRIVATE_TOKEN' } });
-  expect(journal.read()).toMatchObject({ capacity: 64, dropped: 6 });
-  expect(journal.read().events).toHaveLength(64);
+  expect(journal.read()).toMatchObject({
+    capacity: 256,
+    importantCapacity: 96,
+    dropped: 340,
+    droppedImportant: 0,
+  });
+  expect(journal.read().events).toHaveLength(161);
+  expect(JSON.stringify(journal.read())).toContain('workbench_submit');
+  for (let index = 0; index < 100; index++)
+    journal.record({ ...base, priority: 'important', payload: { failure: index } });
+  expect(journal.read()).toMatchObject({ dropped: 345, droppedImportant: 5 });
+  expect(journal.read().events).toHaveLength(256);
   expect(JSON.stringify(journal.read())).not.toMatch(/PRIVATE_TOKEN|before enabled/);
   const copy = journal.read();
   copy.events[0]!.payload = 'mutated';
   expect(journal.read().events[0]?.payload).not.toBe('mutated');
-  vi.advanceTimersByTime(11 * 60_000);
+  vi.advanceTimersByTime(31 * 60_000);
   expect(journal.read().events).toEqual([]);
   expect(vi.getTimerCount()).toBe(0);
+  journal.record({ ...base, payload: { text: 'x'.repeat(10000) } });
+  expect(journal.read().truncated).toBe(1);
   journal.record({ ...base, payload: { text: 'clear me' } });
   journal.clear();
   expect(journal.read().events).toEqual([]);

@@ -11,6 +11,7 @@ const labels: Record<VoiceDiagnosticEvent['kind'], string> = {
   'service-ready': '语音握手成功',
   'service-disconnected': '服务断开',
   'service-failed': '连接失败',
+  'service-ending': '远端通知结束语音会话',
   'service-retry-scheduled': '已安排服务重连',
   'service-retry-paused': '连续重连已暂停',
   'service-stop-requested': '收到关闭服务操作',
@@ -76,6 +77,7 @@ const connectionReasons: Record<string, string> = {
   shutdown: '应用退出',
   audio_frames_lost: '连续 4 秒未收到音频帧',
   voice_paused: '操作台暂停收音',
+  remote_goodbye: '收到远端 goodbye，尚不等于传输已断开',
 };
 const reasons: Record<string, string> = {
   voice_submit_disabled: '未开启语音执行',
@@ -101,6 +103,7 @@ const reasons: Record<string, string> = {
   audio_unavailable: '音频不可用',
   no_tool_call: '未调用提交工具',
   tts_out_of_order: '播报片段顺序无效，已忽略',
+  remote_session_end: '远端语音会话结束',
 };
 export function VoiceDiagnostics() {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -251,7 +254,7 @@ export function VoiceDiagnostics() {
                     `Enabled: ${state.enabled}; dropped: ${state.dropped}; events: ${state.events.length}`,
                     ...state.events.map(
                       (event) =>
-                        `#${event.sequence} ${event.at} ${event.kind} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} tool=${event.tool ?? '-'} code=${event.code ?? '-'} status=${event.status ?? '-'} characters=${event.characters ?? '-'} source=${event.source ?? '-'} reason=${event.reason ?? '-'} closeCode=${event.closeCode ?? '-'} explicitClose=${event.explicitClose ?? '-'} retryAttempt=${event.retryAttempt ?? '-'} retryDelayMs=${event.retryDelayMs ?? '-'}`,
+                        `#${event.sequence} ${event.at} ${event.kind} session=${event.sessionId ?? '-'} capture=${event.captureId ?? '-'} project=${event.projectId ?? '-'} conversation=${event.conversationId ?? '-'} task=${event.taskId ?? '-'} tool=${event.tool ?? '-'} code=${event.code ?? '-'} status=${event.status ?? '-'} characters=${event.characters ?? '-'} source=${event.source ?? '-'} reason=${event.reason ?? '-'} closeCode=${event.closeCode ?? '-'} explicitClose=${event.explicitClose ?? '-'} retryAttempt=${event.retryAttempt ?? '-'} retryDelayMs=${event.retryDelayMs ?? '-'} remoteGoodbye=${event.remoteGoodbye ?? '-'}`,
                     ),
                   ].join('\n');
                   try {
@@ -287,6 +290,7 @@ export function VoiceDiagnostics() {
                     {event.source && <span> · 来源：{origins[event.source]}</span>}
                     {event.reason && <span> · {connectionReasons[event.reason]}</span>}
                     {event.closeCode !== undefined && <span> · WebSocket {event.closeCode}</span>}
+                    {event.remoteGoodbye && <span> · 此前已收到远端 goodbye</span>}
                     {event.explicitClose !== undefined && (
                       <span> · {event.explicitClose ? '关闭操作' : '非关闭操作'}</span>
                     )}

@@ -38,6 +38,7 @@ export const voiceServiceConnected = (state: VoiceState | null) =>
   !!state && ['ready', 'listening', 'processing', 'speaking'].includes(state.status);
 export function voiceConnectionLabel(state: VoiceState | null) {
   if (!state) return '服务状态同步中';
+  if (state.remoteSessionEnding) return '远端语音会话正在结束';
   if (state.status === 'connecting') return '服务连接中';
   if (state.status === 'failed')
     return state.connection.nextRetryAt
@@ -55,6 +56,8 @@ export function voiceConnectionLabel(state: VoiceState | null) {
 }
 export function voicePresentation(state: VoiceState | null, task: WorkbenchState['task']) {
   if (!state) return { label: '正在读取语音状态', submitted: false };
+  if (state.remoteSessionEnding)
+    return { label: '远端会话正在结束 · 等待服务重连', submitted: false };
   if (state.conversationActive)
     return {
       label:
@@ -297,6 +300,7 @@ export function VoiceControls({
       state?.wake.status === 'detected' &&
       state.wake.detectionId &&
       wakeActive.current &&
+      !state.remoteSessionEnding &&
       state.wake.detectionId !== lastWake.current &&
       !inOperation.current
     ) {
@@ -327,6 +331,7 @@ export function VoiceControls({
     if (
       pendingWake.current &&
       state?.status === 'ready' &&
+      !state.remoteSessionEnding &&
       wakeActive.current &&
       !inOperation.current
     ) {
@@ -336,6 +341,7 @@ export function VoiceControls({
     if (
       state?.conversationActive &&
       state.status === 'ready' &&
+      !state.remoteSessionEnding &&
       state.speechId &&
       state.speechId !== lastSpeech.current &&
       recording.current &&
@@ -567,6 +573,7 @@ export function VoiceControls({
       explicitlyOff.current ||
       !state?.wakePreference.enabled ||
       state.wakeAutoSuspended ||
+      state.remoteSessionEnding ||
       !state.wake.installed ||
       ['armed', 'detected', 'loading', 'failed'].includes(state.wake.status) ||
       state.conversationActive ||
@@ -601,6 +608,7 @@ export function VoiceControls({
     configuration,
     state?.wakePreference.enabled,
     state?.wakeAutoSuspended,
+    state?.remoteSessionEnding,
     state?.wake.installed,
     state?.wake.status,
     state?.conversationActive,
@@ -897,7 +905,7 @@ export function VoiceControls({
             {state && !state.conversationActive && state.status === 'ready' && (
               <button
                 type="button"
-                disabled={operating || !!listenUnavailable}
+                disabled={operating || !!listenUnavailable || state.remoteSessionEnding}
                 title={listenUnavailable}
                 onClick={() => void operate('start-session')}
               >
@@ -929,7 +937,11 @@ export function VoiceControls({
             {configuration && (
               <button
                 type="button"
-                disabled={!state || !['ready', 'speaking'].includes(state.status)}
+                disabled={
+                  !state ||
+                  state.remoteSessionEnding ||
+                  !['ready', 'speaking'].includes(state.status)
+                }
                 onClick={() => void operate('speak', '丽塔同学已连接，现在可以开始共创。')}
               >
                 测试播报

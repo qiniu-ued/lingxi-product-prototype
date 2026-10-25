@@ -39,6 +39,7 @@ export const voiceStateSchema = z.strictObject({
     'failed',
   ]),
   conversationActive: z.boolean().default(false),
+  remoteSessionEnding: z.boolean().default(false),
   speechId: z.uuid().nullable().default(null),
   draft: z.string(),
   captureId: z.uuid().nullable(),
@@ -119,6 +120,7 @@ export const voiceDiagnosticKindSchema = z.enum([
   'service-ready',
   'service-disconnected',
   'service-failed',
+  'service-ending',
   'service-retry-scheduled',
   'service-retry-paused',
   'service-stop-requested',
@@ -164,6 +166,7 @@ export const voiceDiagnosticCodeSchema = z.enum([
   'audio_unavailable',
   'no_tool_call',
   'tts_out_of_order',
+  'remote_session_end',
 ]);
 export const voiceDiagnosticToolSchema = z.enum([
   'workbench_status',
@@ -201,6 +204,7 @@ export const voiceDiagnosticReasonSchema = z.enum([
   'shutdown',
   'audio_frames_lost',
   'voice_paused',
+  'remote_goodbye',
 ]);
 export const voiceDiagnosticEventSchema = z.strictObject({
   sequence: z.number().int().nonnegative(),
@@ -219,6 +223,7 @@ export const voiceDiagnosticEventSchema = z.strictObject({
   explicitClose: z.boolean().optional(),
   retryAttempt: z.number().int().min(0).max(6).optional(),
   retryDelayMs: z.number().int().min(1000).max(30000).optional(),
+  remoteGoodbye: z.boolean().optional(),
   status: z
     .enum([
       'queued',
@@ -267,6 +272,7 @@ export const voiceDiagnosticsSchema = z.strictObject({
     autoReconnectEnabled: z.boolean().default(false),
     retryAttempt: z.number().int().min(0).max(6).default(0),
     retryExhausted: z.boolean().default(false),
+    remoteSessionEnding: z.boolean().default(false),
   }),
 });
 export type VoiceDiagnostics = z.infer<typeof voiceDiagnosticsSchema>;
@@ -284,16 +290,20 @@ export const voiceDebugEventSchema = z.strictObject({
   taskId: z.uuid().nullable(),
   payload: z.string().max(8192),
   truncated: z.boolean(),
+  priority: z.enum(['important', 'regular']).default('regular'),
 });
 export type VoiceDebugEvent = z.infer<typeof voiceDebugEventSchema>;
 export const voiceDebugSchema = z.strictObject({
   build: voiceBuildSchema,
   enabled: z.literal(true),
-  capacity: z.literal(64),
-  retentionMinutes: z.literal(10),
+  capacity: z.literal(256),
+  importantCapacity: z.literal(96).default(96),
+  retentionMinutes: z.literal(30),
   maxPayloadCharacters: z.literal(8192),
   dropped: z.number().int().nonnegative(),
-  events: z.array(voiceDebugEventSchema).max(64),
+  droppedImportant: z.number().int().nonnegative().default(0),
+  truncated: z.number().int().nonnegative().default(0),
+  events: z.array(voiceDebugEventSchema).max(256),
 });
 export type VoiceDebugState = z.infer<typeof voiceDebugSchema>;
 

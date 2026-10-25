@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Task } from '@lingxi/protocol';
+import { type Task, voiceConversationSchema } from '@lingxi/protocol';
 import { expect, it } from 'vitest';
 import { VoiceConversation } from './voice-conversation.js';
 
@@ -57,7 +57,8 @@ it('associates only accepted task receipts, updates runner outcomes and does not
   const task = {
     id: capture,
     projectId: context.projectId,
-    threadId: thread,
+    conversationId: thread,
+    threadId: 'codex-thread-external',
     status: 'starting',
   } as Task;
   chat.submitted(capture, task);
@@ -68,6 +69,7 @@ it('associates only accepted task receipts, updates runner outcomes and does not
     taskStatus: 'failed',
     handoff: { taskId: capture, status: 'submitted' },
   });
+  expect(() => voiceConversationSchema.parse(chat.read())).not.toThrow();
   const revision = chat.read().revision;
   chat.task({ ...task, status: 'failed' });
   chat.handoff({ captureId: capture, status: 'submitted', taskId: capture, message: '已提交' });

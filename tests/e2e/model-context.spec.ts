@@ -87,7 +87,14 @@ async function open(
     ({ snapshot }) => {
       Object.defineProperty(window, 'lingxiDesktop', {
         value: {
-          snapshot: async () => Reflect.get(window, 'testPreviewSnapshot') ?? null,
+          snapshot: async () => {
+            Reflect.set(window, 'snapshotCalls', (Reflect.get(window, 'snapshotCalls') ?? 0) + 1);
+            const fault = Reflect.get(window, 'testSnapshotFault');
+            if (fault === 'reject')
+              throw new Error('Current display surface not available for capture');
+            if (fault === 'pending') return new Promise(() => {});
+            return Reflect.get(window, 'testPreviewSnapshot') ?? null;
+          },
           inspect: async (input: unknown) => Reflect.get(window, 'testPreviewInspect')(input),
           scrollPreview: async (input: unknown) => {
             Reflect.set(window, 'previewScroll', input);
@@ -857,9 +864,9 @@ test('each completed turn shows its own tokens and input cache hit rate, includi
     task: running,
     turnUsage: [{ taskId: first.id, status: 'reported', tokens: usage.last, updatedAt: null }],
   });
-  const firstTurn = page.locator('article.conversation-turn').filter({ hasText: '第一轮' });
-  const secondTurn = page.locator('article.conversation-turn').filter({ hasText: '第二轮' });
-  const runningTurn = page.locator('article.conversation-turn').filter({ hasText: '运行中' });
+  const firstTurn = page.locator(`[data-task-footer="${first.id}"]`);
+  const secondTurn = page.locator(`[data-task-footer="${second.id}"]`);
+  const runningTurn = page.locator(`[data-task-footer="${running.id}"]`);
   await firstTurn.locator('.turn-tools > summary').click();
   await expect(firstTurn.getByRole('region', { name: '本轮用量摘要' })).toContainText(
     '32,000 Token used',
@@ -926,8 +933,11 @@ test('missing baselines, cache counters and zero input do not invent cache hits'
       { taskId: partial.id, status: 'reported', tokens: usage.last, updatedAt: null },
     ],
   });
-  const article = (text: string) =>
-    page.locator('article.conversation-turn').filter({ hasText: text });
+  const article = (text: string) => {
+    const task = [missing, noCache, zero, partial].find((task) => task.prompt === text);
+    if (!task) throw new Error('missing fixture task');
+    return page.locator(`[data-task-footer="${task.id}"]`);
+  };
   for (const prompt of ['缺少基线', '缺少缓存', '无输入', '已中断'])
     await article(prompt).locator('.turn-tools > summary').click();
   await expect(article('缺少基线').locator('.turn-usage')).toHaveCount(0);
@@ -2055,7 +2065,16 @@ test('long conversation content and turn controls never create horizontal scroll
   );
   for (const screen of ['/', '/display']) {
     await page.goto(screen);
-    await expect(page.locator('.voice-chat-turn')).toHaveCount(2);
+    await expect
+      .poll(() =>
+        page
+          .locator('[data-voice-turn]')
+          .evaluateAll(
+            (elements) =>
+              new Set(elements.map((element) => element.getAttribute('data-voice-turn'))).size,
+          ),
+      )
+      .toBe(2);
     await page.locator('.projectless-voice > summary').click();
     for (const width of [1440, 998, 759]) {
       await page.setViewportSize({ width, height: 767 });
@@ -2810,4 +2829,198 @@ test('long voice captions and errors scroll without displacing the footer action
       Math.abs(keyboard.y - afterFooter.y - (beforeAction.y - beforeFooter.y)),
     ).toBeLessThanOrEqual(2);
   }
+});
+
+test('voice-only turns stay chronologically before and after Codex tasks on both screens', async ({
+  page,
+}) => {
+  const task = turn('稍后提交的文字任务');
+  task.createdAt = '2026-10-25T10:02:00.000Z';
+  task.messages = [{ id: 'reply', text: 'Codex 的任务回复' }];
+  const voice = (text: string, at: string) => ({
+    id: randomUUID(),
+    sessionId: randomUUID(),
+    captureId: randomUUID(),
+    projectId,
+    conversationId,
+    at,
+    handoff: null,
+    taskStatus: null,
+    messages: [{ id: randomUUID(), role: 'user', state: 'final', text, at }],
+  });
+  const chat = {
+    revision: 1,
+    turns: [
+      voice('之前的语音讨论', '2026-10-25T10:01:00.000Z'),
+      voice('之后的语音讨论', '2026-10-25T10:03:00.000Z'),
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) => route.fulfill({ json: chat }));
+  await open(page, runtime(), false, {
+    task,
+    history: [task],
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+  });
+  const expected = ['之前的语音讨论', task.prompt, 'Codex 的任务回复', '之后的语音讨论'];
+  await expect(page.locator('.live-transcript .live-bubble')).toHaveText(expected);
+  await page.goto('/display');
+  await expect(page.locator('.live-transcript .live-bubble')).toHaveText(expected);
+});
+
+for (const fault of ['reject', 'pending']) {
+  test(`preview ${fault} shows a recoverable error instead of endless synchronization`, async ({
+    page,
+  }) => {
+    await page.addInitScript((fault) => Reflect.set(window, 'testSnapshotFault', fault), fault);
+    await previewFixture(page);
+    await expect(
+      page.getByText('暂时无法同步大屏作品。请打开大屏后重试。', { exact: true }),
+    ).toBeVisible({ timeout: 12000 });
+    await expect(page.getByRole('button', { name: '重试同步预览' })).toBeVisible();
+    await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', ''));
+    await page.getByRole('button', { name: '重试同步预览' }).click();
+    await expect(page.locator('.preview-pick img')).toBeVisible();
+  });
+}
+
+test('linked voice, public Codex messages and supplemental input share stable message order', async ({
+  page,
+}) => {
+  const task = turn('交错执行任务');
+  task.createdAt = '2026-10-25T10:00:01.000Z';
+  task.messages = [
+    { id: 'middle', text: '中途进度' },
+    { id: 'final', text: '最终结果' },
+  ];
+  const additionId = randomUUID();
+  task.additions = [{ id: additionId, text: '中途补充', status: 'acknowledged' }];
+  const at = (seconds: number) => `2026-10-25T10:00:0${seconds}.000Z`;
+  const message = (role: 'user' | 'assistant', text: string, seconds: number) => ({
+    id: randomUUID(),
+    role,
+    text,
+    at: at(seconds),
+    state: 'final',
+  });
+  const chat = {
+    revision: 1,
+    turns: [
+      {
+        id: randomUUID(),
+        sessionId: randomUUID(),
+        captureId: task.id,
+        projectId,
+        conversationId,
+        at: at(0),
+        messages: [message('user', task.prompt, 0), message('assistant', '已经转交工作台', 2)],
+        handoff: { captureId: task.id, status: 'submitted', taskId: task.id, message: '已提交' },
+        taskStatus: 'completed',
+      },
+      {
+        id: randomUUID(),
+        sessionId: randomUUID(),
+        captureId: randomUUID(),
+        projectId,
+        conversationId,
+        at: at(4),
+        messages: [message('user', '另一次语音询问', 4), message('assistant', '语音查询回复', 6)],
+        handoff: null,
+        taskStatus: null,
+      },
+    ],
+  };
+  await page.route('**/api/voice/conversation', (route) => route.fulfill({ json: chat }));
+  const messageTimes = [
+    { taskId: task.id, kind: 'prompt' as const, messageId: 'prompt', at: at(1), ordinal: 0 },
+    { taskId: task.id, kind: 'assistant' as const, messageId: 'middle', at: at(3), ordinal: 1 },
+    { taskId: task.id, kind: 'addition' as const, messageId: additionId, at: at(5), ordinal: 2 },
+    { taskId: task.id, kind: 'assistant' as const, messageId: 'final', at: at(8), ordinal: 3 },
+  ];
+  const f = await open(page, runtime(), false, {
+    task,
+    history: [task],
+    threads: [historyThread()],
+    selectedThreadId: conversationId,
+    messageTimes,
+  });
+  const expected = [
+    task.prompt,
+    '已经转交工作台',
+    '中途进度',
+    '另一次语音询问',
+    /补充：中途补充/,
+    '语音查询回复',
+    '最终结果',
+  ];
+  await expect(page.locator('.live-transcript .live-bubble')).toHaveText(expected);
+  // A repeated final snapshot and a late correction retain the first-observed position.
+  const middle = task.messages.find((message) => message.id === 'middle');
+  if (!middle) throw new Error('missing fixture message');
+  const changed = { ...task, messages: [{ id: 'final', text: '最终结果（修正）' }, middle] };
+  await f.publish({ task: changed, history: [changed] });
+  await expect(page.locator('.live-transcript .live-bubble')).toHaveText([
+    ...expected.slice(0, -1),
+    '最终结果（修正）',
+  ]);
+  expect(f.commands).toHaveLength(0);
+});
+
+test('capture failures stop after the bounded retry budget and a hung capture never floods native IPC', async ({
+  page,
+}) => {
+  await page.addInitScript(() => Reflect.set(window, 'testSnapshotFault', 'reject'));
+  await previewFixture(page);
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, 'snapshotCalls'))).toBe(3);
+  await page.waitForTimeout(2800);
+  expect(await page.evaluate(() => Reflect.get(window, 'snapshotCalls'))).toBe(3);
+  await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', 'pending'));
+  await page.getByRole('button', { name: '重试同步预览' }).click();
+  await expect(
+    page.getByText('暂时无法同步大屏作品。请打开大屏后重试。', { exact: true }),
+  ).toBeVisible({ timeout: 7000 });
+  await page.waitForTimeout(1300);
+  expect(await page.evaluate(() => Reflect.get(window, 'snapshotCalls'))).toBe(4);
+});
+
+test('a changed preview rejects old screenshots and recovers only with a matching binding', async ({
+  page,
+}) => {
+  const f = await previewFixture(page);
+  await expect(page.locator('.preview-pick img')).toBeVisible();
+  const preview = f.state().preview;
+  if (!preview) throw new Error('fixture preview missing');
+  const next = { ...preview, revision: preview.revision + 1, epoch: preview.epoch + 1 };
+  await f.publish({ preview: next });
+  await expect(page.locator('.preview-pick img')).toHaveCount(0);
+  await expect(
+    page.getByText('暂时无法同步大屏作品。请打开大屏后重试。', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toBeDisabled();
+  await page.evaluate((binding) => {
+    const current = Reflect.get(window, 'testPreviewSnapshot');
+    Reflect.set(window, 'testPreviewSnapshot', { ...current, binding });
+  }, next);
+  await page.getByRole('button', { name: '重试同步预览' }).click();
+  await expect(page.locator('.preview-pick img')).toBeVisible();
+});
+
+test('the last successful screenshot stays visibly stale and unpickable until a retry really succeeds', async ({
+  page,
+}) => {
+  await previewFixture(page);
+  await expect(page.locator('.preview-pick img')).toBeVisible();
+  await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', 'reject'));
+  await expect(page.getByText(/当前保留上次成功截图/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toBeDisabled();
+  await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', 'pending'));
+  await page.getByRole('button', { name: '重试同步预览' }).click();
+  await expect(page.getByText(/当前保留上次成功截图/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '重试同步预览' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '重试同步预览' })).toBeEnabled({ timeout: 7000 });
+  await page.evaluate(() => Reflect.set(window, 'testSnapshotFault', ''));
+  await page.getByRole('button', { name: '重试同步预览' }).click();
+  await expect(page.locator('.preview-sync-error')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '批注修改', exact: true })).toBeEnabled();
 });

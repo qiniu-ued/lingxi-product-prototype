@@ -108,6 +108,7 @@ it('stores runtime telemetry separately and keeps v2 snapshots readable by old s
     expect(store.read().runtime).toEqual(state.runtime);
     const row = db.prepare('SELECT value FROM workspace_state_v2').get() as { value: string };
     expect(JSON.parse(row.value)).not.toHaveProperty('runtime');
+    expect(JSON.parse(row.value)).not.toHaveProperty('messageTimes');
     expect(JSON.parse(row.value)).not.toHaveProperty('turnUsage');
     expect(JSON.parse(row.value)).not.toHaveProperty('permission');
     state.threads = state.threads.map((thread) => ({
@@ -116,6 +117,37 @@ it('stores runtime telemetry separately and keeps v2 snapshots readable by old s
     }));
     store.write(state);
     expect(store.read().runtime).toBeNull();
+  } finally {
+    store.close();
+    db.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('keeps message order metadata in a side table and never invents times for legacy history', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'lingxi-message-order-'));
+  const path = join(root, 'db.sqlite');
+  const store = new WorkbenchStore(path);
+  const db = new Database(path);
+  try {
+    const taskId = randomUUID();
+    expect(store.messageTimes([{ id: taskId }])).toEqual([]);
+    store.observeMessage(taskId, 'assistant', 'first', '2026-10-25T00:00:01.000Z');
+    store.observeMessage(taskId, 'assistant', 'second', '2026-10-25T00:00:02.000Z');
+    store.observeMessage(taskId, 'assistant', 'first', '2026-10-25T00:00:03.000Z');
+    expect(store.messageTimes([{ id: taskId }])).toEqual([
+      { taskId, kind: 'assistant', messageId: 'first', at: '2026-10-25T00:00:01.000Z', ordinal: 0 },
+      {
+        taskId,
+        kind: 'assistant',
+        messageId: 'second',
+        at: '2026-10-25T00:00:02.000Z',
+        ordinal: 1,
+      },
+    ]);
+    const row = db.prepare('SELECT value FROM workspace_state_v2').get() as { value: string };
+    expect(JSON.parse(row.value)).not.toHaveProperty('messageTimes');
+    expect(store.messageTimes([{ id: randomUUID() }])).toEqual([]);
   } finally {
     store.close();
     db.close();

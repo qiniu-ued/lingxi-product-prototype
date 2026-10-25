@@ -246,6 +246,91 @@ try {
     return page.executeJavaScript(`({desktop:typeof window.lingxiDesktop,node:typeof process})`);
   });
   assert.deepEqual(isolation, { desktop: 'undefined', node: 'undefined' });
+  // Real Electron/IPC path with a controlled capturePage surface failure.
+  // This proves error handling and recovery, not the physical Mac GPU cause.
+  await operator.locator('.preview-pick img').waitFor();
+  await instance.evaluate(({ app, webContents }) => {
+    const page = webContents
+      .getAllWebContents()
+      .find((w) => w.getURL().startsWith('lingxi-preview:'));
+    app.__captureProbe = { page, original: page.capturePage, calls: 0 };
+    page.capturePage = async () => {
+      app.__captureProbe.calls++;
+      throw new Error('Current display surface not available for capture');
+    };
+  });
+  try {
+    await operator.getByText(/暂时无法同步大屏作品/).waitFor();
+    await operator.getByText(/当前保留上次成功截图/).waitFor();
+    assert.equal(
+      await operator.getByRole('button', { name: '批注修改', exact: true }).isDisabled(),
+      true,
+    );
+    await operator.locator('.preview-pick img').waitFor();
+    for (let i = 0; i < 70; i++) {
+      if (await instance.evaluate(({ app }) => app.__captureProbe.calls === 3)) break;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.equal(await instance.evaluate(({ app }) => app.__captureProbe.calls), 3);
+    await new Promise((resolve) => setTimeout(resolve, 2600));
+    assert.equal(
+      await instance.evaluate(({ app }) => app.__captureProbe.calls),
+      3,
+      'Surface errors must stop automatic capture retries',
+    );
+  } finally {
+    await instance.evaluate(({ app }) => {
+      app.__captureProbe.page.capturePage = app.__captureProbe.original;
+      delete app.__captureProbe;
+    });
+  }
+  await operator.getByRole('button', { name: '重试同步预览', exact: true }).click();
+  await operator
+    .getByRole('button', { name: '批注修改', exact: true })
+    .waitFor({ state: 'visible' });
+  await operator.waitForFunction(() => !document.querySelector('.preview-sync-error'));
+  assert.equal(
+    await operator.getByRole('button', { name: '批注修改', exact: true }).isDisabled(),
+    false,
+  );
+  // Concurrent trusted callers share a native capture of the same view/version.
+  await instance.evaluate(({ app, webContents }) => {
+    const page = webContents
+      .getAllWebContents()
+      .find((w) => w.getURL().startsWith('lingxi-preview:'));
+    const original = page.capturePage;
+    app.__captureProbe = { page, original, calls: 0 };
+    page.capturePage = async (...args) => {
+      app.__captureProbe.calls++;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return original.apply(page, args);
+    };
+  });
+  try {
+    const snapshots = await operator.evaluate(() =>
+      Promise.all([
+        window.lingxiDesktop.snapshot(),
+        window.lingxiDesktop.snapshot(),
+        window.lingxiDesktop.snapshot(),
+      ]),
+    );
+    assert.ok(
+      snapshots.every(
+        (snapshot) => snapshot.image && snapshot.binding.id === snapshots[0].binding.id,
+      ),
+    );
+    assert.equal(
+      await instance.evaluate(({ app }) => app.__captureProbe.calls),
+      1,
+      'Concurrent snapshots must not multiply native captures',
+    );
+  } finally {
+    await instance.evaluate(({ app }) => {
+      app.__captureProbe.page.capturePage = app.__captureProbe.original;
+      delete app.__captureProbe;
+    });
+  }
+
   await expand(operator, '.workbench-menu');
   for (const visible of [true, false]) {
     await instance.evaluate(({ app, BrowserWindow }, visible) => {

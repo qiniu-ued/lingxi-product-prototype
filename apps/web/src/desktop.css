@@ -597,6 +597,14 @@
   min-height: 0;
   flex-direction: column;
 }
+.preview-sync-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 20px;
+  font-size: 0.85rem;
+}
 .live-viewport {
   flex: 1;
   min-height: 0;

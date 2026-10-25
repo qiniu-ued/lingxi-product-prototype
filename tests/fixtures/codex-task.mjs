@@ -415,7 +415,19 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
           },
         });
     }
-    if (
+    if (mode === 'progress-empty') {
+      const scope = { threadId: currentThread, turnId: currentTurn };
+      const event = (method, params) => emit({ method, params: { ...scope, ...params } });
+      event('item/started', { item: { type: 'agentMessage', id: 'empty-first', text: '' } });
+      event('item/agentMessage/delta', { itemId: 'later-second', delta: '第二条先收到正文' });
+      event('item/completed', {
+        item: { type: 'agentMessage', id: 'empty-first', text: '第一条迟到正文' },
+      });
+      event('item/completed', {
+        item: { type: 'agentMessage', id: 'later-second', text: '第二条先收到正文' },
+      });
+      event('turn/completed', { turn: { id: currentTurn, status: 'completed' } });
+    } else if (
       mode === 'progress' ||
       (mode === 'rich' && message.params.input[0].text.includes('public-progress'))
     )

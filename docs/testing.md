@@ -117,4 +117,4 @@ Mac 上 `npm run desktop:pack` 将随包 Node/npm 与服务放入 `.app`，打 Z
 
 恢复线程确认回归：CLI 0.163/0.164 生成协议核对完整 ThreadResumeResponse；旧客户端面对该响应仍在 no-op 更新超时报错，修复后应用关闭/重启、恢复同一持久线程并执行下一轮通过。改变模型/强度/模式/审批/审查者/网络/写入根但没有新的生效确认，以及缺字段/错线程/更新拒绝，均不能发起 turn/start。真实云端 App Server 受只读状态目录阻塞，协议替身与 schema 证据不写作 Mac 验收通过。
 
-远端结束和保留回归：goodbye → 告别 TTS → 1006 关闭 → 退避重连，保留原事件关系而不推断云端超时；未实际断开前不抢先销毁告别播报，结束阶段不开始新收音。无 capture 的本机状态播报不产生 handoff-missing。普通握手噪声超过预算后，重要工具请求/返回仍保留；分别核对普通/重要区溢出、过期、累计截断和清空计数。
+远端结束和保留回归：当前连接空闲 goodbye 后立即清理播放与连接，阻断排队 TTS/PCM，保留已运行的本地唤醒且不上传空闲音频，按原预算重连、不恢复 capture 或重放任务。若新用户请求仍有效或普通回复还在播放，则保留回复、等待真实 close，并关联 goodbye；不推断云端超时。覆盖错 session、主动断开/全局关闭/退出取消恢复、快速重复 goodbye 耗尽重试，以及重连后新收音可提交。检查 `source=app/reason=remote_goodbye` 与实际 WebSocket close 的区别，不伪造关闭码。无 capture 的本机状态播报不产生 handoff-missing。普通握手噪声超过预算后，重要工具请求/返回仍保留；分别核对普通/重要区溢出、过期、累计截断和清空计数。策略依据与 Mac 验收限制见 [ADR 0015](adr/0015-remote-goodbye-recovery.md)。

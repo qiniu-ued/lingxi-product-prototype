@@ -1265,11 +1265,12 @@ it('defaults a new binding on, preserves a stored false during rebinding, and en
   expect(off.start).not.toHaveBeenCalled();
 });
 
-it('records goodbye before an abnormal close as remote session ending, keeps farewell playback, and retries without replay', async () => {
+it('retires an idle remote goodbye immediately, clears playback and retains local wake without replaying the capture', async () => {
+  const wake = wakePeer();
   const f = await create(
     'pcm',
     true,
-    undefined,
+    wake,
     undefined,
     undefined,
     'granted',
@@ -1277,22 +1278,60 @@ it('records goodbye before an abnormal close as remote session ending, keeps far
   );
   await f.voice.startAutoConnection();
   await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await f.voice.command({ action: 'arm-wake', keyword: '丽塔同学', automatic: true });
   await f.voice.command({ action: 'listen' });
+  const captureId = f.voice.read().captureId;
+  await f.voice.command({ action: 'stop-listening' });
+  f.send({ type: 'stt', text: '看看页面' });
+  await f.call(1700, 'workbench_status');
+  f.send({ type: 'tts', state: 'start' });
+  f.send({ type: 'tts', state: 'sentence_start', text: '普通回复' });
+  f.sendBinary(Buffer.alloc(640));
+  await vi.waitFor(() =>
+    expect(f.native.some((call) => (call.params as { pcm?: string })?.pcm)).toBe(true),
+  );
+  f.send({ type: 'tts', state: 'stop' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  await vi.waitFor(() =>
+    expect(f.frames).toContainEqual(expect.objectContaining({ state: 'start' })),
+  );
+  const nativeBefore = f.native.length,
+    framesBefore = f.frames.length,
+    audioBefore = f.audio.length;
+  vi.useFakeTimers();
+  vi.setSystemTime(Date.now() + 31000);
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  wake.frame.mockClear();
   f.send({ type: 'goodbye' });
-  await vi.waitFor(() => expect(f.voice.read().remoteSessionEnding).toBe(true));
-  await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_session_ending');
-  f.voice.frame(Buffer.alloc(640, 10).toString('base64'));
-  expect(f.audio).toHaveLength(0);
+  // Queue farewell messages before the peer observes our close, including PCM.
   f.send({ type: 'tts', state: 'start' });
   f.send({ type: 'tts', state: 'sentence_start', text: '后会有期' });
+  f.sendBinary(Buffer.alloc(640));
   f.send({ type: 'tts', state: 'stop' });
-  await vi.waitFor(() =>
-    expect(
-      f.voice
-        .readConversation()
-        .turns.some((turn) => turn.messages.some((message) => message.text === '后会有期')),
-    ).toBe(true),
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+  expect(f.voice.read()).toMatchObject({
+    captureId: null,
+    conversationActive: false,
+    wake: { status: 'armed' },
+    wakeAutoSuspended: false,
+    connection: { attempt: 1 },
+  });
+  expect(f.native.slice(nativeBefore)).toEqual([
+    { method: 'voice-audio', params: { reset: true } },
+  ]);
+  expect(f.frames).toHaveLength(framesBefore); // No fake user abort or keepalive utterance.
+  expect(f.voice.readConversation().turns.flatMap((turn) => turn.messages)).toContainEqual(
+    expect.objectContaining({ text: '普通回复', state: 'final' }),
   );
+  expect(
+    f.voice
+      .readConversation()
+      .turns.some((turn) => turn.messages.some((message) => message.text.includes('后会有期'))),
+  ).toBe(false);
+  f.voice.frame(Buffer.alloc(640).toString('base64'));
+  expect(wake.frame).toHaveBeenCalledTimes(1);
+  expect(f.audio).toHaveLength(audioBefore);
+  await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_not_ready');
   expect(f.voice.diagnostics().events).toContainEqual(
     expect.objectContaining({
       kind: 'service-ending',
@@ -1304,17 +1343,22 @@ it('records goodbye before an abnormal close as remote session ending, keeps far
     false,
   );
   expect(f.connections()).toBe(1);
-  vi.useFakeTimers();
-  f.drop();
-  await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
   expect(f.voice.diagnostics().events).toContainEqual(
     expect.objectContaining({
       kind: 'service-failed',
-      closeCode: 1006,
-      reason: 'transport_close',
+      source: 'app',
+      reason: 'remote_goodbye',
       code: 'remote_session_end',
       remoteGoodbye: true,
       explicitClose: false,
+    }),
+  );
+  expect(f.voice.diagnostics().events.filter((event) => event.closeCode !== undefined)).toEqual([]);
+  expect(f.voice.readDebug().events).toContainEqual(
+    expect.objectContaining({
+      direction: 'local',
+      event: 'close',
+      payload: expect.stringContaining('remote_goodbye'),
     }),
   );
   await vi.advanceTimersByTimeAsync(1000);
@@ -1324,7 +1368,120 @@ it('records goodbye before an abnormal close as remote session ending, keeps far
     captureId: null,
     conversationActive: false,
   });
+  expect(f.connections()).toBe(2);
+  expect(f.frames.filter((frame) => (frame as { state?: string }).state === 'start')).toHaveLength(
+    1,
+  );
   expect(f.start).not.toHaveBeenCalled();
+  await f.voice.command({ action: 'listen' });
+  expect(f.voice.read().captureId).not.toBe(captureId);
+  await f.call(1701, 'workbench_submit', { text: '本次新要求' });
+  expect(f.start).toHaveBeenCalledTimes(1);
+});
+
+it.each(['disconnect', 'stop-session', 'close'] as const)(
+  'cancels remote-goodbye recovery on explicit %s and never enables an idle microphone',
+  async (action) => {
+    const f = await create();
+    vi.useFakeTimers();
+    await f.voice.command({ action: 'connect' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    f.send({ type: 'goodbye', session_id: 'other-session' });
+    await vi.waitFor(() =>
+      expect(
+        f.voice
+          .readDebug()
+          .events.some(
+            (event) => event.direction === 'inbound' && event.payload.includes('goodbye'),
+          ),
+      ).toBe(true),
+    );
+    expect(f.voice.read().status).toBe('ready');
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().connection.attempt).toBe(1));
+    expect(f.voice.read()).toMatchObject({ wake: { status: 'off' }, conversationActive: false });
+    if (action === 'close') await f.voice.close();
+    else await f.voice.command({ action });
+    await vi.advanceTimersByTimeAsync(120000);
+    await f.voice.startAutoConnection();
+    expect(f.connections()).toBe(1);
+    expect(f.start).not.toHaveBeenCalled();
+    expect(f.audio).toHaveLength(0);
+    expect(f.native.every((call) => call.method !== 'microphone-status')).toBe(true);
+  },
+);
+
+it.each([false, true])(
+  'preserves a fresh user reply on goodbye (reply already playing: %s)',
+  async (playing) => {
+    const f = await create();
+    await f.voice.command({ action: 'connect' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    await f.voice.command({ action: 'listen' });
+    f.send({ type: 'stt', text: '今天先聊到这里' });
+    await vi.waitFor(() => expect(f.voice.read().draft).toBe('今天先聊到这里'));
+    if (playing) {
+      f.send({ type: 'tts', state: 'start' });
+      f.send({ type: 'tts', state: 'sentence_start', text: '好的' });
+      await vi.waitFor(() => expect(f.voice.read().status).toBe('speaking'));
+    }
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().remoteSessionEnding).toBe(true));
+    await expect(f.voice.command({ action: 'listen' })).rejects.toThrow('voice_session_ending');
+    if (!playing) f.send({ type: 'tts', state: 'start' });
+    f.send({ type: 'tts', state: 'sentence_start', text: '下次见' });
+    f.sendBinary(Buffer.alloc(640));
+    f.send({ type: 'tts', state: 'stop' });
+    await vi.waitFor(() =>
+      expect(f.native.some((call) => (call.params as { pcm?: string })?.pcm)).toBe(true),
+    );
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+    expect(f.voice.readConversation().turns.flatMap((turn) => turn.messages)).toContainEqual(
+      expect.objectContaining({ text: playing ? '好的\n下次见' : '下次见', state: 'final' }),
+    );
+    expect(f.voice.diagnostics().events.some((event) => event.kind === 'handoff-missing')).toBe(
+      false,
+    );
+    expect(f.connections()).toBe(1);
+    f.remoteClose(1000, 'session ended');
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+    expect(f.voice.diagnostics().events).toContainEqual(
+      expect.objectContaining({
+        kind: 'service-failed',
+        source: 'websocket',
+        reason: 'transport_close',
+        closeCode: 1000,
+        remoteGoodbye: true,
+        code: 'remote_session_end',
+        explicitClose: false,
+      }),
+    );
+    await f.voice.command({ action: 'stop-session' });
+    expect(f.voice.read()).toMatchObject({
+      status: 'disconnected',
+      connectionPreference: { enabled: false },
+    });
+    expect(f.start).not.toHaveBeenCalled();
+  },
+);
+
+it('bounds repeated remote goodbyes rather than reconnecting in an endless fast loop', async () => {
+  const f = await create();
+  vi.useFakeTimers();
+  await f.voice.command({ action: 'connect' });
+  await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  for (const delay of [1000, 2000, 4000, 8000, 16000, 30000]) {
+    f.send({ type: 'goodbye' });
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('failed'));
+    await vi.advanceTimersByTimeAsync(delay);
+    await vi.waitFor(() => expect(f.voice.read().status).toBe('ready'));
+  }
+  f.send({ type: 'goodbye' });
+  await vi.waitFor(() => expect(f.voice.read().connection.exhausted).toBe(true));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.connections()).toBe(7);
+  expect(f.frames.every((frame) => (frame as { type: string }).type === 'hello')).toBe(true);
+  expect(f.audio).toHaveLength(0);
 });
 
 it('does not accuse a local status broadcast of missing a development tool after capture was closed', async () => {

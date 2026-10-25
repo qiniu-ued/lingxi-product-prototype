@@ -3,6 +3,7 @@ import {
   type PreviewSelection,
   type PreviewSnapshot,
   previewHighlightSchema,
+  previewSnapshotSchema,
 } from '@lingxi/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -13,6 +14,7 @@ export function PreviewPicker({
   onPick,
   onCancel,
   onError,
+  onInteract,
 }: {
   shot: PreviewSnapshot;
   active: boolean;
@@ -20,6 +22,7 @@ export function PreviewPicker({
   onPick: (value: PreviewSelection) => void;
   onCancel: () => void;
   onError: (message: string) => void;
+  onInteract: (value: PreviewSnapshot) => void;
 }) {
   const host = useRef<HTMLButtonElement>(null),
     image = useRef<HTMLImageElement>(null);
@@ -29,8 +32,8 @@ export function PreviewPicker({
     generation = useRef(0),
     inspecting = useRef(false),
     locking = useRef(false);
-  const callbacks = useRef({ onPick, onCancel, onError });
-  callbacks.current = { onPick, onCancel, onError };
+  const callbacks = useRef({ onPick, onCancel, onError, onInteract });
+  callbacks.current = { onPick, onCancel, onError, onInteract };
   const binding = useRef(shot.binding).current;
   const key = JSON.stringify(binding);
   const measure = useCallback(() => {
@@ -155,8 +158,7 @@ export function PreviewPicker({
       ref={host}
       type="button"
       className={`preview-pick ${active ? 'picking' : ''}`}
-      aria-label="选择预览元素"
-      disabled={!active}
+      aria-label={active ? '选择预览元素' : '操作作品预览'}
       onPointerMove={(event) => {
         if (!active) return;
         point.current = at(event.clientX, event.clientY);
@@ -173,10 +175,22 @@ export function PreviewPicker({
         event.preventDefault();
         event.stopPropagation();
         const position = at(event.clientX, event.clientY);
-        if (!active || !position || locking.current) return;
+        if (!position || locking.current) return;
         const epoch = ++generation.current;
         locking.current = true;
         try {
+          if (!active) {
+            const api = window.lingxiDesktop;
+            if (!api?.clickPreview) throw new Error('preview_click_unavailable');
+            const result = await api.clickPreview({
+              binding,
+              ...position,
+              requestId: crypto.randomUUID(),
+            });
+            if (epoch === generation.current && result)
+              callbacks.current.onInteract(previewSnapshotSchema.parse(result));
+            return;
+          }
           const result = await window.lingxiDesktop?.inspect({
             binding,
             target: 'point',
@@ -193,8 +207,10 @@ export function PreviewPicker({
           });
         } catch {
           if (epoch === generation.current) {
-            callbacks.current.onError('预览已变化，请重新选择批注目标。');
-            callbacks.current.onCancel();
+            callbacks.current.onError(
+              active ? '预览已变化，请重新选择批注目标。' : '页面操作未完成，请等画面同步后重试。',
+            );
+            if (active) callbacks.current.onCancel();
           }
         } finally {
           locking.current = false;

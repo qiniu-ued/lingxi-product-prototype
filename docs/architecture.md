@@ -42,6 +42,8 @@ Codex 使用常驻 App Server 连接的线程/任务接口，默认 Manual（`wo
 
 操作台滚轮通过固定 `desktop.scroll` 私有 IPC 传到唯一作品页面，校验完整绑定、归一化坐标和有界滚动量。与预览操作串行，不重试、不导航或发布；被动大屏不能调用。见 [ADR 0014](adr/0014-operator-preview-scrolling.md)。
 
+普通预览的固定 `desktop.preview-click` 将经过绑定与 requestId 校验的归一化坐标转为唯一页面的原生左键点击，派发前去重；批注模式不调用该入口。生成页面仍无 preload 或服务权限。见 [ADR 0015](adr/0015-operator-preview-clicks.md)。
+
 ## 状态、兼容和基础模式
 
 SQLite WAL，`session` 表保留原版本化建议。新增 v2 `workspace_state_v2` / `workspace_turns_v2`，首次导入 v1 数据但不修改旧表。HTTP schemaVersion=1 保留，新字段有默认值，详见 ADR 0004。SSE 初始/重连发完整快照，15 秒心跳；客户端忽略旧快照。关闭服务终止流和它拥有的进程，不删除数据。

@@ -4,6 +4,7 @@ import { extname, resolve } from 'node:path';
 import {
   type PreviewAction,
   type PreviewBinding,
+  type PreviewPointer,
   type PreviewWheel,
   type Project,
   previewActionSchema,
@@ -226,6 +227,38 @@ export class Preview {
         deltaX: -input.deltaX,
         deltaY: -input.deltaY,
       });
+    });
+    this.queue = next.catch(() => {});
+    return next;
+  }
+  click(input: PreviewPointer) {
+    const next = this.queue.then(async () => {
+      if (
+        !this.view ||
+        !this.binding ||
+        JSON.stringify(input.binding) !== JSON.stringify(this.binding)
+      )
+        throw new Error('stale_preview');
+      const serialized = JSON.stringify({ action: 'pointer-click', ...input });
+      const prior = this.requests.get(input.requestId);
+      if (prior) {
+        if (prior.input !== serialized) throw new Error('request_conflict');
+        return prior.result;
+      }
+      if (this.requests.size >= 1000) throw new Error('preview_action_limit');
+      // Reserve before native dispatch; an IPC retry must never cast another vote.
+      this.requests.set(input.requestId, { input: serialized, result: null });
+      const { width, height } = this.view.getBounds();
+      const point = {
+        x: Math.min(width - 1, Math.floor(input.x * width)),
+        y: Math.min(height - 1, Math.floor(input.y * height)),
+      };
+      const contents = this.view.webContents;
+      contents.sendInputEvent({ type: 'mouseMove', ...point });
+      contents.sendInputEvent({ type: 'mouseDown', button: 'left', clickCount: 1, ...point });
+      contents.sendInputEvent({ type: 'mouseUp', button: 'left', clickCount: 1, ...point });
+      const result = await this.snapshot();
+      return result;
     });
     this.queue = next.catch(() => {});
     return next;

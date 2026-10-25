@@ -7,6 +7,7 @@ import {
   type Project,
   previewBindingSchema,
   previewInspectSchema,
+  previewPointerSchema,
   previewWheelSchema,
   projectSchema,
   voiceConfigSchema,
@@ -414,6 +415,11 @@ else {
         trusted(event);
         if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
         return preview.scroll(previewWheelSchema.parse(input));
+      });
+      ipcMain.handle('desktop.preview-click', (event, input) => {
+        trusted(event);
+        if (event.sender !== operator?.webContents || !preview) throw new Error('preview_missing');
+        return preview.click(previewPointerSchema.parse(input));
       });
       ipcMain.handle('desktop.inspect', (event, input) => {
         trusted(event);

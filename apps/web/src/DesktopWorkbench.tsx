@@ -698,6 +698,7 @@ export function DesktopWorkbench({ active = true }: { active?: boolean }) {
                   selection={selection}
                   onCancel={() => setPicking(false)}
                   onError={setError}
+                  onInteract={setShot}
                   onPick={(value) => {
                     setSelection(value);
                     if (composer.current) composer.current.open = true;

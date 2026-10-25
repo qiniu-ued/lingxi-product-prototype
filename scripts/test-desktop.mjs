@@ -728,6 +728,50 @@ try {
     (page) => new URL(page.url()).pathname === '/display',
   );
   assert.ok(displayPage);
+  const livePoint = await instance.evaluate(async ({ webContents }, url) => {
+    const page = webContents.getAllWebContents().find((w) => w.getURL() === url);
+    return page.executeJavaScript(
+      `(() => {const r=document.querySelector('#vote').getBoundingClientRect();return {x:(r.x+r.width/2)/innerWidth,y:(r.y+r.height/2)/innerHeight};})()`,
+    );
+  }, liveUrl);
+  const operatorPoint = await reopened.locator('.preview-pick img').evaluate((img, point) => {
+    const rect = img.getBoundingClientRect();
+    const scale = Math.min(rect.width / img.naturalWidth, rect.height / img.naturalHeight);
+    return {
+      x: rect.x + (rect.width - img.naturalWidth * scale) / 2 + point.x * img.naturalWidth * scale,
+      y:
+        rect.y +
+        (rect.height - img.naturalHeight * scale) / 2 +
+        point.y * img.naturalHeight * scale,
+    };
+  }, livePoint);
+  await reopened.mouse.click(operatorPoint.x, operatorPoint.y);
+  for (let attempt = 0; attempt < 50 && (await inspectLive()).count !== '2'; attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal(
+    (await inspectLive()).count,
+    '2',
+    'Normal operator clicks must operate the canonical page',
+  );
+  await reopened.evaluate(
+    async ({ point, requestId }) => {
+      const shot = await window.lingxiDesktop.snapshot();
+      const input = { binding: shot.binding, ...point, requestId };
+      await window.lingxiDesktop.clickPreview(input);
+      await window.lingxiDesktop.clickPreview(input);
+      let rejected = false;
+      try {
+        await window.lingxiDesktop.clickPreview({ ...input, x: input.x + 0.01 });
+      } catch {
+        rejected = true;
+      }
+      if (!rejected) throw new Error('Conflicting click request must be rejected');
+    },
+    { point: livePoint, requestId: randomUUID() },
+  );
+  for (let attempt = 0; attempt < 50 && (await inspectLive()).count !== '3'; attempt++)
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.equal((await inspectLive()).count, '3', 'Retrying a click must not cast another vote');
   const scrollPosition = () =>
     instance.evaluate(async ({ webContents }, url) => {
       const page = webContents.getAllWebContents().find((w) => w.getURL() === url);
@@ -806,7 +850,7 @@ try {
     bindingBeforeScroll,
     'Scrolling must not republish or navigate the preview',
   );
-  assert.equal((await inspectLive()).count, '1', 'Scrolling must not activate page controls');
+  assert.equal((await inspectLive()).count, '3', 'Scrolling must not activate page controls');
   for (const [width, height] of [
     [1440, 940],
     [998, 767],
